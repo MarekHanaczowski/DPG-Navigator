@@ -1,0 +1,222 @@
+"""Keyboard shortcut and table navigation mixin for FileDialog.
+
+Provides ESC, F5, Ctrl+A, Up/Down/Enter key handlers, arrow-key
+table navigation, and mouse wheel/drag handlers for preview panel
+resize, PDF page scrolling, and HTML scroll.  This is a mixin class —
+it accesses ``self._*`` attributes defined by the host :class:`FileDialog`.
+"""
+# MIT licensed
+
+import os
+
+import dearpygui.dearpygui as dpg
+
+from ._types import DialogMode, FileEntry
+from . import _platform
+
+
+class KeyboardMixin:
+    """Mixin providing keyboard shortcuts and arrow-key table navigation.
+
+    Expected attributes on the mixing-in class (provided by FileDialog):
+
+    - ``_config`` (DialogConfig)
+    - ``_explorer_table`` (int)
+    - ``_row_entries`` (dict[int, FileEntry])
+    - ``_selected_files`` (list[str])
+    - ``_selected_elements`` (list[int])
+    - ``_last_clicked_element`` (int | None)
+    - ``_focused_row_index`` (int)
+    - ``_filename_input`` (int)
+    - ``_path_input`` (int)
+    - ``_new_folder_input`` (int)
+    - ``_search_input`` (int)
+    - ``_size_cache`` (dict)
+    - ``_dir_index`` (DirectoryIndex)
+    - ``_preview`` (PreviewPanel)
+    - ``hide()``, ``_navigate_to()``, ``_refresh_listing()``,
+      ``_return_selection()``, ``_start_index_build()``
+    """
+
+    def _is_dialog_active(self) -> bool:
+        """Check if this dialog window is currently shown."""
+        tag = self._config.tag
+        return dpg.does_item_exist(tag) and dpg.is_item_shown(tag)
+
+    # ── Key handlers ───────────────────────────────────────────
+
+    def _on_key_escape(self, sender, app_data, user_data) -> None:
+        """ESC: close the dialog."""
+        if self._is_dialog_active():
+            self.hide()
+
+    def _on_key_f5(self, sender, app_data, user_data) -> None:
+        """F5: refresh the file listing and clear size/index caches."""
+        if self._is_dialog_active():
+            self._size_cache.clear()
+            self._dir_index.invalidate()
+            self._refresh_listing()
+            if self._config.search_subfolders:
+                self._start_index_build()
+
+    def _on_key_a(self, sender, app_data, user_data) -> None:
+        """Ctrl+A: select all visible entries."""
+        if not self._is_dialog_active() or not _platform.is_mod_key_down():
+            return
+        for child in dpg.get_item_children(self._explorer_table, 1):
+            row_children = dpg.get_item_children(child, 1)
+            for widget in row_children:
+                ud = dpg.get_item_user_data(widget)
+                if isinstance(ud, FileEntry):
+                    dpg.set_value(widget, True)
+                    if ud.full_path not in self._selected_files:
+                        self._selected_files.append(ud.full_path)
+                        self._selected_elements.append(widget)
+                    break
+
+    def _on_key_up(self, sender, app_data, user_data) -> None:
+        """Up: move focus to previous row. Alt+Up: navigate to parent."""
+        if not self._is_dialog_active():
+            return
+        if dpg.is_key_down(dpg.mvKey_LAlt) or dpg.is_key_down(dpg.mvKey_RAlt):
+            self._navigate_to(os.path.dirname(self._current_dir))
+        else:
+            self._move_focus(-1)
+
+    def _on_key_down(self, sender, app_data, user_data) -> None:
+        """Down: move focus to next row in the explorer table."""
+        if self._is_dialog_active():
+            self._move_focus(1)
+
+    def _on_key_enter(self, sender, app_data, user_data) -> None:
+        """Enter: activate the focused row (navigate dir or select file).
+
+        Skipped when an input field is active so that path/filename/search
+        inputs keep their normal Enter behaviour.
+        """
+        if not self._is_dialog_active() or self._focused_row_index < 0:
+            return
+        for inp in (self._path_input, self._filename_input,
+                    self._new_folder_input, self._search_input):
+            if dpg.does_item_exist(inp) and dpg.is_item_active(inp):
+                return
+        self._activate_focused_row()
+
+    # ── Table navigation ───────────────────────────────────────
+
+    def _move_focus(self, delta: int) -> None:
+        """Move the keyboard focus by *delta* rows (+1 = down, -1 = up)."""
+        rows = dpg.get_item_children(self._explorer_table, 1)
+        if not rows:
+            return
+        if self._focused_row_index < 0:
+            new_index = 0 if delta > 0 else len(rows) - 1
+        else:
+            new_index = self._focused_row_index + delta
+        new_index = max(0, min(new_index, len(rows) - 1))
+        if new_index == self._focused_row_index:
+            return
+        self._select_row_by_index(new_index)
+
+    def _select_row_by_index(self, index: int) -> None:
+        """Visually select a table row by its index and update state.
+
+        Handles both the ".." back-row (no ``FileEntry``) and regular
+        data rows.  Deselects any previous selection first.
+        """
+        rows = dpg.get_item_children(self._explorer_table, 1)
+        if index < 0 or index >= len(rows):
+            return
+
+        # Deselect previous
+        for elem in self._selected_elements:
+            if dpg.does_item_exist(elem):
+                dpg.set_value(elem, False)
+        self._selected_files.clear()
+        self._selected_elements.clear()
+        if (self._last_clicked_element is not None
+                and dpg.does_item_exist(self._last_clicked_element)):
+            dpg.set_value(self._last_clicked_element, False)
+
+        self._focused_row_index = index
+        row_id = rows[index]
+        entry = self._row_entries.get(row_id)
+
+        if entry is None:
+            # ".." back row — single selectable as direct child
+            children = dpg.get_item_children(row_id, 1)
+            if children:
+                dpg.set_value(children[0], True)
+                self._last_clicked_element = children[0]
+            self._preview.clear()
+            return
+
+        # Data row — find first selectable that carries the FileEntry.
+        # The Name selectable is inside a horizontal group, so we must
+        # also search one level deeper in group children.
+        found = False
+        for widget in dpg.get_item_children(row_id, 1):
+            if isinstance(dpg.get_item_user_data(widget), FileEntry):
+                dpg.set_value(widget, True)
+                self._last_clicked_element = widget
+                self._selected_elements.append(widget)
+                found = True
+                break
+            for child in dpg.get_item_children(widget, 1) or []:
+                if isinstance(dpg.get_item_user_data(child), FileEntry):
+                    dpg.set_value(child, True)
+                    self._last_clicked_element = child
+                    self._selected_elements.append(child)
+                    found = True
+                    break
+            if found:
+                break
+
+        if entry.is_dir:
+            if self._config.mode == DialogMode.OPEN_DIRS:
+                self._selected_files = [entry.full_path]
+        else:
+            self._selected_files = [entry.full_path]
+            dpg.set_value(self._filename_input, entry.name)
+
+        self._preview.update(entry)
+
+    def _activate_focused_row(self) -> None:
+        """Activate the currently focused row (Enter key action)."""
+        rows = dpg.get_item_children(self._explorer_table, 1)
+        if self._focused_row_index < 0 or self._focused_row_index >= len(rows):
+            return
+        row_id = rows[self._focused_row_index]
+        entry = self._row_entries.get(row_id)
+
+        if entry is None:
+            self._navigate_to(os.path.dirname(self._current_dir))
+        elif entry.is_dir:
+            self._navigate_to(entry.full_path)
+        else:
+            self._return_selection()
+
+    # ── Handler registry construction ──────────────────────────
+
+    def _build_keyboard_handlers(self) -> None:
+        """Create the global DPG handler registry with keyboard shortcuts.
+
+        If preview is enabled, also adds a mouse_drag_handler to catch
+        resizable_x separator drags for preview re-layout and a
+        mouse_wheel_handler for PDF page scrolling and HTML scroll.
+        """
+        with dpg.handler_registry() as self._key_handler:
+            dpg.add_key_press_handler(dpg.mvKey_Escape, callback=self._on_key_escape)
+            dpg.add_key_press_handler(dpg.mvKey_F5, callback=self._on_key_f5)
+            dpg.add_key_press_handler(dpg.mvKey_A, callback=self._on_key_a)
+            dpg.add_key_press_handler(dpg.mvKey_Up, callback=self._on_key_up)
+            dpg.add_key_press_handler(dpg.mvKey_Down, callback=self._on_key_down)
+            dpg.add_key_press_handler(dpg.mvKey_Return, callback=self._on_key_enter)
+            if self._config.show_preview:
+                dpg.add_mouse_drag_handler(
+                    button=dpg.mvMouseButton_Left,
+                    callback=self._preview.on_resize,
+                )
+                dpg.add_mouse_wheel_handler(
+                    callback=self._preview.on_mouse_wheel,
+                )

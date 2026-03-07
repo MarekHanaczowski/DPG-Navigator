@@ -1,0 +1,18 @@
+# Core dependencies
+dearpygui>=1.9.1
+psutil>=5.9.0
+
+# Optional — preview features (install what you need)
+# pip install dpg-navigator[all]  installs everything below
+#
+# Pillow>=9.0              # image preview (WebP, TIFF, HEIC, SVG)
+# pypdfium2>=4.0           # PDF preview
+# numpy>=1.24              # PDF/HTML/Word/Markdown/code rendering
+# python-docx>=0.8         # Word (.docx) text fallback
+# mammoth>=1.6             # Word (.docx) rendered preview
+# html2image>=2.0          # HTML/Word/Markdown/code Chrome rendering
+# python-pptx>=0.6.23      # PowerPoint (.pptx) preview
+# markdown>=3.4            # Markdown rendered preview
+# openpyxl>=3.0            # Excel (.xlsx) preview
+# py7zr>=0.20.0            # 7z archive browsing
+# Pygments>=2.15.0         # syntax highlighting
