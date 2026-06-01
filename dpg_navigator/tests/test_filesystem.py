@@ -2,6 +2,7 @@
 
 import os
 import time
+import zipfile
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -448,6 +449,54 @@ class TestListDirectory:
 
 
 # ── Polish / Unicode characters ────────────────────────────────
+
+
+class TestExtractFromArchive:
+    def test_extract_zip_member(self, tmp_path):
+        archive_path = tmp_path / "sample.zip"
+        with zipfile.ZipFile(archive_path, "w") as zf:
+            zf.writestr("docs/readme.txt", "hello")
+
+        try:
+            extracted = DirectoryLister.extract_from_archive(
+                f"{archive_path}|/docs/readme.txt",
+            )
+            assert extracted is not None
+            assert os.path.isfile(extracted)
+            with open(extracted, "r", encoding="utf-8") as handle:
+                assert handle.read() == "hello"
+        finally:
+            DirectoryLister.cleanup_temp_files()
+
+    def test_rejects_oversized_member_when_limit_exceeded(self, tmp_path):
+        archive_path = tmp_path / "large.zip"
+        with zipfile.ZipFile(archive_path, "w") as zf:
+            zf.writestr("large.txt", "x" * 32)
+
+        try:
+            extracted = DirectoryLister.extract_from_archive(
+                f"{archive_path}|/large.txt",
+                max_size=8,
+            )
+            assert extracted is None
+        finally:
+            DirectoryLister.cleanup_temp_files()
+
+    def test_allows_oversized_member_for_whitelisted_extension(self, tmp_path):
+        archive_path = tmp_path / "report.zip"
+        with zipfile.ZipFile(archive_path, "w") as zf:
+            zf.writestr("report.pdf", "x" * 32)
+
+        try:
+            extracted = DirectoryLister.extract_from_archive(
+                f"{archive_path}|/report.pdf",
+                max_size=8,
+                allow_large_extensions={".pdf"},
+            )
+            assert extracted is not None
+            assert os.path.isfile(extracted)
+        finally:
+            DirectoryLister.cleanup_temp_files()
 
 
 class TestPolishCharacters:

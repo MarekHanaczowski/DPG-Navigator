@@ -543,6 +543,65 @@ class TestLoadImagePillow:
 # ── Markdown preview ──────────────────────────────────────────────
 
 
+class TestVirtualArchivePreview:
+    def test_preview_delegates_archive_extraction(self, tmp_path):
+        extracted = tmp_path / "virtual.txt"
+        extracted.write_text("content")
+        captured = {}
+
+        class FakePanel:
+            _TEXT_PREVIEW_MAX_SIZE = PreviewPanel._TEXT_PREVIEW_MAX_SIZE
+            _PDF_EXTS = PreviewPanel._PDF_EXTS
+
+            def update(self, entry):
+                captured["entry"] = entry
+
+            def clear(self):
+                captured["cleared"] = True
+
+        virtual_entry = type("Entry", (), {
+            "name": "virtual.txt",
+            "full_path": "archive.zip|/virtual.txt",
+        })()
+
+        fake_panel = FakePanel()
+        with patch("dpg_navigator._preview.DirectoryLister.extract_from_archive", return_value=str(extracted)) as extract_mock:
+            PreviewPanel._handle_virtual_archive_preview(fake_panel, virtual_entry)
+
+        extract_mock.assert_called_once_with(
+            "archive.zip|/virtual.txt",
+            max_size=PreviewPanel._TEXT_PREVIEW_MAX_SIZE,
+            allow_large_extensions=PreviewPanel._PDF_EXTS,
+        )
+        assert "cleared" not in captured
+        assert captured["entry"].full_path == str(extracted)
+        assert captured["entry"].size_bytes == len("content")
+
+    def test_preview_clears_when_extraction_fails(self):
+        captured = {}
+
+        class FakePanel:
+            _TEXT_PREVIEW_MAX_SIZE = PreviewPanel._TEXT_PREVIEW_MAX_SIZE
+            _PDF_EXTS = PreviewPanel._PDF_EXTS
+
+            def update(self, entry):
+                captured["entry"] = entry
+
+            def clear(self):
+                captured["cleared"] = True
+
+        virtual_entry = type("Entry", (), {
+            "name": "missing.txt",
+            "full_path": "archive.zip|/missing.txt",
+        })()
+
+        fake_panel = FakePanel()
+        with patch("dpg_navigator._preview.DirectoryLister.extract_from_archive", return_value=None):
+            PreviewPanel._handle_virtual_archive_preview(fake_panel, virtual_entry)
+
+        assert captured == {"cleared": True}
+
+
 class TestMarkdownAvailable:
     """Tests for markdown_available() availability function."""
 

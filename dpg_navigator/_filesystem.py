@@ -18,7 +18,7 @@ import tempfile
 import threading
 import time
 import zipfile
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 
 _log = logging.getLogger(__name__)
 
@@ -293,8 +293,17 @@ class DirectoryLister:
         return entries
 
     @staticmethod
-    def extract_from_archive(virtual_path: str) -> str | None:
-        """Extract a single file from an archive virtual path to a temp file."""
+    def extract_from_archive(
+        virtual_path: str,
+        *,
+        max_size: int | None = None,
+        allow_large_extensions: Collection[str] = (),
+    ) -> str | None:
+        """Extract a single file from an archive virtual path to a temp file.
+
+        If *max_size* is set, oversized members are rejected before extraction
+        unless their extension is listed in *allow_large_extensions*.
+        """
         if "|" not in virtual_path:
             return None
             
@@ -309,6 +318,20 @@ class DirectoryLister:
             ext = os.path.splitext(archive_path)[1].lower()
             is_zip = ext in {".zip", ".whl", ".egg", ".jar", ".apk"}
             is_7z = ext == ".7z"
+
+            if not is_zip and not is_7z:
+                return None
+
+            allowed_large_exts = {item.lower() for item in allow_large_extensions}
+
+            def _is_oversized(size: int | None) -> bool:
+                member_ext = os.path.splitext(internal_path)[1].lower()
+                return (
+                    max_size is not None
+                    and size is not None
+                    and size > max_size
+                    and member_ext not in allowed_large_exts
+                )
             
             archive_hash = hashlib.md5(archive_path.encode()).hexdigest()[:8]
             archive_temp_root = os.path.join(DirectoryLister._get_session_temp_dir(), archive_hash)
@@ -326,6 +349,9 @@ class DirectoryLister:
                         return None
                     if info.is_dir():
                         return None
+                    if _is_oversized(info.file_size):
+                        _log.warning("Archive member exceeds preview size limit: %s", internal_path)
+                        return None
                     # ZipSlip protection: reject entries that escape the extraction root
                     target = os.path.realpath(os.path.join(archive_temp_root, info.filename))
                     if not target.startswith(real_root + os.sep) and target != real_root:
@@ -339,6 +365,15 @@ class DirectoryLister:
                 with _py7zr.SevenZipFile(archive_path, 'r') as z:
                     if z.password:
                         _log.warning("Encrypted 7z not supported for preview: %s", archive_path)
+                        return None
+                    target_info = next(
+                        (info for info in z.list() if info.filename == internal_path),
+                        None,
+                    )
+                    if target_info is None:
+                        return None
+                    if _is_oversized(target_info.uncompressed):
+                        _log.warning("Archive member exceeds preview size limit: %s", internal_path)
                         return None
                     # ZipSlip protection for 7z
                     target = os.path.realpath(os.path.join(archive_temp_root, internal_path))

@@ -728,45 +728,11 @@ class PreviewPanel:
     def _handle_virtual_archive_preview(self, entry: FileEntry) -> None:
         """Extract virtual archive file to temp and preview it."""
         try:
-            parts = entry.full_path.split("|", 1)
-            archive_path = parts[0]
-            internal_path = parts[1].replace("\\", "/").strip("/")
-            
-            ext = os.path.splitext(archive_path)[1].lower()
-            is_zip = ext in self._ZIP_EXTS
-            is_7z = ext in self._7Z_EXTS and py7zr_available()
-            
-            temp_dir = tempfile.gettempdir()
-            extracted_path = ""
-            
-            if is_zip:
-                with zipfile.ZipFile(archive_path, 'r') as zf:
-                    info = zf.getinfo(internal_path)
-                    if info.file_size > self._TEXT_PREVIEW_MAX_SIZE:
-                        # Safety check
-                        if os.path.splitext(internal_path)[1].lower() not in self._PDF_EXTS:
-                           self.clear()
-                           return
-                    extracted_path = zf.extract(info, path=temp_dir)
-                    
-            elif is_7z:
-                with _py7zr.SevenZipFile(archive_path, 'r') as z:
-                    target_info = None
-                    for info in z.list():
-                        if info.filename == internal_path:
-                            target_info = info
-                            break
-                    if not target_info:
-                        self.clear()
-                        return
-                    if target_info.uncompressed and target_info.uncompressed > self._TEXT_PREVIEW_MAX_SIZE:
-                        # Safety check
-                        if os.path.splitext(internal_path)[1].lower() not in self._PDF_EXTS:
-                           self.clear()
-                           return
-                    z.extract(targets=[internal_path], path=temp_dir)
-                    extracted_path = os.path.join(temp_dir, internal_path)
-                    
+            extracted_path = DirectoryLister.extract_from_archive(
+                entry.full_path,
+                max_size=self._TEXT_PREVIEW_MAX_SIZE,
+                allow_large_extensions=self._PDF_EXTS,
+            )
             if extracted_path and os.path.exists(extracted_path):
                 stat = os.stat(extracted_path)
                 virtual_entry = FileEntry(

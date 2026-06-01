@@ -74,3 +74,5 @@ exclude = ["dpg_navigator/tests/"]
 
 [tool.pytest.ini_options]
 testpaths = ["dpg_navigator/tests"]
+addopts = "--basetemp=.pytest_tmp"
+cache_dir = ".pytest_tmp_cache"

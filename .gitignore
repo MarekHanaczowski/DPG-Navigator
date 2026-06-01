@@ -25,3 +25,6 @@ Desktop.ini
 
 # Pytest
 .pytest_cache/
+.tmp/
+.pytest_tmp/
+.pytest_tmp_cache/
