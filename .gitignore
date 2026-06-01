@@ -28,4 +28,4 @@ Desktop.ini
 .tmp/
 .pytest_tmp/
 .pytest_tmp_cache/
-.smoke_venv/
+.smoke_venv*/

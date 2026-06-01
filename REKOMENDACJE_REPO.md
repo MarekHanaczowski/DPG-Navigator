@@ -16,14 +16,16 @@ Zrealizowane:
 - wydzielenie registry formatów i routingu do `dpg_navigator/_preview_registry.py`;
 - wydzielenie metadanych ZIP/7z do `dpg_navigator/_preview_archive.py`;
 - wydzielenie parsera CSV/TSV do `dpg_navigator/_preview_table.py`;
+- wydzielenie loaderów Excel i SQLite do czystych modułów bez zależności od DearPyGui;
 - CI dla Windows i Linux, `ruff`, stopniowy `mypy` oraz pełne testy.
+- rozszerzenie `mypy` na czyste moduły filesystem i preview;
+- changelog oraz checklista wydania dla maintainera.
 
 Pozostałe prace rozwojowe:
 
-- dalsze wydzielanie rendererów Excel, SQLite i Office z `PreviewPanel`;
+- dalsze wydzielanie rendererów Office z `PreviewPanel`;
 - rozszerzanie zakresu `mypy` po uporządkowaniu modułów zależnych od DearPyGui;
 - benchmarki ciężkich ścieżek preview;
-- dokumentacja maintainerska i changelog.
 
 Dokument zakłada, że projekt ma pozostać:
 

@@ -167,9 +167,11 @@ if sys.platform == "win32":
 ```bash
 pip install -e ".[dev]"
 python -m ruff check .
-python -m mypy dpg_navigator/_types.py dpg_navigator/_preview_registry.py
+python -m mypy dpg_navigator/_types.py dpg_navigator/_filesystem.py dpg_navigator/_preview_registry.py dpg_navigator/_preview_table.py dpg_navigator/_preview_archive.py dpg_navigator/_preview_spreadsheet.py dpg_navigator/_preview_sqlite.py
 pytest
 ```
+
+Maintainer release steps are documented in [docs/releasing.md](docs/releasing.md).
 
 ## Author
 
