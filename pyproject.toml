@@ -73,6 +73,7 @@ exclude = ["dpg_navigator/tests/"]
 [tool.hatch.build.targets.sdist]
 include = [
     "dpg_navigator/",
+    "benchmarks/",
     "docs/",
     "CHANGELOG.md",
     "LICENSE",

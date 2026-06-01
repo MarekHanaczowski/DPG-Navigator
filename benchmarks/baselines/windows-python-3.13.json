@@ -1,0 +1,46 @@
+{
+  "recorded_at": "2026-06-01",
+  "profile": "default",
+  "environment": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.13.9",
+    "distribution": "Anaconda"
+  },
+  "results": [
+    {
+      "name": "csv_parse",
+      "median_ms": 31.147,
+      "minimum_ms": 31.132,
+      "iterations": 3,
+      "details": "50000 data rows"
+    },
+    {
+      "name": "excel_load",
+      "median_ms": 472.467,
+      "minimum_ms": 466.652,
+      "iterations": 3,
+      "details": "10000 data rows"
+    },
+    {
+      "name": "sqlite_load",
+      "median_ms": 2.243,
+      "minimum_ms": 2.002,
+      "iterations": 3,
+      "details": "50000 data rows"
+    },
+    {
+      "name": "zip_load",
+      "median_ms": 17.617,
+      "minimum_ms": 16.559,
+      "iterations": 3,
+      "details": "5000 members"
+    },
+    {
+      "name": "directory_index",
+      "median_ms": 859.173,
+      "minimum_ms": 850.098,
+      "iterations": 3,
+      "details": "100 dirs, 10000 files"
+    }
+  ]
+}

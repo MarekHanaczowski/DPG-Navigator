@@ -173,6 +173,14 @@ pytest
 
 Maintainer release steps are documented in [docs/releasing.md](docs/releasing.md).
 
+Performance-sensitive pure-data paths can be measured with:
+
+```bash
+python benchmarks/benchmark_heavy_paths.py --profile default --iterations 3
+```
+
+See [benchmarks/README.md](benchmarks/README.md) for the quick profile and JSON output.
+
 ## Author
 
 Created and maintained by **HACE**.
