@@ -10,7 +10,7 @@ import os
 from abc import ABC, abstractmethod
 from typing import Callable
 
-import dearpygui.dearpygui as dpg
+import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
 from ._types import StyleVariant
 from ._icons import IconRegistry
@@ -141,6 +141,8 @@ class LabeledSidebar(SidebarRenderer):
         """Add a single directory row to the current tree table context."""
         if depth > self._MAX_TREE_DEPTH:
             return
+        if self._icons is None:
+            return
         is_expanded = dir_path in self._expanded
         arrow_char = "v " if is_expanded else "> "
         indent = "  " * depth
@@ -189,7 +191,8 @@ class LabeledSidebar(SidebarRenderer):
             self._expanded.discard(dir_path)
         else:
             self._expanded.add(dir_path)
-            self._on_navigate(dir_path)
+            if self._on_navigate is not None:
+                self._on_navigate(dir_path)
         self._rebuild_tree()
 
 

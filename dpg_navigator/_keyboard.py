@@ -8,11 +8,16 @@ it accesses ``self._*`` attributes defined by the host :class:`FileDialog`.
 # MIT licensed
 
 import os
+from typing import Any, TYPE_CHECKING
 
-import dearpygui.dearpygui as dpg
+import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
-from ._types import DialogMode, FileEntry
+from ._filesystem import DirectoryIndex
+from ._types import DialogConfig, DialogMode, FileEntry
 from . import _platform
+
+if TYPE_CHECKING:
+    from ._preview import PreviewPanel
 
 
 class KeyboardMixin:
@@ -37,6 +42,30 @@ class KeyboardMixin:
     - ``hide()``, ``_navigate_to()``, ``_refresh_listing()``,
       ``_return_selection()``, ``_start_index_build()``
     """
+
+    _config: DialogConfig
+    _explorer_table: int
+    _row_entries: dict[int, FileEntry]
+    _selected_files: list[str]
+    _selected_elements: list[int]
+    _last_clicked_element: int | None
+    _focused_row_index: int
+    _filename_input: int
+    _path_input: int
+    _new_folder_input: int
+    _search_input: int
+    _size_cache: dict[Any, Any]
+    _dir_index: DirectoryIndex
+    _preview: "PreviewPanel"
+    _current_dir: str
+    _key_handler: int
+
+    if TYPE_CHECKING:
+        def hide(self) -> None: ...
+        def _navigate_to(self, path: str) -> None: ...
+        def _refresh_listing(self) -> None: ...
+        def _return_selection(self) -> None: ...
+        def _start_index_build(self) -> None: ...
 
     def _is_dialog_active(self) -> bool:
         """Check if this dialog window is currently shown."""

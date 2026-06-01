@@ -9,8 +9,8 @@ Works on Windows, Linux, and macOS.
 import os
 import platform
 
-import dearpygui.dearpygui as dpg
-import psutil
+import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
+import psutil  # type: ignore[import-untyped]
 
 if os.name == "nt":
     import ctypes

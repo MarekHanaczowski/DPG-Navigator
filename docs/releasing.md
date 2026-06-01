@@ -18,7 +18,7 @@ Install the development dependencies and run the same checks as CI:
 ```bash
 python -m pip install -e ".[dev]"
 python -m ruff check .
-python -m mypy dpg_navigator/_types.py dpg_navigator/_filesystem.py dpg_navigator/_preview_registry.py dpg_navigator/_preview_table.py dpg_navigator/_preview_archive.py dpg_navigator/_preview_spreadsheet.py dpg_navigator/_preview_sqlite.py
+python -m mypy dpg_navigator/_types.py dpg_navigator/_filesystem.py dpg_navigator/_platform.py dpg_navigator/_icons.py dpg_navigator/_styles.py dpg_navigator/_keyboard.py dpg_navigator/_preview_registry.py dpg_navigator/_preview_table.py dpg_navigator/_preview_archive.py dpg_navigator/_preview_spreadsheet.py dpg_navigator/_preview_sqlite.py dpg_navigator/_preview_word.py dpg_navigator/_preview_presentation.py
 python -m pytest -q
 ```
 

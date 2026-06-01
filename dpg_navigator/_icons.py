@@ -9,7 +9,7 @@ lookup through _EXT_LOOKUP.
 import logging
 import os
 
-import dearpygui.dearpygui as dpg
+import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
 _log = logging.getLogger(__name__)
 
