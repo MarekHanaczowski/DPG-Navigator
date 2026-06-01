@@ -506,6 +506,18 @@ class TestPreviewLifecycle:
         panel._pdf.close.assert_called_once_with()
         panel._html.close.assert_called_once_with()
 
+    def test_delete_pptx_textures_removes_registered_items(self):
+        panel = PreviewPanel.__new__(PreviewPanel)
+        panel._pptx_texture_tags = {"pptx_1", "pptx_2"}
+
+        with patch("dpg_navigator._preview.dpg") as mock_dpg:
+            mock_dpg.does_item_exist.side_effect = lambda tag: tag == "pptx_1"
+
+            panel._delete_pptx_textures()
+
+        mock_dpg.delete_item.assert_called_once_with("pptx_1")
+        assert panel._pptx_texture_tags == set()
+
 
 class TestPolishCharactersValidation:
     """Verify that validate_folder_name and build_selection_list

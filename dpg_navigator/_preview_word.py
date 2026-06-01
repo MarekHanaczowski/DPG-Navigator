@@ -1,0 +1,104 @@
+"""Word document loading for the preview panel.
+
+Extracts document blocks without depending on DearPyGui.
+"""
+# MIT licensed
+
+from dataclasses import dataclass
+from typing import Any, Callable
+
+_DocxDocument: Any
+try:
+    from docx import Document as _DocxDocument  # type: ignore[import-untyped]
+except ImportError:
+    _DocxDocument = None
+
+
+class WordPreviewError(Exception):
+    """Word document data could not be loaded."""
+
+
+@dataclass(frozen=True, slots=True)
+class WordRun:
+    """Inline text with the formatting used by the preview panel."""
+
+    text: str
+    bold: bool
+    italic: bool
+
+
+@dataclass(frozen=True, slots=True)
+class WordParagraph:
+    """Paragraph text and formatting metadata."""
+
+    text: str
+    style_name: str
+    runs: list[WordRun]
+
+
+@dataclass(frozen=True, slots=True)
+class WordTable:
+    """Table rows extracted from a Word document."""
+
+    rows: list[list[str]]
+
+
+WordBlock = WordParagraph | WordTable
+
+
+@dataclass(frozen=True, slots=True)
+class WordDocument:
+    """Preview-ready Word document blocks."""
+
+    blocks: list[WordBlock]
+
+
+def word_available() -> bool:
+    """Return True when Word document loading is available."""
+    return _DocxDocument is not None
+
+
+def load_word_document(
+    path: str,
+    *,
+    document_loader: Callable[..., Any] | None = _DocxDocument,
+) -> WordDocument:
+    """Load Word document blocks in display order."""
+    if document_loader is None:
+        raise WordPreviewError("python-docx is not installed")
+
+    try:
+        document = document_loader(path)
+    except Exception as exc:
+        raise WordPreviewError(str(exc)) from exc
+
+    try:
+        source_blocks = document.iter_inner_content()
+    except AttributeError:
+        source_blocks = document.paragraphs
+
+    blocks: list[WordBlock] = []
+    try:
+        for block in source_blocks:
+            if hasattr(block, "rows"):
+                blocks.append(WordTable([
+                    [cell.text.strip() for cell in row.cells]
+                    for row in block.rows
+                ]))
+                continue
+
+            style_name = ""
+            if block.style and block.style.name:
+                style_name = block.style.name.lower()
+            blocks.append(WordParagraph(
+                text=block.text,
+                style_name=style_name,
+                runs=[
+                    WordRun(run.text, bool(run.bold), bool(run.italic))
+                    for run in block.runs
+                ],
+            ))
+    except Exception as exc:
+        raise WordPreviewError(str(exc)) from exc
+
+    return WordDocument(blocks)

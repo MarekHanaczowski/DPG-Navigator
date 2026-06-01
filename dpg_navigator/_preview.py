@@ -40,19 +40,9 @@ except ImportError:
     _PILImage = None
 
 try:
-    from docx import Document as _DocxDocument
-except ImportError:
-    _DocxDocument = None
-
-try:
     import mammoth as _mammoth
 except ImportError:
     _mammoth = None
-
-try:
-    from pptx import Presentation as _Presentation
-except ImportError:
-    _Presentation = None
 
 try:
     import markdown as _markdown
@@ -85,6 +75,17 @@ from ._preview_spreadsheet import (
     load_excel_table,
 )
 from ._preview_sqlite import SQLitePreviewError, load_sqlite_table
+from ._preview_word import (
+    WordPreviewError,
+    WordTable,
+    _DocxDocument,
+    load_word_document,
+)
+from ._preview_presentation import (
+    PresentationPreviewError,
+    _Presentation,
+    load_presentation,
+)
 from ._preview_registry import (
     CODE_EXTS,
     CSV_EXTS,
@@ -387,6 +388,9 @@ class PreviewPanel:
         # Font preview tracking
         self._temp_font: int | None = None
 
+        # Static textures created for PowerPoint inline images
+        self._pptx_texture_tags: set[str] = set()
+
     @property
     def visible(self) -> bool:
         return self._visible
@@ -473,6 +477,7 @@ class PreviewPanel:
         self._close_active_renderers()
         self._image_cache = None
         self._delete_temp_font()
+        self._delete_pptx_textures()
         dpg.delete_item(self._panel_id, children_only=True)
         tex_tag = f"_preview_tex_{self._config_tag}"
         if dpg.does_item_exist(tex_tag):
@@ -496,6 +501,13 @@ class PreviewPanel:
             if dpg.does_item_exist(self._temp_font):
                 dpg.delete_item(self._temp_font)
             self._temp_font = None
+
+    def _delete_pptx_textures(self) -> None:
+        """Delete static textures created for PowerPoint inline images."""
+        for texture_tag in self._pptx_texture_tags:
+            if dpg.does_item_exist(texture_tag):
+                dpg.delete_item(texture_tag)
+        self._pptx_texture_tags.clear()
 
     # ── HTML preview helpers ──────────────────────────────────
 
@@ -673,6 +685,8 @@ class PreviewPanel:
             capabilities=capabilities,
             image_extensions=self.preview_image_exts(),
         )
+        if preview_kind is not PreviewKind.PPTX:
+            self._delete_pptx_textures()
         renderer = {
             PreviewKind.HTML: self._render_html_preview,
             PreviewKind.MARKDOWN: self._render_markdown_preview,
@@ -1526,8 +1540,11 @@ class PreviewPanel:
             return
 
         try:
-            doc = _DocxDocument(entry.full_path)
-        except Exception:
+            document = load_word_document(
+                entry.full_path,
+                document_loader=_DocxDocument,
+            )
+        except WordPreviewError:
             self.clear()
             return
 
@@ -1559,35 +1576,25 @@ class PreviewPanel:
         table_header_color = [180, 220, 180]
         table_cell_color = [170, 190, 170]
 
-        # Get blocks in document order (paragraphs + tables)
-        try:
-            blocks = doc.iter_inner_content()
-        except AttributeError:
-            blocks = doc.paragraphs
-
         with dpg.child_window(parent=self._panel_id, height=-1, width=-1):
-            for block in blocks:
+            for block in document.blocks:
                 # ── Table ──
-                if hasattr(block, 'rows'):
+                if isinstance(block, WordTable):
                     dpg.add_spacer(height=4)
                     for i, row in enumerate(block.rows):
-                        cells = [c.text.strip() for c in row.cells]
-                        line = " | ".join(cells)
+                        line = " | ".join(row)
                         color = table_header_color if i == 0 else table_cell_color
                         dpg.add_text(line, wrap=0, color=color)
                     dpg.add_spacer(height=4)
                     continue
 
                 # ── Paragraph ──
-                para = block
-                text = para.text
+                text = block.text
                 if not text.strip():
                     dpg.add_spacer(height=4)
                     continue
 
-                style_name = ""
-                if para.style and para.style.name:
-                    style_name = para.style.name.lower()
+                style_name = block.style_name
 
                 # Heading detection
                 heading_color = None
@@ -1610,7 +1617,7 @@ class PreviewPanel:
                     continue
 
                 # Check for mixed inline formatting
-                runs = list(para.runs)
+                runs = block.runs
                 has_mixed = (
                     len(runs) > 1
                     and any(r.bold or r.italic for r in runs if r.text)
@@ -1651,12 +1658,16 @@ class PreviewPanel:
             return
 
         try:
-            prs = _Presentation(entry.full_path)
-        except Exception:
+            presentation = load_presentation(
+                entry.full_path,
+                presentation_loader=_Presentation,
+            )
+        except PresentationPreviewError:
             self.clear()
             return
 
         self._image_cache = None
+        self._delete_pptx_textures()
         dpg.delete_item(self._panel_id, children_only=True)
         tex_tag = f"_preview_tex_{self._config_tag}"
         if dpg.does_item_exist(tex_tag):
@@ -1672,7 +1683,7 @@ class PreviewPanel:
         panel_w, _ = dpg.get_item_rect_size(self._panel_id)
         max_img_w = max(100, int(panel_w) - 40)
 
-        total_slides = len(prs.slides)
+        total_slides = len(presentation.slides)
         slide_header_color = [100, 200, 255]
         bold_color = [255, 255, 200]
         italic_color = [200, 210, 255]
@@ -1684,7 +1695,7 @@ class PreviewPanel:
         pptx_tex_idx = 0
 
         with dpg.child_window(parent=self._panel_id, height=-1, width=-1):
-            for slide_idx, slide in enumerate(prs.slides):
+            for slide_idx, slide in enumerate(presentation.slides):
                 if slide_idx > 0:
                     dpg.add_spacer(height=8)
 
@@ -1695,11 +1706,10 @@ class PreviewPanel:
 
                 for shape in slide.shapes:
                     # Table
-                    if shape.has_table:
+                    if shape.table is not None:
                         dpg.add_spacer(height=4)
                         for i, row in enumerate(shape.table.rows):
-                            cells = [c.text.strip() for c in row.cells]
-                            line = " | ".join(cells)
+                            line = " | ".join(row)
                             color = (
                                 table_header_color if i == 0
                                 else table_cell_color
@@ -1709,12 +1719,9 @@ class PreviewPanel:
                         continue
 
                     # Image
-                    if (shape.shape_type is not None
-                            and hasattr(shape, "image")
-                            and _PILImage is not None):
+                    if shape.image_blob is not None and _PILImage is not None:
                         try:
-                            blob = shape.image.blob
-                            pil_img = _PILImage.open(io.BytesIO(blob))
+                            pil_img = _PILImage.open(io.BytesIO(shape.image_blob))
                             pil_img = pil_img.convert("RGBA")
                             img_w, img_h = pil_img.size
                             scale = min(max_img_w / img_w, 1.0)
@@ -1731,6 +1738,7 @@ class PreviewPanel:
                                 f"_{pptx_tex_idx}"
                             )
                             pptx_tex_idx += 1
+                            self._pptx_texture_tags.add(pptx_tex_tag)
                             if dpg.does_item_exist(pptx_tex_tag):
                                 dpg.delete_item(pptx_tex_tag)
                             with dpg.texture_registry():
@@ -1750,27 +1758,27 @@ class PreviewPanel:
                         except Exception:
                             pass
                         # Also show text if shape has both image and text
-                        if not shape.has_text_frame:
+                        if not shape.paragraphs:
                             continue
 
                     # Text frame
-                    if not shape.has_text_frame:
+                    if not shape.paragraphs:
                         continue
 
-                    for para in shape.text_frame.paragraphs:
-                        text = para.text
+                    for paragraph in shape.paragraphs:
+                        text = paragraph.text
                         if not text.strip():
                             continue
 
-                        level = para.level or 0
+                        level = paragraph.level
                         indent = "  " * level
                         prefix = f"{indent}- " if level > 0 else ""
 
-                        runs = list(para.runs)
+                        runs = paragraph.runs
                         has_mixed = (
                             len(runs) > 1
                             and any(
-                                r.font.bold or r.font.italic
+                                r.bold or r.italic
                                 for r in runs if r.text
                             )
                         )
@@ -1782,22 +1790,22 @@ class PreviewPanel:
                                 for run in runs:
                                     if not run.text:
                                         continue
-                                    if run.font.bold and run.font.italic:
+                                    if run.bold and run.italic:
                                         rc = bold_italic_color
-                                    elif run.font.bold:
+                                    elif run.bold:
                                         rc = bold_color
-                                    elif run.font.italic:
+                                    elif run.italic:
                                         rc = italic_color
                                     else:
                                         rc = normal_color
                                     dpg.add_text(run.text, color=rc)
                         else:
                             if runs and all(
-                                r.font.bold for r in runs if r.text.strip()
+                                r.bold for r in runs if r.text.strip()
                             ):
                                 color = bold_color
                             elif runs and all(
-                                r.font.italic for r in runs if r.text.strip()
+                                r.italic for r in runs if r.text.strip()
                             ):
                                 color = italic_color
                             else:
@@ -1807,19 +1815,13 @@ class PreviewPanel:
                             )
 
                 # Speaker notes
-                try:
-                    notes_slide = slide.notes_slide
-                    if notes_slide and notes_slide.notes_text_frame:
-                        notes_text = notes_slide.notes_text_frame.text.strip()
-                        if notes_text:
-                            dpg.add_spacer(height=2)
-                            dpg.add_text(
-                                f"[Notes: {notes_text}]",
-                                wrap=0,
-                                color=notes_color,
-                            )
-                except Exception:
-                    pass
+                if slide.notes:
+                    dpg.add_spacer(height=2)
+                    dpg.add_text(
+                        f"[Notes: {slide.notes}]",
+                        wrap=0,
+                        color=notes_color,
+                    )
 
     # ── Mouse wheel (HTML scroll / PDF pages) ─────────────────
 
@@ -1962,4 +1964,5 @@ class PreviewPanel:
             dpg.delete_item(save_id)
         
         self._delete_temp_font()
+        self._delete_pptx_textures()
         self._image_cache = None
