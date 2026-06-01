@@ -19,9 +19,11 @@ import threading
 import time
 import zipfile
 from collections.abc import Callable, Collection
+from typing import Any
 
 _log = logging.getLogger(__name__)
 
+_py7zr: Any
 try:
     import py7zr as _py7zr
 except ImportError:

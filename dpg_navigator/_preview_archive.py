@@ -6,7 +6,9 @@ Parses ZIP and 7z members into table-ready rows without depending on DearPyGui.
 
 import zipfile
 from dataclasses import dataclass
+from typing import Any
 
+_py7zr: Any
 try:
     import py7zr as _py7zr
 except ImportError:
