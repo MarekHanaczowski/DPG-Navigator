@@ -166,6 +166,8 @@ if sys.platform == "win32":
 
 ```bash
 pip install -e ".[dev]"
+python -m ruff check .
+python -m mypy dpg_navigator/_types.py dpg_navigator/_preview_registry.py
 pytest
 ```
 
