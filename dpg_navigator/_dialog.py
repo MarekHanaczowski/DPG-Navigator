@@ -101,6 +101,7 @@ class FileDialog(KeyboardMixin):
             self._config = DialogConfig(**kwargs)
 
         self._callback = callback
+        self._destroyed = False
 
         # Resolve default_path at runtime (not at import time)
         self._current_dir = (
@@ -179,12 +180,10 @@ class FileDialog(KeyboardMixin):
 
     def destroy(self) -> None:
         """Release all DPG resources (textures, handlers, windows, themes)."""
-        self._bg_generation += 1
-        self._index_generation += 1
-        self._dir_index.invalidate()
-        if self._search_debounce_timer is not None:
-            self._search_debounce_timer.cancel()
-            self._search_debounce_timer = None
+        if self._destroyed:
+            return
+        self._destroyed = True
+        self._cancel_background_tasks()
         self._preview.destroy()
         self._icons.destroy()
         if hasattr(self, "_key_handler") and dpg.does_item_exist(self._key_handler):
@@ -215,6 +214,19 @@ class FileDialog(KeyboardMixin):
     def __exit__(self, *args):
         """Exit context manager; calls destroy() to release DPG resources."""
         self.destroy()
+
+    def _cancel_pending_search(self) -> None:
+        """Cancel a scheduled recursive search callback, if any."""
+        if self._search_debounce_timer is not None:
+            self._search_debounce_timer.cancel()
+            self._search_debounce_timer = None
+
+    def _cancel_background_tasks(self) -> None:
+        """Invalidate pending size, search, and directory-index work."""
+        self._bg_generation += 1
+        self._index_generation += 1
+        self._dir_index.invalidate()
+        self._cancel_pending_search()
 
     # ── Navigation ──────────────────────────────────────────────
 
@@ -380,9 +392,7 @@ class FileDialog(KeyboardMixin):
         self._pending_size_cells.clear()
         self._bg_generation += 1
         self._deep_separator_row = None
-        if self._search_debounce_timer is not None:
-            self._search_debounce_timer.cancel()
-            self._search_debounce_timer = None
+        self._cancel_pending_search()
         self._preview.clear()
 
         if hasattr(self, "_status_label") and dpg.does_item_exist(self._status_label):
@@ -685,9 +695,7 @@ class FileDialog(KeyboardMixin):
         query = dpg.get_value(sender)
         self._refresh_listing(search_query=query)
 
-        if self._search_debounce_timer is not None:
-            self._search_debounce_timer.cancel()
-            self._search_debounce_timer = None
+        self._cancel_pending_search()
 
         subfolder_on = (
             self._config.search_subfolders

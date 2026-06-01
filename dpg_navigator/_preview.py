@@ -473,24 +473,32 @@ class PreviewPanel:
         """Clear the preview panel and delete any loaded preview texture."""
         if self._panel_id is None:
             return
-        if self._pdf is not None and self._pdf.is_open:
-            self._pdf.close()
-        self._pdf_image_id = None
-        self._pdf_page_label = None
-        if self._html is not None and self._html.is_open:
-            self._html.close()
-        self._html_image_id = None
-        self._html_status_label = None
+        self._close_active_renderers()
         self._image_cache = None
-        if self._temp_font is not None:
-            if dpg.does_item_exist(self._temp_font):
-                dpg.delete_item(self._temp_font)
-            self._temp_font = None
+        self._delete_temp_font()
         dpg.delete_item(self._panel_id, children_only=True)
         tex_tag = f"_preview_tex_{self._config_tag}"
         if dpg.does_item_exist(tex_tag):
             dpg.delete_item(tex_tag)
         dpg.add_text("Preview", color=[128, 128, 128], parent=self._panel_id)
+
+    def _close_active_renderers(self, *, force: bool = False) -> None:
+        """Close PDF and HTML renderers and clear their widget references."""
+        if self._pdf is not None and (force or self._pdf.is_open):
+            self._pdf.close()
+        self._pdf_image_id = None
+        self._pdf_page_label = None
+        if self._html is not None and (force or self._html.is_open):
+            self._html.close()
+        self._html_image_id = None
+        self._html_status_label = None
+
+    def _delete_temp_font(self) -> None:
+        """Delete the temporary preview font, if one is loaded."""
+        if self._temp_font is not None:
+            if dpg.does_item_exist(self._temp_font):
+                dpg.delete_item(self._temp_font)
+            self._temp_font = None
 
     # ── HTML preview helpers ──────────────────────────────────
 
@@ -2192,21 +2200,10 @@ class PreviewPanel:
 
     def destroy(self) -> None:
         """Release DPG resources owned by the preview panel."""
-        if self._pdf is not None:
-            self._pdf.close()
-        self._pdf_image_id = None
-        self._pdf_page_label = None
-        if self._html is not None:
-            self._html.close()
-        self._html_image_id = None
-        self._html_status_label = None
+        self._close_active_renderers(force=True)
         save_id = f"_fd_config_{self._config_tag}"
         if dpg.does_item_exist(save_id):
             dpg.delete_item(save_id)
         
-        if self._temp_font is not None:
-            if dpg.does_item_exist(self._temp_font):
-                dpg.delete_item(self._temp_font)
-            self._temp_font = None
-
+        self._delete_temp_font()
         self._image_cache = None

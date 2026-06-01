@@ -416,6 +416,97 @@ class TestSizeCacheLogic:
 # ── Polish characters in validation and selection ─────────────
 
 
+class TestFileDialogLifecycle:
+    def test_cancel_pending_search_cancels_timer(self):
+        dialog = FileDialog.__new__(FileDialog)
+        timer = MagicMock()
+        dialog._search_debounce_timer = timer
+
+        dialog._cancel_pending_search()
+
+        timer.cancel.assert_called_once_with()
+        assert dialog._search_debounce_timer is None
+
+    def test_cancel_background_tasks_invalidates_all_work(self):
+        dialog = FileDialog.__new__(FileDialog)
+        timer = MagicMock()
+        dialog._bg_generation = 3
+        dialog._index_generation = 7
+        dialog._dir_index = MagicMock()
+        dialog._search_debounce_timer = timer
+
+        dialog._cancel_background_tasks()
+
+        assert dialog._bg_generation == 4
+        assert dialog._index_generation == 8
+        dialog._dir_index.invalidate.assert_called_once_with()
+        timer.cancel.assert_called_once_with()
+        assert dialog._search_debounce_timer is None
+
+    def test_destroy_is_idempotent(self):
+        dialog = FileDialog.__new__(FileDialog)
+        dialog._destroyed = False
+        dialog._bg_generation = 0
+        dialog._index_generation = 0
+        dialog._dir_index = MagicMock()
+        dialog._search_debounce_timer = None
+        dialog._preview = MagicMock()
+        dialog._icons = MagicMock()
+        dialog._config = MagicMock(tag="dialog_tag")
+
+        with patch("dpg_navigator._dialog.dpg") as mock_dpg, \
+             patch.object(DirectoryLister, "cleanup_temp_files") as cleanup, \
+             patch.object(FileDialog, "_instance_count", 1), \
+             patch.object(FileDialog, "_shared_selec_theme", None), \
+             patch.object(FileDialog, "_shared_size_theme", None), \
+             patch.object(FileDialog, "_shared_preview_active_theme", None):
+            mock_dpg.does_item_exist.return_value = False
+
+            dialog.destroy()
+            dialog.destroy()
+
+            assert FileDialog._instance_count == 0
+
+        dialog._preview.destroy.assert_called_once_with()
+        dialog._icons.destroy.assert_called_once_with()
+        dialog._dir_index.invalidate.assert_called_once_with()
+        cleanup.assert_called_once_with()
+
+
+class TestPreviewLifecycle:
+    def test_close_active_renderers_closes_open_renderers(self):
+        panel = PreviewPanel.__new__(PreviewPanel)
+        panel._pdf = MagicMock(is_open=True)
+        panel._html = MagicMock(is_open=True)
+        panel._pdf_image_id = 1
+        panel._pdf_page_label = 2
+        panel._html_image_id = 3
+        panel._html_status_label = 4
+
+        panel._close_active_renderers()
+
+        panel._pdf.close.assert_called_once_with()
+        panel._html.close.assert_called_once_with()
+        assert panel._pdf_image_id is None
+        assert panel._pdf_page_label is None
+        assert panel._html_image_id is None
+        assert panel._html_status_label is None
+
+    def test_force_close_closes_inactive_renderers(self):
+        panel = PreviewPanel.__new__(PreviewPanel)
+        panel._pdf = MagicMock(is_open=False)
+        panel._html = MagicMock(is_open=False)
+        panel._pdf_image_id = None
+        panel._pdf_page_label = None
+        panel._html_image_id = None
+        panel._html_status_label = None
+
+        panel._close_active_renderers(force=True)
+
+        panel._pdf.close.assert_called_once_with()
+        panel._html.close.assert_called_once_with()
+
+
 class TestPolishCharactersValidation:
     """Verify that validate_folder_name and build_selection_list
     handle Polish diacritics correctly."""
