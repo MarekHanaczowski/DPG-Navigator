@@ -30,7 +30,6 @@ import os
 import shutil
 import tempfile
 import xml.dom.minidom
-import zipfile
 import sqlite3
 
 import dearpygui.dearpygui as dpg
@@ -75,15 +74,17 @@ try:
 except ImportError:
     _highlight = None
 
-try:
-    import py7zr as _py7zr
-except ImportError:
-    _py7zr = None
-
 from ._types import FileEntry
 from ._filesystem import DirectoryLister
 from ._pdf import PDFRenderer, pdf_available
 from ._html import HTMLRenderer, html_available
+from ._preview_archive import (
+    ArchivePreviewError,
+    EncryptedArchiveError,
+    load_7z_table,
+    load_zip_table,
+    seven_zip_available,
+)
 from ._preview_registry import (
     CODE_EXTS,
     CSV_EXTS,
@@ -140,7 +141,7 @@ def pygments_available() -> bool:
 
 def py7zr_available() -> bool:
     """Return True if py7zr dependencies are installed for .7z support."""
-    return _py7zr is not None
+    return seven_zip_available()
 
 # CSS for mammoth-generated HTML (dark theme matching DPG dialog)
 _MAMMOTH_CSS = """
@@ -1240,69 +1241,26 @@ class PreviewPanel:
         if self._panel_id is None:
             return
 
-        all_rows: list[list[str]] = []
-        total_files = 0
-        total_uncompressed = 0
-        total_compressed = 0
-
         try:
-            with zipfile.ZipFile(entry.full_path, 'r') as zf:
-                info_list = zf.infolist()
-                total_files = len(info_list)
-
-                # Need to gracefully handle massively stuffed zip files
-                # sort by size descending and take top N rows
-                info_list.sort(key=lambda x: x.file_size, reverse=True)
-
-                for info in info_list:
-                    total_uncompressed += info.file_size
-                    total_compressed += info.compress_size
-                    
-                    if len(all_rows) < self._TABLE_MAX_ROWS:
-                        ratio = 0.0
-                        if info.file_size > 0:
-                            ratio = ((info.file_size - info.compress_size) / info.file_size) * 100.0
-                            
-                        all_rows.append([
-                            info.filename,
-                            DirectoryLister.format_size(info.file_size),
-                            DirectoryLister.format_size(info.compress_size),
-                            f"{ratio:.1f}%",
-                            f"{info.date_time[0]}-{info.date_time[1]:02d}-{info.date_time[2]:02d}"
-                        ])
-        except (OSError, PermissionError, zipfile.BadZipFile):
+            table = load_zip_table(entry.full_path, self._TABLE_MAX_ROWS)
+        except EncryptedArchiveError:
+            self._render_table_widget(entry.name, [], [], "Encrypted ZIP archive (Password required)")
+            return
+        except ArchivePreviewError:
             self.clear()
             return
-        except RuntimeError as e:
-            if "password" in str(e).lower():
-                self._render_table_widget(entry.name, [], [], "Encrypted ZIP archive (Password required)")
-            else:
-                self.clear()
-            return
 
-
-        if not all_rows:
-            self._render_table_widget(
-                entry.name, [], [], "Empty archive",
-            )
-            return
-
-        headers = ["Filename", "Size", "Packed", "Ratio", "Date"]
-
-        parts = []
-        parts.append(f"{total_files} files")
-        if total_files > self._TABLE_MAX_ROWS:
-            parts.append(f"(showing largest {self._TABLE_MAX_ROWS})")
-            
-        parts.append(f"| Extracted: {DirectoryLister.format_size(total_uncompressed)}")
-        
         self._render_table_widget(
-            entry.name, headers, all_rows, " ".join(parts),
-            row_click_callback=lambda s, a, u: self._on_zip_item_clicked(entry.full_path, all_rows[u][0])
+            entry.name, table.headers, table.rows, table.status,
+            row_click_callback=lambda s, a, u: self._on_zip_item_clicked(entry.full_path, table.rows[u][0])
         )
 
     def _on_zip_item_clicked(self, archive_path: str, internal_path: str) -> None:
         """Extract a single file from a ZIP archive and preview it."""
+        self._preview_archive_member(archive_path, internal_path)
+
+    def _preview_archive_member(self, archive_path: str, internal_path: str) -> None:
+        """Extract an archive member and route it through the normal preview flow."""
         try:
             virtual_path = f"{archive_path}|/{internal_path}"
             extracted_path = DirectoryLister.extract_from_archive(virtual_path)
@@ -1328,96 +1286,23 @@ class PreviewPanel:
         if self._panel_id is None:
             return
 
-        all_rows: list[list[str]] = []
-        total_files = 0
-        total_uncompressed = 0
-        total_compressed = 0
-
         try:
-            with _py7zr.SevenZipFile(entry.full_path, mode='r') as z:
-                info_list = z.list()
-                total_files = len(info_list)
-
-                # Need to gracefully handle massively stuffed 7z files
-                # sort by size descending and take top N rows
-                info_list.sort(key=lambda x: x.uncompressed if x.uncompressed else 0, reverse=True)
-
-                for info in info_list:
-                    # Py7zr FileInfo objects have 'filename', 'uncompressed', 'compressed', 'creationtime'
-                    uc_size = info.uncompressed if info.uncompressed else 0
-                    c_size = info.compressed if info.compressed else 0
-                    
-                    total_uncompressed += uc_size
-                    total_compressed += c_size
-                    
-                    if len(all_rows) < self._TABLE_MAX_ROWS:
-                        ratio = 0.0
-                        if uc_size > 0:
-                            ratio = ((uc_size - c_size) / uc_size) * 100.0
-                            
-                        # Format datetime safely
-                        date_str = ""
-                        if info.creationtime:
-                            date_str = info.creationtime.strftime("%Y-%m-%d")
-                            
-                        all_rows.append([
-                            info.filename,
-                            DirectoryLister.format_size(uc_size),
-                            DirectoryLister.format_size(c_size),
-                            f"{ratio:.1f}%",
-                            date_str
-                        ])
-        except (OSError, PermissionError):
+            table = load_7z_table(entry.full_path, self._TABLE_MAX_ROWS)
+        except EncryptedArchiveError:
+            self._render_table_widget(entry.name, [], [], "Encrypted 7z archive (Password required)")
+            return
+        except ArchivePreviewError:
             self.clear()
             return
-        except Exception as e:
-            # Handle encrypted or other py7zr errors
-            msg = str(e)
-            if "password" in msg.lower() or "encrypted" in msg.lower():
-                self._render_table_widget(entry.name, [], [], "Encrypted 7z archive (Password required)")
-            else:
-                self.clear()
-            return
 
-        if not all_rows:
-            self._render_table_widget(
-                entry.name, [], [], "Empty 7z archive",
-            )
-            return
-
-        headers = ["Filename", "Size", "Packed", "Ratio", "Date"]
-        
-        parts = []
-        parts.append(f"{total_files} files")
-        if total_files > self._TABLE_MAX_ROWS:
-            parts.append(f"(showing largest {self._TABLE_MAX_ROWS})")
-            
-        parts.append(f"| Extracted: {DirectoryLister.format_size(total_uncompressed)}")
-        
         self._render_table_widget(
-            entry.name, headers, all_rows, " ".join(parts),
-            row_click_callback=lambda s, a, u: self._on_7z_item_clicked(entry.full_path, all_rows[u][0])
+            entry.name, table.headers, table.rows, table.status,
+            row_click_callback=lambda s, a, u: self._on_7z_item_clicked(entry.full_path, table.rows[u][0])
         )
 
     def _on_7z_item_clicked(self, archive_path: str, internal_path: str) -> None:
         """Extract a single file from a 7z archive and preview it."""
-        try:
-            virtual_path = f"{archive_path}|/{internal_path}"
-            extracted_path = DirectoryLister.extract_from_archive(virtual_path)
-            
-            if extracted_path:
-                stat = os.stat(extracted_path)
-                virtual_entry = FileEntry(
-                    name=f"[{os.path.basename(archive_path)}] {os.path.basename(internal_path)}",
-                    full_path=extracted_path,
-                    is_dir=False,
-                    size_bytes=stat.st_size,
-                    modified_time=stat.st_mtime,
-                    is_hidden=False,
-                )
-                self.update(virtual_entry)
-        except Exception:
-            pass
+        self._preview_archive_member(archive_path, internal_path)
 
 
     # ── Text preview ───────────────────────────────────────────
