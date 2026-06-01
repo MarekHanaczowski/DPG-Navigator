@@ -17,15 +17,16 @@ Zrealizowane:
 - wydzielenie metadanych ZIP/7z do `dpg_navigator/_preview_archive.py`;
 - wydzielenie parsera CSV/TSV do `dpg_navigator/_preview_table.py`;
 - wydzielenie loaderów Excel i SQLite do czystych modułów bez zależności od DearPyGui;
+- wydzielenie loaderów Word i PowerPoint do czystych modułów bez zależności od DearPyGui;
 - CI dla Windows i Linux, `ruff`, stopniowy `mypy` oraz pełne testy.
-- rozszerzenie `mypy` na czyste moduły filesystem i preview;
+- rozszerzenie `mypy` na czyste moduły filesystem i preview oraz wybrane moduły GUI;
+- benchmarki ciężkich ścieżek preview i indeksowania katalogów wraz z lokalnym baseline;
 - changelog oraz checklista wydania dla maintainera.
 
 Pozostałe prace rozwojowe:
 
-- dalsze wydzielanie rendererów Office z `PreviewPanel`;
-- rozszerzanie zakresu `mypy` po uporządkowaniu modułów zależnych od DearPyGui;
-- benchmarki ciężkich ścieżek preview;
+- rozszerzanie zakresu `mypy` na backendy PDF i HTML oraz główne kontrolery GUI;
+- automatyzacja publikacji artefaktów po skonfigurowaniu zaufanego targetu wydawniczego;
 
 Dokument zakłada, że projekt ma pozostać:
 

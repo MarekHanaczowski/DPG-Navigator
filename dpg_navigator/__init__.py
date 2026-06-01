@@ -32,7 +32,7 @@ from ._preview import (
 from ._pdf import pdf_available
 from ._html import html_available
 
-__version__ = "1.0.0b1"
+__version__ = "1.0.0b2"
 
 __all__ = [
     "FileDialog",
