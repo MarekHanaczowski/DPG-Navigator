@@ -465,7 +465,7 @@ class DirectoryIndex:
         with self._lock:
             if not self._ready:
                 return True
-            return (time.time() - self._built_at) > ttl
+            return (time.time() - self._built_at) >= ttl
 
     def search(
         self,

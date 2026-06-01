@@ -228,10 +228,13 @@ class TestGetSpecialDirsMocked:
         def fake_query(key, name):
             return os.path.join(home, name), 1
 
+        mock_winreg = MagicMock()
+        mock_winreg.OpenKey.return_value = MagicMock(__enter__=MagicMock(), __exit__=MagicMock())
+        mock_winreg.QueryValueEx.side_effect = fake_query
+
         with patch("dpg_navigator._platform._SYSTEM", "Windows"), \
              patch("dpg_navigator._platform.os.path.expanduser", return_value=home), \
-             patch("dpg_navigator._platform.winreg.OpenKey", return_value=MagicMock(__enter__=MagicMock(), __exit__=MagicMock())), \
-             patch("dpg_navigator._platform.winreg.QueryValueEx", side_effect=fake_query):
+             patch("dpg_navigator._platform.winreg", mock_winreg, create=True):
             result = get_special_dirs()
 
         assert "Home" in result

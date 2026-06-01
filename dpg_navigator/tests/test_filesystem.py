@@ -584,7 +584,7 @@ class TestPolishCharacters:
     def test_mixed_ascii_and_polish(self, tmp_path):
         """Mixed ASCII and Polish names coexist in listing."""
         (tmp_path / "readme.txt").write_text("hello")
-        (tmp_path / "opis_główny.txt").write_text("cześć")
+        (tmp_path / "opis_główny.txt").write_text("cześć", encoding="utf-8")
         (tmp_path / "Katalog").mkdir()
         (tmp_path / "Różne").mkdir()
         result = DirectoryLister.list_directory(str(tmp_path))
