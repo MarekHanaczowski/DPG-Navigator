@@ -84,6 +84,28 @@ from ._types import FileEntry
 from ._filesystem import DirectoryLister
 from ._pdf import PDFRenderer, pdf_available
 from ._html import HTMLRenderer, html_available
+from ._preview_registry import (
+    CODE_EXTS,
+    CSV_EXTS,
+    DB_EXTS,
+    EXCEL_EXTS,
+    FONT_EXTS,
+    HTML_EXTS,
+    MD_EXTS,
+    PDF_EXTS,
+    PILLOW_EXTRA_EXTS,
+    PPTX_EXTS,
+    SEVEN_Z_EXTS,
+    STB_IMAGE_EXTS,
+    TEXT_PREVIEW_EXTS,
+    WORD_EXTS,
+    XML_EXTS,
+    ZIP_EXTS,
+    PreviewCapabilities,
+    PreviewKind,
+    html_active_extensions,
+    resolve_preview_kind,
+)
 
 
 def word_available() -> bool:
@@ -244,52 +266,46 @@ class PreviewPanel:
     for raw_texture-based GPU rendering with background threads.
     """
 
-    _STB_IMAGE_EXTS: frozenset[str] = frozenset({
-        ".png", ".jpg", ".jpeg", ".bmp", ".tga",
-        ".gif", ".psd", ".hdr", ".pic", ".pgm", ".ppm", ".pnm",
-    })
+    _STB_IMAGE_EXTS: frozenset[str] = STB_IMAGE_EXTS
     """Image extensions that DPG can load natively via stb_image."""
 
-    _PILLOW_EXTRA_EXTS: frozenset[str] = frozenset({
-        ".webp", ".tiff", ".tif", ".ico", ".heic", ".heif",
-        ".avif", ".svg", ".dds", ".pcx", ".eps",
-    })
+    _PILLOW_EXTRA_EXTS: frozenset[str] = PILLOW_EXTRA_EXTS
     """Extra image extensions supported only when Pillow is installed."""
 
-    _PDF_EXTS: frozenset[str] = frozenset({".pdf"})
+    _PDF_EXTS: frozenset[str] = PDF_EXTS
     """PDF extensions supported when pypdfium2 + numpy are installed."""
 
-    _WORD_EXTS: frozenset[str] = frozenset({".docx"})
+    _WORD_EXTS: frozenset[str] = WORD_EXTS
     """Word extensions supported when python-docx is installed."""
 
-    _PPTX_EXTS: frozenset[str] = frozenset({".pptx"})
+    _PPTX_EXTS: frozenset[str] = PPTX_EXTS
     """PowerPoint extensions supported when python-pptx is installed."""
 
-    _MD_EXTS: frozenset[str] = frozenset({".md", ".markdown"})
+    _MD_EXTS: frozenset[str] = MD_EXTS
     """Markdown extensions rendered via markdown + Chrome when available."""
 
-    _HTML_EXTS: frozenset[str] = frozenset({".html", ".htm"})
+    _HTML_EXTS: frozenset[str] = HTML_EXTS
     """HTML extensions supported when html2image + numpy + Pillow are installed."""
 
-    _CSV_EXTS: frozenset[str] = frozenset({".csv", ".tsv"})
+    _CSV_EXTS: frozenset[str] = CSV_EXTS
     """CSV/TSV extensions rendered as native DPG tables."""
 
-    _EXCEL_EXTS: frozenset[str] = frozenset({".xlsx"})
+    _EXCEL_EXTS: frozenset[str] = EXCEL_EXTS
     """Excel extensions supported when openpyxl is installed."""
 
-    _XML_EXTS: frozenset[str] = frozenset({".xml", ".ui", ".uvprojx", ".vcxproj", ".csproj"})
+    _XML_EXTS: frozenset[str] = XML_EXTS
     """XML extensions that get formatted (pretty-printed) before viewing."""
 
-    _ZIP_EXTS: frozenset[str] = frozenset({".zip", ".whl", ".egg", ".jar", ".apk"})
+    _ZIP_EXTS: frozenset[str] = ZIP_EXTS
     """ZIP archive extensions that get previewed as a file list table."""
 
-    _7Z_EXTS: frozenset[str] = frozenset({".7z"})
+    _7Z_EXTS: frozenset[str] = SEVEN_Z_EXTS
     """7-Zip archive extensions that get previewed as a file list table."""
 
-    _FONT_EXTS: frozenset[str] = frozenset({".ttf", ".otf"})
+    _FONT_EXTS: frozenset[str] = FONT_EXTS
     """Font extensions supported for live preview."""
 
-    _DB_EXTS: frozenset[str] = frozenset({".db", ".sqlite", ".sqlite3", ".dat"})
+    _DB_EXTS: frozenset[str] = DB_EXTS
     """SQLite database extensions supported for table browsing."""
 
     _TABLE_MAX_ROWS: int = 200
@@ -298,30 +314,10 @@ class PreviewPanel:
     _TABLE_MAX_COLS: int = 50
     """Maximum columns to show in CSV/Excel table preview."""
 
-    _CODE_EXTS: frozenset[str] = frozenset({
-        ".py", ".pyw", ".pyi", ".pyl",
-        ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
-        ".json", ".jsonl", ".json5",
-        ".css", ".scss", ".sass", ".less",
-        ".yaml", ".yml", ".toml", ".env",
-        ".c", ".h", ".cpp", ".hpp", ".cc", ".cxx",
-        ".cs", ".java", ".kt", ".kts", ".scala", ".groovy",
-        ".go", ".rs", ".swift", ".dart", ".lua",
-        ".rb", ".pl", ".pm", ".r", ".jl", ".ex", ".exs",
-        ".sql", ".graphql", ".gql",
-        ".dockerfile", ".makefile", ".cmake",
-        ".diff", ".patch",
-    })
+    _CODE_EXTS: frozenset[str] = CODE_EXTS
     """Extensions to be highlighted as code if Pygments is installed."""
 
-    _TEXT_PREVIEW_EXTS: frozenset[str] = frozenset({
-        ".txt", ".log", ".csv", ".tsv", ".ini", ".cfg", ".conf",
-        ".bat", ".cmd", ".sh", ".bash", ".zsh", ".ps1",
-        ".xml", ".html", ".htm", ".xhtml",
-        ".md", ".rst", ".adoc", ".tex",
-        ".gitignore", ".gitattributes", ".editorconfig",
-        ".lock",
-    }) | _CODE_EXTS
+    _TEXT_PREVIEW_EXTS: frozenset[str] = TEXT_PREVIEW_EXTS
     """File extensions treated as plain text for preview."""
 
     _TEXT_PREVIEW_MAX_SIZE: int = 256 * 1024
@@ -612,6 +608,19 @@ class PreviewPanel:
 
     # ── Main routing ──────────────────────────────────────────
 
+    def _preview_capabilities(self) -> PreviewCapabilities:
+        """Return optional backends currently available for routing."""
+        return PreviewCapabilities(
+            markdown=markdown_available(),
+            excel=excel_available(),
+            pygments=pygments_available(),
+            pdf=pdf_available(),
+            seven_z=py7zr_available(),
+            word=word_available(),
+            mammoth=self._html is not None and mammoth_available(),
+            pptx=pptx_available(),
+        )
+
     def update(self, entry: FileEntry | None) -> None:
         """Load a file for preview.
 
@@ -641,6 +650,7 @@ class PreviewPanel:
             return
 
         ext = os.path.splitext(entry.name)[1].lower()
+        capabilities = self._preview_capabilities()
 
         # Close PDF if switching away from PDF preview
         if (self._pdf is not None and self._pdf.is_open
@@ -650,52 +660,39 @@ class PreviewPanel:
             self._pdf_page_label = None
 
         # Close HTML if switching away from HTML/Word-mammoth/Markdown/Code preview
-        html_active_exts = self._HTML_EXTS
-        if self._html is not None and mammoth_available():
-            html_active_exts = html_active_exts | self._WORD_EXTS
-        if self._html is not None and markdown_available():
-            html_active_exts = html_active_exts | self._MD_EXTS
-        if self._html is not None and pygments_available():
-            html_active_exts = html_active_exts | self._CODE_EXTS
+        html_active_exts = html_active_extensions(capabilities)
         if (self._html is not None and self._html.is_open
                 and ext not in html_active_exts):
             self._html.close()
             self._html_image_id = None
             self._html_status_label = None
 
-        # Route to specific renderer
-        if ext in self._HTML_EXTS:
-            self._render_html_preview(entry)
-        elif markdown_available() and ext in self._MD_EXTS:
-            self._render_markdown_preview(entry)
-        elif ext in self._CSV_EXTS:
-            self._render_csv_preview(entry)
-        elif excel_available() and ext in self._EXCEL_EXTS:
-            self._render_excel_preview(entry)
-        elif ext in self._DB_EXTS:
-            self._render_sqlite_preview(entry)
-        elif ext in self._FONT_EXTS:
-            self._render_font_preview(entry)
-        elif ext in self._XML_EXTS:
-            self._render_xml_preview(entry)
-        elif pygments_available() and ext in self._CODE_EXTS:
-            self._render_code_preview(entry)
-        elif ext in self._TEXT_PREVIEW_EXTS or (not ext and entry.name.lower() in self._TEXT_PREVIEW_EXTS):
-            self._render_text_preview(entry)
-        elif pdf_available() and ext in self._PDF_EXTS:
-            self._render_pdf_preview(entry)
-        elif ext in self._ZIP_EXTS:
-            self._render_zip_preview(entry)
-        elif py7zr_available() and ext in self._7Z_EXTS:
-            self._render_7z_preview(entry)
-        elif ext in self.preview_image_exts():
-            self._render_image_preview(entry)
-        elif word_available() and ext in self._WORD_EXTS:
-            self._render_word_preview(entry)
-        elif pptx_available() and ext in self._PPTX_EXTS:
-            self._render_pptx_preview(entry)
-        else:
+        preview_kind = resolve_preview_kind(
+            entry.name,
+            capabilities=capabilities,
+            image_extensions=self.preview_image_exts(),
+        )
+        renderer = {
+            PreviewKind.HTML: self._render_html_preview,
+            PreviewKind.MARKDOWN: self._render_markdown_preview,
+            PreviewKind.CSV: self._render_csv_preview,
+            PreviewKind.EXCEL: self._render_excel_preview,
+            PreviewKind.SQLITE: self._render_sqlite_preview,
+            PreviewKind.FONT: self._render_font_preview,
+            PreviewKind.XML: self._render_xml_preview,
+            PreviewKind.CODE: self._render_code_preview,
+            PreviewKind.TEXT: self._render_text_preview,
+            PreviewKind.PDF: self._render_pdf_preview,
+            PreviewKind.ZIP: self._render_zip_preview,
+            PreviewKind.SEVEN_Z: self._render_7z_preview,
+            PreviewKind.IMAGE: self._render_image_preview,
+            PreviewKind.WORD: self._render_word_preview,
+            PreviewKind.PPTX: self._render_pptx_preview,
+        }.get(preview_kind)
+        if renderer is None:
             self.clear()
+            return
+        renderer(entry)
 
     def _render_image_preview(self, entry: FileEntry) -> None:
         """Load and display an image file using DPG or Pillow."""
