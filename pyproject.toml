@@ -50,7 +50,13 @@ all = [
     "py7zr>=0.20.0",
     "Pygments>=2.15.0",
 ]
-dev = ["pytest>=7.0", "ruff>=0.6", "mypy>=1.10", "dpg-navigator[all]"]
+dev = [
+    "pytest>=7.0",
+    "pytest-github-actions-annotate-failures>=0.2",
+    "ruff>=0.6",
+    "mypy>=1.10",
+    "dpg-navigator[all]",
+]
 
 [project.urls]
 Homepage = "https://github.com/MarekHanaczowski/dpg-navigator"
