@@ -8,13 +8,19 @@ Works on Windows, Linux, and macOS.
 
 import os
 import platform
+from typing import Any
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 import psutil  # type: ignore[import-untyped]
 
+ctypes: Any = None
+winreg: Any = None
 if os.name == "nt":
-    import ctypes
-    import winreg
+    import ctypes as _ctypes
+    import winreg as _winreg
+
+    ctypes = _ctypes
+    winreg = _winreg
 
 _SYSTEM = platform.system()  # "Windows" / "Linux" / "Darwin"
 
