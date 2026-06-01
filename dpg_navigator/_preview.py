@@ -29,7 +29,6 @@ import os
 import shutil
 import tempfile
 import xml.dom.minidom
-import sqlite3
 
 import dearpygui.dearpygui as dpg
 
@@ -61,11 +60,6 @@ except ImportError:
     _markdown = None
 
 try:
-    from openpyxl import load_workbook as _load_workbook
-except ImportError:
-    _load_workbook = None
-
-try:
     from pygments import highlight as _highlight
     from pygments.lexers import get_lexer_for_filename as _get_lexer
     from pygments.formatters import HtmlFormatter as _HtmlFormatter
@@ -85,6 +79,12 @@ from ._preview_archive import (
     seven_zip_available,
 )
 from ._preview_table import CsvPreviewError, parse_csv_table
+from ._preview_spreadsheet import (
+    ExcelPreviewError,
+    _load_workbook,
+    load_excel_table,
+)
+from ._preview_sqlite import SQLitePreviewError, load_sqlite_table
 from ._preview_registry import (
     CODE_EXTS,
     CSV_EXTS,
@@ -998,87 +998,32 @@ class PreviewPanel:
             return
 
         try:
-            wb = _load_workbook(
-                entry.full_path, read_only=True, data_only=True,
+            table = load_excel_table(
+                entry.full_path,
+                sheet_name=sheet_name_to_load,
+                max_rows=self._TABLE_MAX_ROWS,
+                max_cols=self._TABLE_MAX_COLS,
+                workbook_loader=_load_workbook,
             )
-        except Exception:
+        except ExcelPreviewError:
             self.clear()
             return
 
-        try:
-            sheetnames = wb.sheetnames
-            ws = None
-
-            if sheet_name_to_load and sheet_name_to_load in sheetnames:
-                ws = wb[sheet_name_to_load]
-            elif sheetnames:
-                ws = wb.active if wb.active is not None else wb[sheetnames[0]]
-
-            if ws is None:
-                wb.close()
-                self._render_table_widget(
-                    entry.name, [], [], "No sheets found",
-                )
-                return
-
-            sheet_name = ws.title
-
-            def _build_excel_ui():
-                if len(sheetnames) > 1:
-                    with dpg.group(horizontal=True, parent=self._panel_id):
-                        dpg.add_text("Sheet:", color=[180, 180, 180])
-                        def on_sheet_changed(sender, app_data, user_data):
-                            self._render_excel_preview(entry, sheet_name_to_load=app_data)
-                        dpg.add_combo(
-                            items=sheetnames,
-                            default_value=sheet_name,
-                            width=-1,
-                            callback=on_sheet_changed
-                        )
-            all_rows: list[list[str]] = []
-            total_rows = 0
-            max_cols = 0
-
-            for row in ws.iter_rows(values_only=True):
-                total_rows += 1
-                str_row = [
-                    str(cell) if cell is not None else ""
-                    for cell in row[:self._TABLE_MAX_COLS]
-                ]
-                if len(all_rows) < self._TABLE_MAX_ROWS + 1:
-                    all_rows.append(str_row)
-                max_cols = max(max_cols, len(row))
-        finally:
-            wb.close()
-
-        if not all_rows:
-            self._render_table_widget(
-                entry.name, [], [],
-                f"Sheet: {sheet_name} | Empty sheet",
-                ui_builder=_build_excel_ui
-            )
-            return
-
-        headers = all_rows[0]
-        data_rows = all_rows[1:]
-        total_data = total_rows - 1
-        display_cols = min(max_cols, self._TABLE_MAX_COLS)
-
-        while len(headers) < display_cols:
-            headers.append(f"Col{len(headers) + 1}")
-
-        parts = [f"Sheet: {sheet_name}",
-                 f"{total_data} rows \u00d7 {max_cols} cols"]
-        truncated = []
-        if len(data_rows) < total_data:
-            truncated.append(f"first {len(data_rows)} rows")
-        if display_cols < max_cols:
-            truncated.append(f"first {display_cols} cols")
-        if truncated:
-            parts.append(f"(showing {', '.join(truncated)})")
+        def _build_excel_ui():
+            if len(table.sheetnames) > 1:
+                with dpg.group(horizontal=True, parent=self._panel_id):
+                    dpg.add_text("Sheet:", color=[180, 180, 180])
+                    def on_sheet_changed(sender, app_data, user_data):
+                        self._render_excel_preview(entry, sheet_name_to_load=app_data)
+                    dpg.add_combo(
+                        items=table.sheetnames,
+                        default_value=table.sheet_name,
+                        width=-1,
+                        callback=on_sheet_changed
+                    )
 
         self._render_table_widget(
-            entry.name, headers, data_rows, " | ".join(parts),
+            entry.name, table.headers, table.rows, table.status,
             ui_builder=_build_excel_ui
         )
 
@@ -1446,60 +1391,30 @@ class PreviewPanel:
             return
 
         try:
-            db_path = entry.full_path.replace("\\", "/")
-            conn = sqlite3.connect(f"file:///{db_path}?mode=ro", uri=True, timeout=5)
-            cursor = conn.cursor()
-            
-            # Get list of tables
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-            tables = [row[0] for row in cursor.fetchall()]
-            
-            if not tables:
-                conn.close()
-                self._render_table_widget(entry.name, [], [], "No tables found")
-                return
-                
-            table_name = table_name_to_load if table_name_to_load in tables else tables[0]
-            
-            # Use double quotes for identifier escaping to prevent SQL injection.
-            # Identifiers like table names cannot be parameterized in sqlite3.
-            safe_table_name = table_name.replace('"', '""')
-            
-            # Get columns
-            cursor.execute(f'PRAGMA table_info("{safe_table_name}");')
-            columns = [info[1] for info in cursor.fetchall()]
-            
-            # Get rows (limited)
-            cursor.execute(f'SELECT * FROM "{safe_table_name}" LIMIT {self._TABLE_MAX_ROWS};')
-            data_rows = [list(map(str, row)) for row in cursor.fetchall()]
-            
-            # Count total rows for info
-            cursor.execute(f'SELECT COUNT(*) FROM "{safe_table_name}";')
-            total_rows = cursor.fetchone()[0]
-            
-            conn.close()
-        except Exception as e:
+            table = load_sqlite_table(
+                entry.full_path,
+                table_name=table_name_to_load,
+                max_rows=self._TABLE_MAX_ROWS,
+                max_cols=self._TABLE_MAX_COLS,
+            )
+        except SQLitePreviewError as e:
             _log.exception("Error reading SQLite database %s", entry.full_path)
             self._render_table_widget(entry.name, [], [], f"Error reading database: {e}")
             return
 
         def _build_db_ui():
-            if len(tables) > 1:
+            if len(table.tables) > 1:
                 with dpg.group(horizontal=True, parent=self._panel_id):
                     dpg.add_text("Table:", color=[200, 200, 200])
                     dpg.add_combo(
-                        items=tables,
-                        default_value=table_name,
+                        items=table.tables,
+                        default_value=table.table_name,
                         width=200,
                         callback=lambda s, a, u: self._render_sqlite_preview(entry, a)
                     )
 
-        info = f"Table: {table_name} | {total_rows} total rows"
-        if total_rows > self._TABLE_MAX_ROWS:
-            info += f" (showing first {self._TABLE_MAX_ROWS})"
-            
         self._render_table_widget(
-            entry.name, columns, data_rows, info,
+            entry.name, table.headers, table.rows, table.status,
             ui_builder=_build_db_ui
         )
 
