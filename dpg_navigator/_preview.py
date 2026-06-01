@@ -23,7 +23,6 @@ and HTMLRenderer for GPU-accelerated raw_texture rendering.
 # MIT licensed
 
 import array
-import csv
 import io
 import logging
 import os
@@ -85,6 +84,7 @@ from ._preview_archive import (
     load_zip_table,
     seven_zip_available,
 )
+from ._preview_table import CsvPreviewError, parse_csv_table
 from ._preview_registry import (
     CODE_EXTS,
     CSV_EXTS,
@@ -969,68 +969,27 @@ class PreviewPanel:
             self.clear()
             return
 
-        ext = os.path.splitext(entry.name)[1].lower()
-        f = io.StringIO(text)
-
         try:
-            if ext == ".tsv":
-                delimiter = "\t"
-                dialect = None
-            else:
-                sample = text[:8192]
-                try:
-                    dialect = csv.Sniffer().sniff(sample)
-                except csv.Error:
-                    dialect = None
-                delimiter = dialect.delimiter if dialect else ","
-
-            reader = (csv.reader(f, dialect) if dialect
-                      else csv.reader(f, delimiter=delimiter))
-
-            all_rows: list[list[str]] = []
-            total_rows = 0
-            max_cols = 0
-            for row in reader:
-                total_rows += 1
-                if len(all_rows) < self._TABLE_MAX_ROWS + 1:
-                    all_rows.append(row[:self._TABLE_MAX_COLS])
-                max_cols = max(max_cols, len(row))
-        except Exception:
+            table = parse_csv_table(
+                text,
+                entry.name,
+                max_rows=self._TABLE_MAX_ROWS,
+                max_cols=self._TABLE_MAX_COLS,
+            )
+        except CsvPreviewError:
             # If CSV parsing fails, fallback to plain text
             self._render_text_preview(entry)
             return
 
-        if not all_rows:
-            self._render_table_widget(entry.name, [], [], "Empty file")
-            return
-
-        headers = all_rows[0]
-        data_rows = all_rows[1:]
-        total_data = total_rows - 1
-        display_cols = min(max_cols, self._TABLE_MAX_COLS)
-
-        while len(headers) < display_cols:
-            headers.append(f"Col{len(headers) + 1}")
-
-        parts = [f"{total_data} rows \u00d7 {max_cols} cols"]
-        
-        # If the underlying file was larger than 1MB, indicate partial read
+        # If the underlying file exceeds the text page size, indicate partial read.
         header_name = entry.name
         if entry.size_bytes is not None and entry.size_bytes > self._TEXT_PREVIEW_MAX_SIZE:
              limit_str = DirectoryLister.format_size(self._TEXT_PREVIEW_MAX_SIZE)
              size_str = DirectoryLister.format_size(entry.size_bytes)
              header_name = f"{entry.name} (Partial: first {limit_str} of {size_str})"
 
-        truncated = []
-        if len(data_rows) < total_data:
-            truncated.append(f"first {len(data_rows)} rows")
-        if display_cols < max_cols:
-            truncated.append(f"first {display_cols} cols")
-        if truncated:
-            parts.append(f"(showing {', '.join(truncated)})")
-
         self._render_table_widget(
-            header_name, headers, data_rows, " | ".join(parts),
+            header_name, table.headers, table.rows, table.status,
         )
 
     def _render_excel_preview(self, entry: FileEntry, sheet_name_to_load: str | None = None) -> None:
