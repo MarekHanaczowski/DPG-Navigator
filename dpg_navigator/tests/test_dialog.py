@@ -473,6 +473,59 @@ class TestFileDialogLifecycle:
         cleanup.assert_called_once_with()
 
 
+class TestTagCollision:
+    """A second dialog with an already-taken tag must not reuse the live id.
+
+    Two dialogs sharing a DPG tag crash in dpg.window(tag=...). __init__
+    resolves this by switching to a unique tag when the requested one already
+    exists. These tests construct real FileDialog instances with the heavy
+    collaborators (UI build, preview panel, icons, directory index) stubbed
+    out, so only the tag-resolution logic runs. ``existing_tags`` stands in for
+    DPG's live item registry: does_item_exist consults it, and each dialog
+    registers its resolved tag just as _build_ui -> dpg.window(tag=...) would.
+    """
+
+    @staticmethod
+    def _construct(mock_dpg, existing_tags, **kwargs):
+        mock_dpg.does_item_exist.side_effect = lambda tag: tag in existing_tags
+        with patch("dpg_navigator._dialog.PreviewPanel"), \
+             patch("dpg_navigator._dialog.IconRegistry"), \
+             patch("dpg_navigator._dialog.DirectoryIndex"), \
+             patch.object(FileDialog, "_build_ui", lambda self: None):
+            dialog = FileDialog(**kwargs)
+        existing_tags.add(dialog._config.tag)
+        return dialog
+
+    def test_default_tag_kept_when_free(self):
+        with patch("dpg_navigator._dialog.dpg") as mock_dpg:
+            dialog = self._construct(mock_dpg, set())
+            assert dialog._config.tag == "dpg_navigator"
+
+    def test_second_default_dialog_gets_unique_tag(self):
+        with patch("dpg_navigator._dialog.dpg") as mock_dpg:
+            existing = set()
+            first = self._construct(mock_dpg, existing)
+            second = self._construct(mock_dpg, existing)
+
+            assert first._config.tag == "dpg_navigator"
+            assert second._config.tag != first._config.tag
+            assert second._config.tag.startswith("dpg_navigator_")
+
+    def test_explicit_tag_collision_is_resolved(self):
+        with patch("dpg_navigator._dialog.dpg") as mock_dpg:
+            dialog = self._construct(mock_dpg, {"my_dialog"}, tag="my_dialog")
+
+            assert dialog._config.tag != "my_dialog"
+            assert dialog._config.tag.startswith("my_dialog_")
+
+    def test_unique_tag_propagates_to_payload_type(self):
+        with patch("dpg_navigator._dialog.dpg") as mock_dpg:
+            dialog = self._construct(mock_dpg, {"dpg_navigator"})
+
+            assert dialog._config.tag != "dpg_navigator"
+            assert dialog._payload_type == f"ws_{dialog._config.tag}"
+
+
 class TestPreviewLifecycle:
     def test_close_active_renderers_closes_open_renderers(self):
         panel = PreviewPanel.__new__(PreviewPanel)
