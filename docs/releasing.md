@@ -1,8 +1,22 @@
 # Release Checklist
 
-The repository currently has no automated publishing workflow. Perform releases
-from a clean `main` checkout and keep artifact upload manual until repository
-secrets and a trusted publishing target are configured.
+Publishing is automated via `.github/workflows/publish.yml`:
+
+- `workflow_dispatch` publishes to TestPyPI.
+- `release` (`published`) publishes to PyPI.
+
+Both jobs use trusted publishing (OIDC), so no API token secret is required.
+
+## 0. Configure trusted publishing once
+
+Before the first automated publish, configure trusted publishers for this
+repository on both package indexes:
+
+1. `testpypi` environment in GitHub -> TestPyPI trusted publisher entry.
+2. `pypi` environment in GitHub -> PyPI trusted publisher entry.
+
+Use the `publish.yml` workflow name and the repository default branch settings
+expected by the package index.
 
 ## 1. Prepare the version
 
@@ -18,50 +32,43 @@ Install the development dependencies and run the same checks as CI:
 ```bash
 python -m pip install -e ".[dev]"
 python -m ruff check .
-python -m mypy dpg_navigator/_types.py dpg_navigator/_filesystem.py dpg_navigator/_platform.py dpg_navigator/_icons.py dpg_navigator/_styles.py dpg_navigator/_keyboard.py dpg_navigator/_preview_registry.py dpg_navigator/_preview_table.py dpg_navigator/_preview_archive.py dpg_navigator/_preview_spreadsheet.py dpg_navigator/_preview_sqlite.py dpg_navigator/_preview_word.py dpg_navigator/_preview_presentation.py
+python -m mypy dpg_navigator/_types.py dpg_navigator/_filesystem.py dpg_navigator/_platform.py dpg_navigator/_icons.py dpg_navigator/_styles.py dpg_navigator/_keyboard.py dpg_navigator/_preview_registry.py dpg_navigator/_preview_table.py dpg_navigator/_preview_archive.py dpg_navigator/_preview_spreadsheet.py dpg_navigator/_preview_sqlite.py dpg_navigator/_preview_word.py dpg_navigator/_preview_presentation.py dpg_navigator/_preview.py dpg_navigator/_dialog.py dpg_navigator/_pdf.py dpg_navigator/_html.py
 python -m pytest -q
 ```
 
 Push the release commit and confirm that every GitHub Actions matrix job passes.
 
-## 3. Build artifacts
+## 3. Optional local build and smoke test
 
-Install the build frontend, clear previous artifacts, and create both wheel and
-source distribution files:
+The publish workflow builds and validates distributions automatically. Local
+builds are still useful for pre-release checks:
 
 ```bash
-python -m pip install build
+python -m pip install build twine
 python -m build
+python -m twine check dist/*
 ```
 
-Verify the resulting files under `dist/`. Build from an empty `dist/` directory
-when preparing files for upload so stale artifacts cannot be published.
+Then run the wheel smoke test:
 
-## 4. Smoke-test the wheel
-
-Create a fresh virtual environment and install only the built wheel plus the
-required runtime dependencies:
-
-```bash
 python -m venv .smoke_venv
 python -m pip --python .smoke_venv install --no-deps dist/dpg_navigator-<version>-py3-none-any.whl
 python -m pip --python .smoke_venv install "dearpygui>=1.9.1" "psutil>=5.9.0"
 python -m pip --python .smoke_venv show dpg-navigator
-```
-
-On older pip versions without `--python`, invoke the virtual environment's
-Python executable directly with `-m pip`. Then import the public API:
-
-```bash
 python -c "import dpg_navigator; from dpg_navigator import FileDialog, DialogConfig; print(dpg_navigator.__version__); print(FileDialog.__name__); print(DialogConfig().title)"
 ```
 
-Run the final import command with the fresh virtual environment's Python
-executable.
+## 4. Publish flow
 
-## 5. Tag and publish
+For a dry run against TestPyPI:
 
-Create an annotated tag only after CI and the wheel smoke test pass:
+```bash
+# Run Actions -> Publish -> Run workflow (workflow_dispatch)
+```
+
+For production release:
+
+1. Create and push an annotated version tag:
 
 ```bash
 git tag -a v<version> -m "Release v<version>"
@@ -69,6 +76,6 @@ git push origin main
 git push origin v<version>
 ```
 
-Create a GitHub Release from the tag and attach the wheel and source
-distribution from `dist/`. Publish to a Python package index only after the
-target account and trusted publishing policy are configured.
+2. Publish a GitHub Release from that tag.
+3. The `Publish` workflow runs automatically on `release.published` and uploads
+   the already-built distributions to PyPI.
