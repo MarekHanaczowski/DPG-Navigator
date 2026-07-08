@@ -29,33 +29,42 @@ import os
 import shutil
 import tempfile
 import xml.dom.minidom
+from typing import Any, Callable, cast
 
-import dearpygui.dearpygui as dpg
+import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
 _log = logging.getLogger(__name__)
 
 try:
     from PIL import Image as _PILImage
 except ImportError:
-    _PILImage = None
+    _PILImage = cast(Any, None)
 
 try:
-    import mammoth as _mammoth
+    import numpy as _np
 except ImportError:
-    _mammoth = None
+    _np = cast(Any, None)
 
 try:
-    import markdown as _markdown
+    import mammoth as _mammoth  # type: ignore[import-untyped]
 except ImportError:
-    _markdown = None
+    _mammoth = cast(Any, None)
 
 try:
-    from pygments import highlight as _highlight
-    from pygments.lexers import get_lexer_for_filename as _get_lexer
-    from pygments.formatters import HtmlFormatter as _HtmlFormatter
-    from pygments.util import ClassNotFound as _ClassNotFound
+    import markdown as _markdown  # type: ignore[import-untyped]
 except ImportError:
-    _highlight = None
+    _markdown = cast(Any, None)
+
+try:
+    from pygments import highlight as _highlight  # type: ignore[import-untyped]
+    from pygments.lexers import get_lexer_for_filename as _get_lexer  # type: ignore[import-untyped]
+    from pygments.formatters import HtmlFormatter as _HtmlFormatter  # type: ignore[import-untyped]
+    from pygments.util import ClassNotFound as _ClassNotFound  # type: ignore[import-untyped]
+except ImportError:
+    _highlight = cast(Any, None)
+    _get_lexer = cast(Any, None)
+    _HtmlFormatter = cast(Any, None)
+    _ClassNotFound = cast(Any, None)
 
 from ._types import FileEntry
 from ._filesystem import DirectoryLister
@@ -342,11 +351,17 @@ class PreviewPanel:
         Converts any Pillow-supported format to RGBA float data that
         DPG can use for a dynamic texture.
         """
-        img = _PILImage.open(path)
-        img = img.convert("RGBA")
-        w, h = img.size
-        raw = img.tobytes()
-        data = array.array("f", (b / 255.0 for b in raw))
+        pil_img = _PILImage.open(path)
+        img_rgba = pil_img.convert("RGBA")
+        pil_img.close()
+        w, h = img_rgba.size
+        raw = img_rgba.tobytes()
+        img_rgba.close()
+        if _np is not None:
+            arr = _np.frombuffer(raw, dtype=_np.uint8).astype(_np.float32) / _np.float32(255.0)
+            data = array.array("f", arr.tobytes())
+        else:
+            data = array.array("f", (b / 255.0 for b in raw))
         return w, h, data
 
     def __init__(self, config_tag: str, preview_width: int, show: bool):
@@ -407,7 +422,7 @@ class PreviewPanel:
     def saved_width(self) -> int:
         return self._saved_width
 
-    def attach(self, table_wrapper: int, panel_id: int) -> None:
+    def attach(self, table_wrapper: int, panel_id: int | None) -> None:
         """Attach to DPG widget IDs created during _build_ui."""
         self._table_wrapper = table_wrapper
         self._panel_id = panel_id
@@ -532,6 +547,9 @@ class PreviewPanel:
 
     def _show_html_widgets(self) -> None:
         """Create image + status label widgets for current HTML render."""
+        if self._html is None:
+            return
+
         self._html_image_id = dpg.add_image(
             self._html.tex_id,
             parent=self._panel_id,
@@ -687,7 +705,7 @@ class PreviewPanel:
         )
         if preview_kind is not PreviewKind.PPTX:
             self._delete_pptx_textures()
-        renderer = {
+        renderers: dict[PreviewKind, Callable[[FileEntry], None]] = {
             PreviewKind.HTML: self._render_html_preview,
             PreviewKind.MARKDOWN: self._render_markdown_preview,
             PreviewKind.CSV: self._render_csv_preview,
@@ -703,7 +721,8 @@ class PreviewPanel:
             PreviewKind.IMAGE: self._render_image_preview,
             PreviewKind.WORD: self._render_word_preview,
             PreviewKind.PPTX: self._render_pptx_preview,
-        }.get(preview_kind)
+        }
+        renderer = renderers.get(preview_kind)
         if renderer is None:
             self.clear()
             return
@@ -767,6 +786,7 @@ class PreviewPanel:
             else:
                 self.clear()
         except Exception:
+            _log.debug("Failed to preview archive member %s", entry.full_path, exc_info=True)
             self.clear()
 
 
@@ -1181,7 +1201,11 @@ class PreviewPanel:
         """Extract an archive member and route it through the normal preview flow."""
         try:
             virtual_path = f"{archive_path}|/{internal_path}"
-            extracted_path = DirectoryLister.extract_from_archive(virtual_path)
+            extracted_path = DirectoryLister.extract_from_archive(
+                virtual_path,
+                max_size=self._TEXT_PREVIEW_MAX_SIZE,
+                allow_large_extensions=self._PDF_EXTS,
+            )
             
             if extracted_path:
                 stat = os.stat(extracted_path)
@@ -1295,13 +1319,18 @@ class PreviewPanel:
         Args:
             entry: The file entry being previewed.
         """
+        if entry.size_bytes is None:
+            dpg.add_text(entry.name, color=[180, 180, 255], parent=self._panel_id)
+            return
+
+        size_bytes = entry.size_bytes
         mb = 1024 * 1024
         start_mb = self._text_offset / mb
         end_mb = min(
             (self._text_offset + self._TEXT_PREVIEW_MAX_SIZE) / mb,
-            entry.size_bytes / mb,
+            size_bytes / mb,
         )
-        total_mb = entry.size_bytes / mb
+        total_mb = size_bytes / mb
         
         info = f"{start_mb:.2f}-{end_mb:.2f} of {total_mb:.2f} MB"
         
@@ -1327,7 +1356,7 @@ class PreviewPanel:
                 width=24, 
                 callback=self._on_text_page_change, 
                 user_data=1,
-                enabled=(self._text_offset + self._TEXT_PREVIEW_MAX_SIZE < entry.size_bytes)
+                enabled=(self._text_offset + self._TEXT_PREVIEW_MAX_SIZE < size_bytes)
             )
 
     def _on_text_page_change(self, sender, app_data, user_data: int) -> None:
@@ -1340,7 +1369,9 @@ class PreviewPanel:
         """
         if self._current_entry is None:
             return
-            
+        if self._current_entry.size_bytes is None:
+            return
+             
         new_offset = self._text_offset + (user_data * self._TEXT_PREVIEW_MAX_SIZE)
         if 0 <= new_offset < self._current_entry.size_bytes:
             self._text_offset = new_offset
@@ -1722,17 +1753,25 @@ class PreviewPanel:
                     if shape.image_blob is not None and _PILImage is not None:
                         try:
                             pil_img = _PILImage.open(io.BytesIO(shape.image_blob))
-                            pil_img = pil_img.convert("RGBA")
-                            img_w, img_h = pil_img.size
+                            img_rgba = pil_img.convert("RGBA")
+                            pil_img.close()
+                            img_w, img_h = img_rgba.size
                             scale = min(max_img_w / img_w, 1.0)
                             disp_w = int(img_w * scale)
                             disp_h = int(img_h * scale)
-                            raw = (
-                                list(
-                                    b / 255.0
-                                    for b in pil_img.tobytes()
+                            if _np is not None:
+                                arr = (
+                                    _np.frombuffer(img_rgba.tobytes(), dtype=_np.uint8)
+                                    .astype(_np.float32)
+                                    / _np.float32(255.0)
                                 )
-                            )
+                                raw = array.array("f", arr.tobytes())
+                            else:
+                                raw = array.array(
+                                    "f",
+                                    (b / 255.0 for b in img_rgba.tobytes()),
+                                )
+                            img_rgba.close()
                             pptx_tex_tag = (
                                 f"_pptx_tex_{self._config_tag}"
                                 f"_{pptx_tex_idx}"
@@ -1756,7 +1795,7 @@ class PreviewPanel:
                             )
                             dpg.add_spacer(height=4)
                         except Exception:
-                            pass
+                            _log.debug("Failed to render PPTX inline image", exc_info=True)
                         # Also show text if shape has both image and text
                         if not shape.paragraphs:
                             continue

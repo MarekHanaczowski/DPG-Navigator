@@ -44,6 +44,10 @@ jobs:
           dpg_navigator/_preview_sqlite.py
           dpg_navigator/_preview_word.py
           dpg_navigator/_preview_presentation.py
+          dpg_navigator/_preview.py
+          dpg_navigator/_dialog.py
+          dpg_navigator/_pdf.py
+          dpg_navigator/_html.py
 
       - name: Test
         run: python -m pytest -q

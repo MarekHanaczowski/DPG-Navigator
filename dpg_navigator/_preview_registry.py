@@ -128,10 +128,19 @@ def resolve_preview_kind(
         return PreviewKind.FONT
     if ext in XML_EXTS:
         return PreviewKind.XML
-    if capabilities.pygments and ext in CODE_EXTS:
+    # Source code: extension-based, or well-known extensionless filenames
+    # (e.g. "Dockerfile", "Makefile") resolved via their dotted registry entry.
+    if capabilities.pygments and (
+        ext in CODE_EXTS or (not ext and f".{filename.lower()}" in CODE_EXTS)
+    ):
         return PreviewKind.CODE
-    if ext in TEXT_PREVIEW_EXTS or (not ext and filename.lower() in TEXT_PREVIEW_EXTS):
+    if ext in TEXT_PREVIEW_EXTS:
         return PreviewKind.TEXT
+    if not ext:
+        name = filename.lower()
+        key = name if name.startswith(".") else f".{name}"
+        if key in TEXT_PREVIEW_EXTS:
+            return PreviewKind.TEXT
     if capabilities.pdf and ext in PDF_EXTS:
         return PreviewKind.PDF
     if ext in ZIP_EXTS:

@@ -72,3 +72,27 @@ class TestHtmlActiveExtensions:
         assert MD_EXTS <= extensions
         assert CODE_EXTS <= extensions
         assert WORD_EXTS <= extensions
+
+
+class TestExtensionlessFilenames:
+    """Extensionless files (Makefile/Dockerfile) resolve via their dotted entry."""
+
+    def test_dockerfile_routes_to_text_without_pygments(self):
+        assert _resolve("Dockerfile") is PreviewKind.TEXT
+
+    def test_dockerfile_routes_to_code_with_pygments(self):
+        assert _resolve("Dockerfile", pygments=True) is PreviewKind.CODE
+
+    def test_makefile_routes_to_text_without_pygments(self):
+        assert _resolve("Makefile") is PreviewKind.TEXT
+
+    def test_makefile_routes_to_code_with_pygments(self):
+        assert _resolve("Makefile", pygments=True) is PreviewKind.CODE
+
+    def test_dotfile_without_extension_routes_to_text(self):
+        # splitext(".gitignore") == (".gitignore", ""), so no extension but the
+        # dotted name still matches the registry entry.
+        assert _resolve(".gitignore") is PreviewKind.TEXT
+
+    def test_unknown_extensionless_name_has_no_route(self):
+        assert _resolve("README") is PreviewKind.NONE

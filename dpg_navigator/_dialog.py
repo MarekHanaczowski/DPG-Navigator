@@ -15,15 +15,17 @@ import logging
 import os
 import threading
 import time
+import uuid
 from typing import Callable
 
-import dearpygui.dearpygui as dpg
+import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
 _log = logging.getLogger(__name__)
 
 from ._types import DialogConfig, DialogMode, StyleVariant, FileEntry, DEFAULT_FILTER_LIST
 from ._icons import IconRegistry
 from ._filesystem import DirectoryLister, DirectoryIndex, validate_folder_name, build_selection_list
+from ._preview_registry import ZIP_EXTS, SEVEN_Z_EXTS
 from ._styles import STYLE_REGISTRY
 from ._preview import PreviewPanel
 from ._keyboard import KeyboardMixin
@@ -99,6 +101,12 @@ class FileDialog(KeyboardMixin):
             self._config = config
         else:
             self._config = DialogConfig(**kwargs)
+
+        # Two dialogs sharing a tag (e.g. separate open + save with the default
+        # config) crash in dpg.window(tag=...). If the tag is already a live DPG
+        # item, switch to a unique one so construction never fails.
+        if dpg.does_item_exist(self._config.tag):
+            self._config.tag = f"{self._config.tag}_{uuid.uuid4().hex[:8]}"
 
         self._callback = callback
         self._destroyed = False
@@ -308,7 +316,12 @@ class FileDialog(KeyboardMixin):
             return
 
         try:
-            os.listdir(resolved)
+            # Cheap access/existence probe: opening the dir handle is enough.
+            # We deliberately do NOT enumerate here — list_directory does the
+            # real work but swallows errors silently, so this probe is what
+            # surfaces "Permission denied" to the user.
+            with os.scandir(resolved):
+                pass
         except PermissionError as e:
             self._show_message(
                 "Permission denied",
@@ -424,6 +437,7 @@ class FileDialog(KeyboardMixin):
             try:
                 self._render_entry(entry)
             except Exception:
+                _log.debug("Failed to render entry %s", entry.name, exc_info=True)
                 continue
 
         if self._config.show_dir_size:
@@ -621,7 +635,7 @@ class FileDialog(KeyboardMixin):
 
         elif not entry.is_dir:
             ext = os.path.splitext(entry.name)[1].lower()
-            is_archive = ext in {".zip", ".whl", ".egg", ".jar", ".apk", ".7z"}
+            is_archive = ext in (ZIP_EXTS | SEVEN_Z_EXTS)
             
             if is_archive and is_double:
                 self._navigate_to(entry.full_path + "|/")
@@ -691,11 +705,37 @@ class FileDialog(KeyboardMixin):
     # ── Search & filter ─────────────────────────────────────────
 
     def _on_search(self, sender, app_data, user_data) -> None:
-        """Handle search field input — filters on every keystroke."""
-        query = dpg.get_value(sender)
-        self._refresh_listing(search_query=query)
+        """Handle search field input — debounced to avoid per-keystroke rescans.
 
+        Listing the directory (os.scandir + stat per entry) on every keystroke
+        freezes the UI on large folders. Both the shallow listing and the
+        recursive subfolder search are deferred until the user pauses typing.
+        """
+        self._schedule_search(dpg.get_value(sender))
+
+    def _schedule_search(self, query: str) -> None:
+        """(Re)start the debounce timer for a search refresh of *query*."""
         self._cancel_pending_search()
+
+        gen = self._bg_generation
+        self._search_debounce_timer = threading.Timer(
+            self._DEEP_SEARCH_DEBOUNCE,
+            self._run_search,
+            args=(query, gen),
+        )
+        self._search_debounce_timer.daemon = True
+        self._search_debounce_timer.start()
+
+    def _run_search(self, query: str, expected_gen: int) -> None:
+        """Run the debounced shallow listing refresh and optional deep search."""
+        if self._bg_generation != expected_gen:
+            return
+        with dpg.mutex():
+            if self._bg_generation != expected_gen:
+                return
+            if not dpg.does_item_exist(self._explorer_table):
+                return
+            self._refresh_listing(search_query=query)
 
         subfolder_on = (
             self._config.search_subfolders
@@ -703,14 +743,17 @@ class FileDialog(KeyboardMixin):
             and dpg.get_value(self._subfolder_checkbox)
         )
         if query and subfolder_on and self._dir_index.ready:
-            gen = self._bg_generation
-            self._search_debounce_timer = threading.Timer(
-                self._DEEP_SEARCH_DEBOUNCE,
-                self._run_deep_search,
-                args=(query, gen),
-            )
-            self._search_debounce_timer.daemon = True
-            self._search_debounce_timer.start()
+            # _refresh_listing bumped _bg_generation; pass the fresh value so the
+            # deep-search generation guard does not reject it.
+            self._run_deep_search(query, self._bg_generation)
+
+        # A keystroke landing while this refresh ran was dropped: its timer got
+        # cancelled by _refresh_listing and its generation snapshot invalidated.
+        # If the box now holds a different query, schedule a fresh pass for it.
+        if dpg.does_item_exist(self._search_input):
+            current_query = dpg.get_value(self._search_input)
+            if current_query != query:
+                self._schedule_search(current_query)
 
     def _on_subfolder_toggle(self, sender, app_data, user_data) -> None:
         """Handle subfolder search checkbox toggle."""
@@ -823,7 +866,7 @@ class FileDialog(KeyboardMixin):
         for path, cell_id in cells.items():
             if self._bg_generation != generation:
                 return
-            size = DirectoryLister._get_size(path, is_dir=True, show_dir_size=True)
+            size = DirectoryLister.compute_dir_size(path)
             self._size_cache[path] = (size, time.time())
             if self._bg_generation != generation:
                 return
@@ -882,6 +925,7 @@ class FileDialog(KeyboardMixin):
                 try:
                     self._render_entry(entry, relative_label=True)
                 except Exception:
+                    _log.debug("Failed to render deep-search entry %s", entry.name, exc_info=True)
                     continue
 
     # ── UI construction ─────────────────────────────────────────

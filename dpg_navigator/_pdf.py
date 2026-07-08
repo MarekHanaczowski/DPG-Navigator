@@ -9,23 +9,24 @@ and background prefetch of neighboring pages.
 import ctypes
 import threading
 from collections import OrderedDict
+from typing import Any, cast
 
-import dearpygui.dearpygui as dpg
+import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
 try:
-    import pypdfium2 as _pdfium
+    import pypdfium2 as _pdfium  # type: ignore[import-untyped]
 except ImportError:
-    _pdfium = None
+    _pdfium = cast(Any, None)
 
 try:
     import numpy as _np
 except ImportError:
-    _np = None
+    _np = cast(Any, None)
 
 try:
     from PIL import Image as _PILImage
 except ImportError:
-    _PILImage = None
+    _PILImage = cast(Any, None)
 
 
 def pdf_available() -> bool:
@@ -46,24 +47,25 @@ class PDFRenderer:
 
     def __init__(self, config_tag: str):
         self._config_tag = config_tag
-        self._doc = None
+        self._doc: Any = None
         self._total_pages: int = 0
         self._current_page: int = 0
         self._current_path: str = ""
 
         # LRU page cache: page_num -> np.ndarray (float32 RGBA)
-        self._page_cache: OrderedDict[int, "_np.ndarray"] = OrderedDict()
+        self._page_cache: OrderedDict[int, Any] = OrderedDict()
 
         # raw_texture + mvBuffer state (integer IDs, no string aliases)
         self._tex_w: int = 0
         self._tex_h: int = 0
-        self._tex_buffer = None
+        self._tex_buffer: Any = None
         self._buf_ptr: int | None = None
         self._tex_id: int | None = None
         self._tex_exists: bool = False
 
         # Thread safety
         self._doc_lock = threading.Lock()
+        self._cache_lock = threading.Lock()
         self._prefetch_generation: int = 0
 
     # ── Properties ────────────────────────────────────────────
@@ -113,8 +115,11 @@ class PDFRenderer:
 
     def close(self) -> None:
         """Close the PDF document and release all resources."""
-        self._prefetch_generation += 1
-        self._page_cache.clear()
+        # Bump the generation and clear atomically, so a prefetch worker cannot
+        # observe the old generation yet insert after the clear.
+        with self._cache_lock:
+            self._prefetch_generation += 1
+            self._page_cache.clear()
 
         if self._tex_exists:
             if self._tex_id is not None and dpg.does_item_exist(self._tex_id):
@@ -154,6 +159,8 @@ class PDFRenderer:
 
         buf_size = self._tex_w * self._tex_h * 4
         self._tex_buffer = dpg.mvBuffer(buf_size)
+        if self._tex_buffer is None:
+            raise RuntimeError("Failed to allocate PDF texture buffer")
 
         # Initialize to white using memmove from numpy
         white = _np.ones(buf_size, dtype=_np.float32)
@@ -168,13 +175,17 @@ class PDFRenderer:
                 format=dpg.mvFormat_Float_rgba,
             )
         self._tex_exists = True
-        self._page_cache.clear()
-        self._prefetch_generation += 1
+        with self._cache_lock:
+            self._prefetch_generation += 1
+            self._page_cache.clear()
 
     # ── Rendering pipeline ────────────────────────────────────
 
     def _render_to_array(self, page_num: int, w: int, h: int) -> "_np.ndarray":
         """Render a single page to a numpy float32 RGBA array sized w x h."""
+        if self._doc is None:
+            raise RuntimeError("PDF document is not open")
+
         with self._doc_lock:
             page = self._doc[page_num]
             pw, ph = page.get_size()
@@ -199,10 +210,9 @@ class PDFRenderer:
             canvas = _np.ones(w * h * 4, dtype=_np.float32)
             ox = (w - iw) // 2
             oy = (h - ih) // 2
-            for row in range(ih):
-                src_s = row * iw * 4
-                dst_s = ((oy + row) * w + ox) * 4
-                canvas[dst_s : dst_s + iw * 4] = arr[src_s : src_s + iw * 4]
+            # Vectorized centering on a 2D view of the flat canvas — bit-identical
+            # to the former per-row loop, but without Python-level iteration.
+            canvas.reshape(h, w, 4)[oy:oy + ih, ox:ox + iw] = arr.reshape(ih, iw, 4)
             return _np.ascontiguousarray(canvas)
         return _np.ascontiguousarray(arr)
 
@@ -210,13 +220,15 @@ class PDFRenderer:
 
     def _get_page(self, page_num: int) -> "_np.ndarray":
         """Get a rendered page from cache or render it fresh."""
-        if page_num in self._page_cache:
-            self._page_cache.move_to_end(page_num)
-            return self._page_cache[page_num]
+        with self._cache_lock:
+            if page_num in self._page_cache:
+                self._page_cache.move_to_end(page_num)
+                return self._page_cache[page_num]
         data = self._render_to_array(page_num, self._tex_w, self._tex_h)
-        self._page_cache[page_num] = data
-        if len(self._page_cache) > self._CACHE_SIZE:
-            self._page_cache.popitem(last=False)
+        with self._cache_lock:
+            self._page_cache[page_num] = data
+            if len(self._page_cache) > self._CACHE_SIZE:
+                self._page_cache.popitem(last=False)
         return data
 
     # ── Page display ──────────────────────────────────────────
@@ -225,11 +237,18 @@ class PDFRenderer:
         """Render and display a page. Returns (current_page, total_pages)."""
         if self._doc is None or self._tex_w == 0 or self._tex_h == 0:
             return (0, 0)
+        if self._buf_ptr is None:
+            return (0, 0)
 
         page_num = max(0, min(page_num, self._total_pages - 1))
         self._current_page = page_num
 
         arr = self._get_page(page_num)
+        # Guard against a cached array whose size no longer matches the
+        # texture buffer (e.g. a stale render surviving a resize): copying it
+        # via memmove would overflow/underflow the buffer.
+        if arr.size != self._tex_w * self._tex_h * 4:
+            return (self._current_page, self._total_pages)
         ctypes.memmove(self._buf_ptr, arr.ctypes.data, arr.nbytes)
 
         self._start_prefetch(page_num)
@@ -280,13 +299,21 @@ class PDFRenderer:
         for n in [page_num + 1, page_num - 1]:
             if self._prefetch_generation != gen:
                 return
-            if 0 <= n < self._total_pages and n not in self._page_cache:
-                try:
-                    data = self._render_to_array(n, self._tex_w, self._tex_h)
+            if not (0 <= n < self._total_pages):
+                continue
+            with self._cache_lock:
+                if n in self._page_cache:
+                    continue
+            try:
+                data = self._render_to_array(n, self._tex_w, self._tex_h)
+                with self._cache_lock:
+                    # Re-check under the lock: close()/_recreate_texture() bump
+                    # the generation and clear the cache atomically, so a stale
+                    # worker must not insert a page from the previous document.
                     if self._prefetch_generation != gen:
                         return
                     self._page_cache[n] = data
                     if len(self._page_cache) > self._CACHE_SIZE:
                         self._page_cache.popitem(last=False)
-                except Exception:
-                    pass
+            except Exception:
+                pass

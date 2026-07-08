@@ -30,6 +30,7 @@ except ImportError:
     _py7zr = None
 
 from ._types import FileEntry
+from ._preview_registry import ZIP_EXTS, SEVEN_Z_EXTS
 from . import _platform
 
 MAX_SCAN_DEPTH = 3
@@ -61,7 +62,7 @@ class DirectoryLister:
         if DirectoryLister._session_temp_dir is None:
             base_temp = tempfile.gettempdir()
             # Use PID and time to ensure uniqueness
-            session_id = hashlib.md5(f"{os.getpid()}_{time.time()}".encode()).hexdigest()[:8]
+            session_id = hashlib.md5(f"{os.getpid()}_{time.time()}".encode(), usedforsecurity=False).hexdigest()[:8]
             temp_path = os.path.join(base_temp, f"dpg_navigator_extracted_{session_id}")
             os.makedirs(temp_path, exist_ok=True)
             DirectoryLister._session_temp_dir = temp_path
@@ -144,6 +145,16 @@ class DirectoryLister:
         return entries
 
     @staticmethod
+    def compute_dir_size(path: str) -> int:
+        """Return the bounded total size (bytes) of a directory tree.
+
+        Public entry point for background size computation; walks the tree
+        up to :data:`MAX_SCAN_DEPTH`. Always returns an ``int`` (0 on error).
+        """
+        size = DirectoryLister._get_size(path, is_dir=True, show_dir_size=True)
+        return size if size is not None else 0
+
+    @staticmethod
     def _get_size(path: str, is_dir: bool, show_dir_size: bool) -> int | None:
         """Get file/directory size in bytes."""
         if is_dir:
@@ -208,8 +219,8 @@ class DirectoryLister:
             
         ext = os.path.splitext(archive_path)[1].lower()
         
-        is_zip = ext in {".zip", ".whl", ".egg", ".jar", ".apk"}
-        is_7z = ext == ".7z"
+        is_zip = ext in ZIP_EXTS
+        is_7z = ext in SEVEN_Z_EXTS
         
         if not is_zip and not is_7z:
             return entries
@@ -227,8 +238,7 @@ class DirectoryLister:
             if search_query and search_query.lower() not in item_name.lower():
                 return
                 
-            archive_exts = {".zip", ".whl", ".egg", ".jar", ".apk", ".7z"}
-            bypass_filter = file_filter.lower() in archive_exts
+            bypass_filter = file_filter.lower() in (ZIP_EXTS | SEVEN_Z_EXTS)
 
             if not is_d and file_filter != ".*" and not bypass_filter:
                 if not fnmatch.fnmatch(item_name.lower(), f"*{file_filter.lower()}"):
@@ -318,8 +328,8 @@ class DirectoryLister:
                 return None
                 
             ext = os.path.splitext(archive_path)[1].lower()
-            is_zip = ext in {".zip", ".whl", ".egg", ".jar", ".apk"}
-            is_7z = ext == ".7z"
+            is_zip = ext in ZIP_EXTS
+            is_7z = ext in SEVEN_Z_EXTS
 
             if not is_zip and not is_7z:
                 return None
@@ -335,7 +345,7 @@ class DirectoryLister:
                     and member_ext not in allowed_large_exts
                 )
             
-            archive_hash = hashlib.md5(archive_path.encode()).hexdigest()[:8]
+            archive_hash = hashlib.md5(archive_path.encode(), usedforsecurity=False).hexdigest()[:8]
             archive_temp_root = os.path.join(DirectoryLister._get_session_temp_dir(), archive_hash)
             os.makedirs(archive_temp_root, exist_ok=True)
             

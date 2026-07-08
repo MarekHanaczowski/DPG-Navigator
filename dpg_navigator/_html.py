@@ -12,26 +12,24 @@ import tempfile
 import threading
 import time
 import uuid
+from typing import Any, cast
 
-import dearpygui.dearpygui as dpg
+import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
 try:
-    from html2image import Html2Image as _Html2Image
+    from html2image import Html2Image as _Html2Image  # type: ignore[import-untyped]
 except ImportError:
-    _Html2Image = None
+    _Html2Image = cast(Any, None)
 
 try:
     import numpy as _np
 except ImportError:
-    _np = None
+    _np = cast(Any, None)
 
 try:
     from PIL import Image as _PILImage
-    # Chrome screenshots at 8000px height are legitimately large —
-    # disable Pillow's decompression bomb check for this module.
-    _PILImage.MAX_IMAGE_PIXELS = None
 except ImportError:
-    _PILImage = None
+    _PILImage = cast(Any, None)
 
 
 def html_available() -> bool:
@@ -72,7 +70,8 @@ _OVERFLOW_MARKER = (
 )
 
 # Lazily computed float32 background color
-_bg_f32_cache: "_np.ndarray | None" = None
+_bg_f32_cache: Any = None
+_LANCZOS = getattr(getattr(_PILImage, "Resampling", _PILImage), "LANCZOS", 1)
 
 
 def _get_bg_f32() -> "_np.ndarray":
@@ -162,7 +161,7 @@ def _get_scaled_doc(
     scale = target_w / current_w
     target_h = max(1, int(current_h * scale))
     img = _PILImage.fromarray(full_arr)
-    img_scaled = img.resize((target_w, target_h), _PILImage.LANCZOS)
+    img_scaled = img.resize((target_w, target_h), _LANCZOS)
     return _np.array(img_scaled, dtype=_np.uint8), target_w, target_h
 
 
@@ -187,7 +186,7 @@ class HTMLRenderer:
     """
 
     # Shared Html2Image instance (lazy-initialized, one Chrome config for all)
-    _hti: "_Html2Image | None" = None
+    _hti: Any = None
     _hti_lock: threading.Lock = threading.Lock()
 
     def __init__(self, config_tag: str):
@@ -196,12 +195,12 @@ class HTMLRenderer:
         self._html_content: str = ""
 
         # Full render from Chrome (after trim, before scaling)
-        self._full_array: "_np.ndarray | None" = None
+        self._full_array: Any = None
         self._full_w: int = 0
         self._full_h: int = 0
 
         # Display document (possibly scaled down from full_array)
-        self._doc_array: "_np.ndarray | None" = None
+        self._doc_array: Any = None
         self._doc_w: int = 0
         self._doc_h: int = 0
         self._scroll_y: float = 0
@@ -209,11 +208,11 @@ class HTMLRenderer:
         # DPG raw_texture state (integer IDs, no string aliases)
         self._tex_w: int = 0
         self._tex_h: int = 0
-        self._tex_buffer = None
+        self._tex_buffer: Any = None
         self._buf_ptr: int | None = None
         self._tex_id: int | None = None
         self._tex_exists: bool = False
-        self._viewport_buf: "_np.ndarray | None" = None
+        self._viewport_buf: Any = None
 
         # Render state
         self._render_generation: int = 0
@@ -227,8 +226,8 @@ class HTMLRenderer:
         self._resize_timer: threading.Timer | None = None
 
         # Callbacks (invoked inside dpg.mutex)
-        self._on_complete = None
-        self._on_resize_complete = None
+        self._on_complete: Any = None
+        self._on_resize_complete: Any = None
 
     # ── Properties ────────────────────────────────────────────
 
@@ -379,6 +378,8 @@ class HTMLRenderer:
 
         buf_size = self._tex_w * self._tex_h * 4
         self._tex_buffer = dpg.mvBuffer(buf_size)
+        if self._tex_buffer is None:
+            raise RuntimeError("Failed to allocate HTML texture buffer")
 
         bg = _get_bg_f32()
         self._viewport_buf = _np.empty(
