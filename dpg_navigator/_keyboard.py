@@ -5,6 +5,8 @@ table navigation, and mouse wheel/drag handlers for preview panel
 resize, PDF page scrolling, and HTML scroll.  This is a mixin class —
 it accesses ``self._*`` attributes defined by the host :class:`FileDialog`.
 """
+
+from __future__ import annotations
 # MIT licensed
 
 import os

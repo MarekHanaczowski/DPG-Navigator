@@ -4,6 +4,8 @@ Uses html2image (Chrome Headless) + numpy + Pillow for rendering
 HTML files into a scrollable DPG raw_texture with background rendering,
 auto-trim, overflow detection, and responsive scaling.
 """
+
+from __future__ import annotations
 # MIT licensed
 
 import ctypes

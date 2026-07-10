@@ -2,6 +2,8 @@
 
 Extracts slide content without depending on DearPyGui or Pillow.
 """
+
+from __future__ import annotations
 # MIT licensed
 
 from dataclasses import dataclass
@@ -18,7 +20,7 @@ class PresentationPreviewError(Exception):
     """PowerPoint presentation data could not be loaded."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class PresentationRun:
     """Inline text with the formatting used by the preview panel."""
 
@@ -27,7 +29,7 @@ class PresentationRun:
     italic: bool
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class PresentationParagraph:
     """Text paragraph extracted from a slide shape."""
 
@@ -36,14 +38,14 @@ class PresentationParagraph:
     runs: list[PresentationRun]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class PresentationTable:
     """Table rows extracted from a slide shape."""
 
     rows: list[list[str]]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class PresentationShape:
     """Preview-ready shape content."""
 
@@ -52,7 +54,7 @@ class PresentationShape:
     paragraphs: list[PresentationParagraph]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class PresentationSlide:
     """Preview-ready slide content."""
 
@@ -60,7 +62,7 @@ class PresentationSlide:
     notes: str
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class PresentationDocument:
     """Preview-ready presentation content."""
 

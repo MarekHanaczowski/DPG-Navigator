@@ -2,6 +2,8 @@
 
 Parses workbook sheets into table-ready rows without depending on DearPyGui.
 """
+
+from __future__ import annotations
 # MIT licensed
 
 from dataclasses import dataclass
@@ -17,7 +19,7 @@ class ExcelPreviewError(Exception):
     """Excel workbook data could not be loaded."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class SpreadsheetTable:
     """Table-ready worksheet data."""
 

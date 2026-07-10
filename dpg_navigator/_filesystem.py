@@ -6,6 +6,8 @@ sorting, and display formatting. Pure logic with no DearPyGui dependency.
 DirectoryIndex provides a background-built in-memory index for fast
 recursive file search across directory trees.
 """
+
+from __future__ import annotations
 # MIT licensed
 
 import datetime
@@ -51,6 +53,17 @@ kept (search results are already limited to :data:`INDEX_MAX_RESULTS`)."""
 """Maximum number of results returned from an index search."""
 
 
+def _short_md5(data: bytes) -> str:
+    """Return an 8-char MD5 hex digest for non-cryptographic naming.
+
+    ``usedforsecurity`` was added in Python 3.9; fall back gracefully on 3.8.
+    """
+    try:
+        return hashlib.md5(data, usedforsecurity=False).hexdigest()[:8]
+    except TypeError:
+        return hashlib.md5(data).hexdigest()[:8]
+
+
 class DirectoryLister:
     """Lists directory contents with filtering, sorting, and error handling.
 
@@ -69,7 +82,7 @@ class DirectoryLister:
         if DirectoryLister._session_temp_dir is None:
             base_temp = tempfile.gettempdir()
             # Use PID and time to ensure uniqueness
-            session_id = hashlib.md5(f"{os.getpid()}_{time.time()}".encode(), usedforsecurity=False).hexdigest()[:8]
+            session_id = _short_md5(f"{os.getpid()}_{time.time()}".encode())
             temp_path = os.path.join(base_temp, f"dpg_navigator_extracted_{session_id}")
             os.makedirs(temp_path, exist_ok=True)
             DirectoryLister._session_temp_dir = temp_path
@@ -352,7 +365,7 @@ class DirectoryLister:
                     and member_ext not in allowed_large_exts
                 )
             
-            archive_hash = hashlib.md5(archive_path.encode(), usedforsecurity=False).hexdigest()[:8]
+            archive_hash = _short_md5(archive_path.encode())
             archive_temp_root = os.path.join(DirectoryLister._get_session_temp_dir(), archive_hash)
             os.makedirs(archive_temp_root, exist_ok=True)
             

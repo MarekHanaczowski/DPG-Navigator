@@ -4,6 +4,8 @@ Provides functions for drive enumeration, special directory discovery,
 hidden file detection, modifier key state, and file timestamp retrieval.
 Works on Windows, Linux, and macOS.
 """
+
+from __future__ import annotations
 # MIT licensed
 
 import os

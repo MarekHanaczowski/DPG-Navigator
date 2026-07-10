@@ -1,4 +1,6 @@
 """Pure table parsing helpers for preview renderers."""
+
+from __future__ import annotations
 # MIT licensed
 
 import csv
@@ -11,7 +13,7 @@ class CsvPreviewError(Exception):
     """CSV or TSV content could not be parsed."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class TableData:
     """Table-ready text data."""
 

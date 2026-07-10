@@ -20,6 +20,8 @@ Handles file preview rendering for multiple formats:
 Also manages panel toggle/resize logic and delegates to PDFRenderer
 and HTMLRenderer for GPU-accelerated raw_texture rendering.
 """
+
+from __future__ import annotations
 # MIT licensed
 
 import array

@@ -3,6 +3,8 @@
 Defines DialogConfig, DialogMode, StyleVariant, FileEntry, and the default
 file extension filter list used by FileDialog.
 """
+
+from __future__ import annotations
 # MIT licensed
 
 from dataclasses import dataclass
@@ -21,7 +23,7 @@ class StyleVariant(Enum):
     COMPACT = auto()   # Icon-only buttons, sidebar ~40px
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class FileEntry:
     """Represents a file or directory for display."""
     name: str

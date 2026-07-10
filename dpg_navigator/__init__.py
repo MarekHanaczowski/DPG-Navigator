@@ -16,6 +16,8 @@ Usage::
     fd = FileDialog(callback=my_handler, default_path="..")
     fd.show()
 """
+
+from __future__ import annotations
 # MIT licensed
 
 from ._types import DialogConfig, DialogMode, StyleVariant, FileEntry, DEFAULT_FILTER_LIST

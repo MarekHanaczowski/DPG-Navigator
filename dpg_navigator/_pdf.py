@@ -4,6 +4,8 @@ Uses pypdfium2 (Apache/BSD licensed) + numpy for high-performance
 page rendering with LRU caching, raw_texture/mvBuffer transfer,
 and background prefetch of neighboring pages.
 """
+
+from __future__ import annotations
 # MIT licensed
 
 import ctypes

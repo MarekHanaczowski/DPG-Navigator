@@ -44,6 +44,12 @@ All notable changes to this project will be documented in this file.
   before building or publishing any distribution.
 - CI now covers macOS and Python 3.11/3.12 (matching the declared support) and
   runs an informational `pip-audit` dependency scan.
+- Lowered the minimum supported Python from 3.10 to **3.8**. All modules now use
+  `from __future__ import annotations`, the `slots=True` dataclass option (3.10+)
+  was dropped, and the non-cryptographic MD5 naming falls back gracefully where
+  `usedforsecurity` is unavailable (3.8). Note: on 3.8/3.9 some optional preview
+  backends resolve to older releases, since their latest versions require newer
+  Python.
 
 ### Performance
 

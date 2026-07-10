@@ -3,6 +3,8 @@
 Reads databases in read-only mode and returns table-ready rows without
 depending on DearPyGui.
 """
+
+from __future__ import annotations
 # MIT licensed
 
 import sqlite3
@@ -22,7 +24,7 @@ class SQLitePreviewError(Exception):
     """SQLite database data could not be loaded."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class SQLiteTable:
     """Table-ready SQLite data."""
 

@@ -4,6 +4,8 @@ Manages loading and lookup of PNG icon textures used in the file dialog UI.
 Maps file extensions to icon names via EXTENSION_MAP and provides O(1)
 lookup through _EXT_LOOKUP.
 """
+
+from __future__ import annotations
 # MIT licensed
 
 import logging

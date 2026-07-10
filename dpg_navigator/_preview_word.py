@@ -2,6 +2,8 @@
 
 Extracts document blocks without depending on DearPyGui.
 """
+
+from __future__ import annotations
 # MIT licensed
 
 from dataclasses import dataclass
@@ -18,7 +20,7 @@ class WordPreviewError(Exception):
     """Word document data could not be loaded."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class WordRun:
     """Inline text with the formatting used by the preview panel."""
 
@@ -27,7 +29,7 @@ class WordRun:
     italic: bool
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class WordParagraph:
     """Paragraph text and formatting metadata."""
 
@@ -36,7 +38,7 @@ class WordParagraph:
     runs: list[WordRun]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class WordTable:
     """Table rows extracted from a Word document."""
 
@@ -46,7 +48,7 @@ class WordTable:
 WordBlock = WordParagraph | WordTable
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class WordDocument:
     """Preview-ready Word document blocks."""
 

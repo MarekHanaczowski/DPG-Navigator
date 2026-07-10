@@ -2,6 +2,8 @@
 
 Parses ZIP and 7z members into table-ready rows without depending on DearPyGui.
 """
+
+from __future__ import annotations
 # MIT licensed
 
 import heapq
@@ -26,7 +28,7 @@ class EncryptedArchiveError(ArchivePreviewError):
     """Archive requires a password."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class ArchiveTable:
     """Table-ready archive metadata."""
 

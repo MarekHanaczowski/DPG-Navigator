@@ -4,6 +4,8 @@ Provides SidebarRenderer ABC and two implementations:
 - LabeledSidebar: icon + text labels with resizable directory tree.
 - CompactSidebar: icon-only buttons in a narrow sidebar.
 """
+
+from __future__ import annotations
 # MIT licensed
 
 import os

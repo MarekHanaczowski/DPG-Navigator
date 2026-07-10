@@ -3,6 +3,8 @@
 Keeps extension groups and renderer selection independent from DearPyGui so
 the routing contract can be tested without a GUI context.
 """
+
+from __future__ import annotations
 # MIT licensed
 
 import os
@@ -79,7 +81,7 @@ class PreviewKind(Enum):
     PPTX = auto()
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class PreviewCapabilities:
     """Optional preview backends available in the current environment."""
 
