@@ -11,7 +11,7 @@ from typing import Any, Callable
 
 try:
     from openpyxl import load_workbook as _load_workbook  # type: ignore[import-untyped]
-except ImportError:
+except Exception:  # optional backend absent or incompatible (e.g. old Python)
     _load_workbook = None
 
 

@@ -12,7 +12,7 @@ from typing import Any, Callable
 _Presentation: Any
 try:
     from pptx import Presentation as _Presentation  # type: ignore[import-untyped]
-except ImportError:
+except Exception:  # optional backend absent or incompatible (e.g. old Python)
     _Presentation = None
 
 

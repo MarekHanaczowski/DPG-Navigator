@@ -6,8 +6,15 @@ without launching a real Chrome/Chromium process.
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 import dpg_navigator._html as htmlmod
-from dpg_navigator._html import HTMLRenderer, chrome_available, _CHROME_TIMEOUT
+from dpg_navigator._html import (
+    HTMLRenderer,
+    chrome_available,
+    html_available,
+    _CHROME_TIMEOUT,
+)
 
 
 class TestChromeAvailable:
@@ -54,6 +61,10 @@ class TestChromeAvailable:
 class TestChromeTimeout:
     """_get_hti() injects a subprocess timeout so a hung Chrome cannot block."""
 
+    @pytest.mark.skipif(
+        not html_available(),
+        reason="html2image backend not importable in this environment",
+    )
     def test_timeout_injected_into_subprocess_kwargs(self):
         with patch.object(HTMLRenderer, "_hti", None):
             hti = HTMLRenderer._get_hti()

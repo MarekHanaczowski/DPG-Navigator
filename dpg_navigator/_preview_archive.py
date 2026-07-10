@@ -14,7 +14,7 @@ from typing import Any
 _py7zr: Any
 try:
     import py7zr as _py7zr
-except ImportError:
+except Exception:  # optional backend absent or incompatible (e.g. old Python)
     _py7zr = None
 
 from ._filesystem import DirectoryLister

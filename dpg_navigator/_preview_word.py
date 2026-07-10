@@ -12,7 +12,7 @@ from typing import Any, Callable
 _DocxDocument: Any
 try:
     from docx import Document as _DocxDocument  # type: ignore[import-untyped]
-except ImportError:
+except Exception:  # optional backend absent or incompatible (e.g. old Python)
     _DocxDocument = None
 
 

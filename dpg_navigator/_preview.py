@@ -39,22 +39,22 @@ _log = logging.getLogger(__name__)
 
 try:
     from PIL import Image as _PILImage
-except ImportError:
+except Exception:  # optional backend absent or incompatible (e.g. old Python)
     _PILImage = cast(Any, None)
 
 try:
     import numpy as _np
-except ImportError:
+except Exception:  # optional backend absent or incompatible (e.g. old Python)
     _np = cast(Any, None)
 
 try:
     import mammoth as _mammoth  # type: ignore[import-untyped]
-except ImportError:
+except Exception:  # optional backend absent or incompatible (e.g. old Python)
     _mammoth = cast(Any, None)
 
 try:
     import markdown as _markdown  # type: ignore[import-untyped]
-except ImportError:
+except Exception:  # optional backend absent or incompatible (e.g. old Python)
     _markdown = cast(Any, None)
 
 try:
@@ -62,7 +62,7 @@ try:
     from pygments.lexers import get_lexer_for_filename as _get_lexer  # type: ignore[import-untyped]
     from pygments.formatters import HtmlFormatter as _HtmlFormatter  # type: ignore[import-untyped]
     from pygments.util import ClassNotFound as _ClassNotFound  # type: ignore[import-untyped]
-except ImportError:
+except Exception:  # optional backend absent or incompatible (e.g. old Python)
     _highlight = cast(Any, None)
     _get_lexer = cast(Any, None)
     _HtmlFormatter = cast(Any, None)

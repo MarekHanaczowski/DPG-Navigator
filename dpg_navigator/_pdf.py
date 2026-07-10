@@ -17,17 +17,17 @@ import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
 try:
     import pypdfium2 as _pdfium  # type: ignore[import-untyped]
-except ImportError:
+except Exception:  # optional backend absent or incompatible (e.g. old Python)
     _pdfium = cast(Any, None)
 
 try:
     import numpy as _np
-except ImportError:
+except Exception:  # optional backend absent or incompatible (e.g. old Python)
     _np = cast(Any, None)
 
 try:
     from PIL import Image as _PILImage
-except ImportError:
+except Exception:  # optional backend absent or incompatible (e.g. old Python)
     _PILImage = cast(Any, None)
 
 
