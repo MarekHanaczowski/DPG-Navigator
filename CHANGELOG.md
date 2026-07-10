@@ -45,6 +45,15 @@ All notable changes to this project will be documented in this file.
 - CI now covers macOS and Python 3.11/3.12 (matching the declared support) and
   runs an informational `pip-audit` dependency scan.
 
+### Performance
+
+- The recursive search index is capped at 50,000 entries; a huge tree keeps a
+  usable partial index instead of growing unbounded in memory.
+- Archive member listing uses a top-k selection instead of sorting the full
+  member list, keeping the cost roughly linear for archives with many members.
+- SQLite previews use a bounded row count (scanning at most 100,000 rows and
+  reporting `N+`) instead of a full `COUNT(*)` on large tables.
+
 ## [1.0.0b2] - 2026-06-01
 
 ### Added

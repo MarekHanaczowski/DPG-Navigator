@@ -785,6 +785,20 @@ class TestDirectoryIndex:
         # The symlink target's contents live outside `root` and must not appear.
         assert idx.search("escaped") == []
 
+    def test_caps_entries_and_keeps_partial(self, tmp_path):
+        """The index stops at INDEX_MAX_ENTRIES but keeps the partial result."""
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        for i in range(6):
+            (sub / f"f{i}.txt").write_text("x")
+
+        idx = DirectoryIndex()
+        with patch("dpg_navigator._filesystem.INDEX_MAX_ENTRIES", 3):
+            idx.build(str(tmp_path), 0, lambda: 0)
+
+        assert idx.ready
+        assert len(idx._entries) == 3
+
     def test_cancellation_via_generation(self, nested_tree):
         """Build should abort when generation changes mid-scan."""
         gen = [0]

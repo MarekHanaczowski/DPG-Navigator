@@ -41,6 +41,13 @@ INDEX_TTL: float = 60.0
 """Seconds before the directory index is considered stale."""
 
 INDEX_MAX_RESULTS = 500
+
+INDEX_MAX_ENTRIES = 50_000
+"""Hard cap on indexed entries so a huge tree cannot exhaust memory.
+
+The recursive index has a depth limit but a wide tree can still produce
+millions of entries; past this cap the build stops and the partial index is
+kept (search results are already limited to :data:`INDEX_MAX_RESULTS`)."""
 """Maximum number of results returned from an index search."""
 
 
@@ -548,6 +555,12 @@ class DirectoryIndex:
             )
         except _Cancelled:
             return
+        except _IndexFull:
+            # Keep the partial index — it is still usable for search.
+            _log.warning(
+                "Directory index truncated at %d entries under %s",
+                INDEX_MAX_ENTRIES, root,
+            )
 
         with self._lock:
             self._entries = entries
@@ -600,6 +613,8 @@ class DirectoryIndex:
                     # Only index contents below the root (not root's own entries —
                     # those are served by the normal list_directory call)
                     if depth > 0:
+                        if len(out) >= INDEX_MAX_ENTRIES:
+                            raise _IndexFull
                         try:
                             mtime = item.stat(follow_symlinks=True).st_mtime
                         except OSError:
@@ -644,3 +659,7 @@ class DirectoryIndex:
 
 class _Cancelled(Exception):
     """Raised internally to abort a DirectoryIndex.build() early."""
+
+
+class _IndexFull(Exception):
+    """Raised internally when the index hits INDEX_MAX_ENTRIES."""

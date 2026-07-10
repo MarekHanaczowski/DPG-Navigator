@@ -10,6 +10,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+MAX_COUNT_SCAN = 100_000
+"""Row-count scan cap.
+
+An exact ``COUNT(*)`` scans the whole table, which is slow for huge tables the
+preview only shows a slice of. The count is bounded to this many rows; past it
+the total is reported as ``N+``."""
+
+
 class SQLitePreviewError(Exception):
     """SQLite database data could not be loaded."""
 
@@ -66,14 +74,22 @@ def load_sqlite_table(
             for row in cursor.fetchall()
         ]
 
-        cursor.execute(f'SELECT COUNT(*) FROM "{safe_table_name}";')
-        total_rows = cursor.fetchone()[0]
+        # Bounded count: scan at most MAX_COUNT_SCAN+1 rows instead of the whole
+        # table, so a huge table cannot stall the preview on COUNT(*).
+        cursor.execute(
+            f'SELECT COUNT(*) FROM '
+            f'(SELECT 1 FROM "{safe_table_name}" LIMIT {MAX_COUNT_SCAN + 1});'
+        )
+        counted = cursor.fetchone()[0]
+        count_capped = counted > MAX_COUNT_SCAN
+        total_rows = MAX_COUNT_SCAN if count_capped else counted
     except sqlite3.Error as exc:
         raise SQLitePreviewError(str(exc)) from exc
     finally:
         connection.close()
 
-    status = f"Table: {selected_table} | {total_rows} total rows"
+    total_label = f"{total_rows}+" if count_capped else str(total_rows)
+    status = f"Table: {selected_table} | {total_label} total rows"
     truncated = []
     if total_rows > max_rows:
         truncated.append(f"first {max_rows} rows")

@@ -1,6 +1,7 @@
 """Tests for SQLite metadata loading used by the preview panel."""
 
 import sqlite3
+from unittest.mock import patch
 
 import pytest
 
@@ -29,6 +30,25 @@ class TestLoadSQLiteTable:
         assert table.status == "Table: data | 3 total rows (showing first 2 rows, first 2 cols)"
         assert table.tables == ["data"]
         assert table.table_name == "data"
+
+    def test_row_count_is_bounded(self, tmp_path):
+        """A table larger than the scan cap reports its total as ``N+``."""
+        database_path = tmp_path / "big.sqlite"
+        with sqlite3.connect(database_path) as connection:
+            connection.execute('CREATE TABLE "t" ("v")')
+            connection.executemany(
+                'INSERT INTO "t" VALUES (?)', [(i,) for i in range(5)],
+            )
+
+        with patch("dpg_navigator._preview_sqlite.MAX_COUNT_SCAN", 3):
+            table = load_sqlite_table(
+                str(database_path),
+                table_name="t",
+                max_rows=2,
+                max_cols=5,
+            )
+
+        assert "3+ total rows" in table.status
 
     def test_quoted_table_name_is_escaped(self, tmp_path):
         database_path = tmp_path / "quoted.sqlite"

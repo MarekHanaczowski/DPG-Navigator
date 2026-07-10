@@ -4,6 +4,7 @@ Parses ZIP and 7z members into table-ready rows without depending on DearPyGui.
 """
 # MIT licensed
 
+import heapq
 import zipfile
 from dataclasses import dataclass
 from typing import Any
@@ -62,18 +63,18 @@ def load_zip_table(path: str, max_rows: int) -> ArchiveTable:
     try:
         with zipfile.ZipFile(path, "r") as zf:
             info_list = zf.infolist()
-            info_list.sort(key=lambda info: info.file_size, reverse=True)
-
-            for info in info_list:
-                total_uncompressed += info.file_size
-                if len(rows) < max_rows:
-                    rows.append([
-                        info.filename,
-                        DirectoryLister.format_size(info.file_size),
-                        DirectoryLister.format_size(info.compress_size),
-                        _ratio(info.file_size, info.compress_size),
-                        f"{info.date_time[0]}-{info.date_time[1]:02d}-{info.date_time[2]:02d}",
-                    ])
+            total_uncompressed = sum(info.file_size for info in info_list)
+            # Top-k by size instead of sorting the whole member list, so the
+            # cost stays ~O(n) even for archives with far more members than
+            # max_rows.
+            for info in heapq.nlargest(max_rows, info_list, key=lambda i: i.file_size):
+                rows.append([
+                    info.filename,
+                    DirectoryLister.format_size(info.file_size),
+                    DirectoryLister.format_size(info.compress_size),
+                    _ratio(info.file_size, info.compress_size),
+                    f"{info.date_time[0]}-{info.date_time[1]:02d}-{info.date_time[2]:02d}",
+                ])
     except (OSError, PermissionError, zipfile.BadZipFile) as exc:
         raise ArchivePreviewError from exc
     except RuntimeError as exc:
@@ -101,24 +102,24 @@ def load_7z_table(path: str, max_rows: int) -> ArchiveTable:
     try:
         with _py7zr.SevenZipFile(path, mode="r") as archive:
             info_list = archive.list()
-            info_list.sort(
-                key=lambda info: info.uncompressed if info.uncompressed else 0,
-                reverse=True,
+            total_uncompressed = sum(
+                (info.uncompressed or 0) for info in info_list
             )
-
-            for info in info_list:
+            # Top-k by size instead of a full sort (see load_zip_table).
+            top = heapq.nlargest(
+                max_rows, info_list, key=lambda i: i.uncompressed or 0,
+            )
+            for info in top:
                 uncompressed = info.uncompressed if info.uncompressed else 0
                 compressed = info.compressed if info.compressed else 0
-                total_uncompressed += uncompressed
-                if len(rows) < max_rows:
-                    date = info.creationtime.strftime("%Y-%m-%d") if info.creationtime else ""
-                    rows.append([
-                        info.filename,
-                        DirectoryLister.format_size(uncompressed),
-                        DirectoryLister.format_size(compressed),
-                        _ratio(uncompressed, compressed),
-                        date,
-                    ])
+                date = info.creationtime.strftime("%Y-%m-%d") if info.creationtime else ""
+                rows.append([
+                    info.filename,
+                    DirectoryLister.format_size(uncompressed),
+                    DirectoryLister.format_size(compressed),
+                    _ratio(uncompressed, compressed),
+                    date,
+                ])
     except (OSError, PermissionError) as exc:
         raise ArchivePreviewError from exc
     except Exception as exc:
