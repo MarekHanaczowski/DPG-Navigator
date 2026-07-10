@@ -33,16 +33,22 @@ can trail the first stable release.
 - **Remaining (optional):** an explicit HTML/Office pixel budget beyond the
   existing `_MAX_RENDER_W`/`_RENDER_H` caps, if a real case needs it.
 
-### 3. Integration smoke tests (real DPG + optional backends)
-- **Why:** GUI/render modules sit around 15–20% coverage and the dialog tests
-  deliberately mock DearPyGui. Behaviour under a real context (create context,
-  build dialog, resize, destroy during workers, real Chrome render, Word
-  HTML/text switch, oversize archive) is unverified.
-- **Scope:** an `integration` pytest marker, a headless-DPG context fixture, and
-  a job that runs it where the optional backends (Chrome, pypdfium2, …) exist.
-- **First step:** one test that creates a context, constructs and destroys a
-  `FileDialog`, and asserts no leaked threads.
-- **Effort:** medium. **Risk:** low (new tests, no product change).
+### 3. Integration smoke tests (real DPG + optional backends) — **IN PROGRESS**
+- **Done:** verified lifecycle/concurrency tests that drive the real
+  `DirectoryIndex` build + `FileDialog` background-index thread against a real
+  temp filesystem (generation cancellation, thread settle, no leak) —
+  `tests/test_lifecycle.py`. Plus opt-in scaffolding for real-DPG smoke tests:
+  the `integration` marker, an env-gated `tests/integration/` (not collected
+  unless `DPG_INTEGRATION=1`, so the flaky `import dearpygui` never touches the
+  default run), and a smoke test (construct → render frames → destroy → assert
+  window gone + threads settle).
+- **Remaining:** run the real-DPG smoke under a display. `import dearpygui` is
+  non-deterministic in a headless/sandboxed shell (it can segfault at import),
+  so the smoke test was authored but not executed here — it needs a CI job with
+  a display, e.g. `xvfb-run -a env DPG_INTEGRATION=1 pytest -m integration`
+  (Linux, plus software GL). Extend coverage to real Chrome render, Word
+  HTML/text switch, and oversize-archive selection once that job exists.
+- **Run locally:** `DPG_INTEGRATION=1 pytest -m integration`.
 
 ## P2 — quality / maturity
 

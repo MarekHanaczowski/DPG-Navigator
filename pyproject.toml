@@ -85,6 +85,9 @@ exclude = ["dpg_navigator/tests/"]
 testpaths = ["dpg_navigator/tests"]
 addopts = "--basetemp=.pytest_tmp"
 cache_dir = ".pytest_tmp_cache"
+markers = [
+    "integration: real-DearPyGui tests; opt-in, need a display (set DPG_INTEGRATION=1)",
+]
 
 [tool.ruff]
 target-version = "py310"
