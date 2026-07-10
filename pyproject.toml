@@ -98,14 +98,10 @@ line-length = 120
 select = ["E9", "F63", "F7", "F82"]
 
 [tool.mypy]
-python_version = "3.10"
+# No python_version pin: mypy targets the interpreter it runs under, so each
+# CI matrix job type-checks against its own Python. This also avoids parse
+# errors from third-party stubs (e.g. numpy's PEP 695 `type` aliases) that only
+# install on the newer interpreters — the target then matches the stub syntax.
 warn_unused_configs = true
 check_untyped_defs = true
 no_implicit_optional = true
-
-# numpy's bundled stubs use PEP 695 `type` aliases, which fail to parse under
-# the 3.10 target on the newer numpy that installs on Python 3.12/3.13 runners.
-# numpy is an optional dependency used loosely (Any), so skip its stubs.
-[[tool.mypy.overrides]]
-module = ["numpy", "numpy.*"]
-follow_imports = "skip"

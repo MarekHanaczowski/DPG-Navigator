@@ -163,7 +163,7 @@ class PDFRenderer:
             raise RuntimeError("Failed to allocate PDF texture buffer")
 
         # Initialize to white using memmove from numpy
-        white: "_np.ndarray" = _np.ones(buf_size, dtype=_np.float32)
+        white = _np.ones(buf_size, dtype=_np.float32)
         self._buf_ptr = ctypes.addressof(
             ctypes.c_float.from_buffer(self._tex_buffer)
         )
@@ -207,7 +207,7 @@ class PDFRenderer:
         ).astype(_np.float32) / 255.0
 
         if iw != w or ih != h:
-            canvas: "_np.ndarray" = _np.ones(w * h * 4, dtype=_np.float32)
+            canvas = _np.ones(w * h * 4, dtype=_np.float32)
             ox = (w - iw) // 2
             oy = (h - ih) // 2
             # Vectorized centering on a 2D view of the flat canvas — bit-identical
