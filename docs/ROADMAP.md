@@ -25,17 +25,13 @@ can trail the first stable release.
 - **Effort:** large. **Risk:** medium — touches concurrency; land with the
   integration tests below.
 
-### 2. Resource budgets for previews
-- **Why:** HTML renders up to 8000 px tall and may widen to 4000 px, keeping
-  several NumPy/Pillow copies; ZIP/7z loads and sorts the full member list;
-  SQLite runs a full `COUNT(*)`; the index has a depth limit but no entry cap.
-  A pathological input can spike memory even though the UI only shows a slice.
-- **Scope:** max HTML/Office pixel budget, max archive member count (top-k
-  instead of full sort), optional skip of exact SQLite counts, and an index
-  entry cap. The Chrome subprocess timeout is already in place.
-- **First step:** add a `_MAX_INDEX_ENTRIES` cap in `DirectoryIndex._walk` and
-  switch archive listing to top-k; measure with the existing benchmarks.
-- **Effort:** medium. **Risk:** low.
+### 2. Resource budgets for previews — **DONE** (`3f1cc0d`)
+- Index entry cap (`INDEX_MAX_ENTRIES = 50k`, partial index kept), archive
+  listing via `heapq.nlargest` top-k instead of full sort, and a bounded
+  SQLite row count (`N+` past 100k) instead of a full `COUNT(*)`. The Chrome
+  subprocess timeout landed earlier in `1.0.0b3`.
+- **Remaining (optional):** an explicit HTML/Office pixel budget beyond the
+  existing `_MAX_RENDER_W`/`_RENDER_H` caps, if a real case needs it.
 
 ### 3. Integration smoke tests (real DPG + optional backends)
 - **Why:** GUI/render modules sit around 15–20% coverage and the dialog tests
