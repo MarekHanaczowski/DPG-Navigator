@@ -719,7 +719,13 @@ class PreviewPanel:
             PreviewKind.ZIP: self._render_zip_preview,
             PreviewKind.SEVEN_Z: self._render_7z_preview,
             PreviewKind.IMAGE: self._render_image_preview,
-            PreviewKind.WORD: self._render_word_preview,
+            # Word: pixel-perfect mammoth + Chrome render when available,
+            # otherwise python-docx styled-text extraction.
+            PreviewKind.WORD: (
+                self._render_word_html_preview
+                if capabilities.mammoth
+                else self._render_word_preview
+            ),
             PreviewKind.PPTX: self._render_pptx_preview,
         }
         renderer = renderers.get(preview_kind)

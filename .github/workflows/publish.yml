@@ -9,8 +9,14 @@ permissions:
   contents: read
 
 jobs:
+  test:
+    # Quality gate: run the full CI matrix (ruff, mypy, pytest) before any
+    # artifact is built or published, so a broken commit cannot reach PyPI.
+    uses: ./.github/workflows/ci.yml
+
   build:
     name: Build distributions
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

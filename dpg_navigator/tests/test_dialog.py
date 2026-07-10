@@ -509,6 +509,114 @@ class TestFileDialogLifecycle:
             cleanup.assert_called_once_with()
 
 
+class TestArchiveExtractLimit:
+    """Double-clicking a member inside an archive extracts with a size cap."""
+
+    def _dialog(self):
+        d = FileDialog.__new__(FileDialog)
+        d._selected_files = []
+        d._selected_elements = []
+        d._row_entries = {}
+        d._explorer_table = 1
+        d._filename_input = 2
+        d._focused_row_index = -1
+        d._last_clicked_element = None
+        d._config = MagicMock(tag="dlg", multi_selection=False)
+        d._preview = MagicMock()
+        return d
+
+    def test_double_click_extract_passes_max_size(self):
+        dialog = self._dialog()
+        entry = type("Entry", (), {
+            "is_dir": False,
+            "name": "big.bin",
+            "full_path": "archive.zip|/big.bin",
+        })()
+
+        with patch("dpg_navigator._dialog.dpg"), \
+             patch("dpg_navigator._dialog._platform.is_mod_key_down", return_value=False), \
+             patch.object(FileDialog, "_is_double_click", return_value=True), \
+             patch.object(FileDialog, "_return_selection"), \
+             patch.object(DirectoryLister, "extract_from_archive", return_value="/tmp/x") as extract:
+            dialog._on_entry_click(10, None, entry)
+
+        extract.assert_called_once_with(
+            "archive.zip|/big.bin",
+            max_size=FileDialog._MAX_ARCHIVE_EXTRACT_SIZE,
+        )
+
+    def test_oversized_member_shows_error_and_aborts(self):
+        dialog = self._dialog()
+        entry = type("Entry", (), {
+            "is_dir": False,
+            "name": "bomb.bin",
+            "full_path": "archive.zip|/bomb.bin",
+        })()
+
+        with patch("dpg_navigator._dialog.dpg"), \
+             patch("dpg_navigator._dialog._platform.is_mod_key_down", return_value=False), \
+             patch.object(FileDialog, "_is_double_click", return_value=True), \
+             patch.object(FileDialog, "_return_selection") as ret, \
+             patch.object(FileDialog, "_show_message") as show, \
+             patch.object(DirectoryLister, "extract_from_archive", return_value=None):
+            dialog._on_entry_click(10, None, entry)
+
+        show.assert_called_once()
+        ret.assert_not_called()
+
+
+class TestWordRendererSelection:
+    """WORD routes to the mammoth HTML renderer only when it is available."""
+
+    @staticmethod
+    def _panel():
+        panel = PreviewPanel.__new__(PreviewPanel)
+        panel._panel_id = 1
+        panel._visible = True
+        panel._current_entry = None
+        panel._text_offset = 0
+        panel._text_encoding = None
+        panel._pdf = None
+        panel._html = None
+        return panel
+
+    @staticmethod
+    def _entry():
+        return type("Entry", (), {
+            "is_dir": False,
+            "name": "report.docx",
+            "full_path": "/docs/report.docx",
+        })()
+
+    def test_routes_to_mammoth_when_available(self):
+        from dpg_navigator._preview_registry import PreviewCapabilities
+
+        panel = self._panel()
+        caps = PreviewCapabilities(word=True, mammoth=True)
+        with patch.object(PreviewPanel, "_preview_capabilities", return_value=caps), \
+             patch.object(PreviewPanel, "_delete_pptx_textures"), \
+             patch.object(PreviewPanel, "_render_word_html_preview") as html_word, \
+             patch.object(PreviewPanel, "_render_word_preview") as text_word:
+            panel.update(self._entry())
+
+        html_word.assert_called_once()
+        text_word.assert_not_called()
+
+    def test_routes_to_text_without_mammoth(self):
+        from dpg_navigator._preview_registry import PreviewCapabilities
+
+        panel = self._panel()
+        caps = PreviewCapabilities(word=True, mammoth=False)
+        with patch.object(PreviewPanel, "_preview_capabilities", return_value=caps), \
+             patch.object(PreviewPanel, "_delete_pptx_textures"), \
+             patch.object(PreviewPanel, "_render_word_html_preview") as html_word, \
+             patch.object(PreviewPanel, "_render_word_preview") as text_word:
+            panel.update(self._entry())
+
+        text_word.assert_called_once()
+        html_word.assert_not_called()
+
+
 class TestHtmlPreviewFallback:
     """HTML preview degrades to raw text when the Chrome backend is absent."""
 

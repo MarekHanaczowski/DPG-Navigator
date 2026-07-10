@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-## [1.0.0b3] - 2026-07-08
+## [1.0.0b3] - 2026-07-10
 
 ### Fixed
 
@@ -19,6 +19,11 @@ All notable changes to this project will be documented in this file.
 - Search input reads (`get_value`/`does_item_exist`) in the debounced search
   worker now happen inside `dpg.mutex()`; only plain Python values cross the
   mutex boundary, closing a race with dialog teardown and navigation.
+- Selecting a member inside an archive (double-click) now extracts with an
+  anti-bomb size cap instead of extracting unbounded data to disk.
+- Word `.docx` files are again rendered pixel-perfect through mammoth + Chrome
+  when that backend is available (the router previously always used the
+  python-docx text fallback), matching the documented behavior.
 - Removed a stray trailing-whitespace line in the text-preview pager.
 
 ### Changed
@@ -26,6 +31,8 @@ All notable changes to this project will be documented in this file.
 - Documented that HTML, Markdown, Word-HTML, and code previews require a
   Chrome/Chromium binary in addition to the Python `[html]` extra, with a
   security note about rendering untrusted HTML in headless Chrome.
+- The publish workflow now runs the full CI quality gate (ruff, mypy, pytest)
+  before building or publishing any distribution.
 
 ## [1.0.0b2] - 2026-06-01
 

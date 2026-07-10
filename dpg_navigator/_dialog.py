@@ -85,6 +85,13 @@ class FileDialog(KeyboardMixin):
     _DEEP_SEARCH_DEBOUNCE: float = 0.3
     """Seconds to wait after last keystroke before triggering deep search."""
 
+    _MAX_ARCHIVE_EXTRACT_SIZE: int = 512 * 1024 * 1024
+    """Anti-bomb ceiling (bytes) for extracting a selected archive member.
+
+    Selecting a file inside an archive is a deliberate action, so this is a
+    generous cap that still rejects a member declaring an absurd expanded size
+    (a decompression bomb) rather than the small text-preview limit."""
+
     _shared_selec_theme: int | None = None
     _shared_size_theme: int | None = None
     _shared_preview_active_theme: int | None = None
@@ -651,7 +658,10 @@ class FileDialog(KeyboardMixin):
                     original_title = dpg.get_item_label(self._config.tag)
                     dpg.set_item_label(self._config.tag, f"{original_title} - Extracting...")
                     try:
-                        temp_path = DirectoryLister.extract_from_archive(entry.full_path)
+                        temp_path = DirectoryLister.extract_from_archive(
+                            entry.full_path,
+                            max_size=self._MAX_ARCHIVE_EXTRACT_SIZE,
+                        )
                     finally:
                         if dpg.does_item_exist(self._config.tag):
                             dpg.set_item_label(self._config.tag, original_title)
@@ -662,7 +672,8 @@ class FileDialog(KeyboardMixin):
                         self._show_message(
                             "Extraction Error",
                             f"Could not extract '{entry.name}' from archive.\n"
-                            "It might be encrypted or corrupted."
+                            "It might be encrypted, corrupted, or larger than the "
+                            "extraction limit."
                         )
                         return
                 
