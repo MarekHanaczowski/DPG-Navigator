@@ -794,7 +794,13 @@ class PreviewPanel:
 
     def _render_html_preview(self, entry: FileEntry) -> None:
         """Open an HTML file and start background Chrome Headless rendering."""
-        if self._panel_id is None or self._html is None:
+        if self._panel_id is None:
+            return
+        if self._html is None:
+            # HTML backend (html2image + Chrome) unavailable. Routing always
+            # picks HTML for .html/.htm, so degrade to raw-text rendering
+            # instead of leaving the previous preview on screen.
+            self._render_text_preview(entry)
             return
         self._clear_for_html()
         dims = self._html_panel_size()
@@ -1371,7 +1377,7 @@ class PreviewPanel:
             return
         if self._current_entry.size_bytes is None:
             return
-             
+
         new_offset = self._text_offset + (user_data * self._TEXT_PREVIEW_MAX_SIZE)
         if 0 <= new_offset < self._current_entry.size_bytes:
             self._text_offset = new_offset

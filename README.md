@@ -103,6 +103,14 @@ Preview features are organized into installable extras:
 | `code` | `pip install dpg-navigator[code]` | Syntax-highlighted source code |
 | `all` | `pip install dpg-navigator[all]` | All of the above |
 
+> **Chrome/Chromium required for some previews.** The `html`, `markdown`,
+> `code`, and the pixel-perfect `word` previews render through **Chrome
+> Headless** (driven by `html2image`). Installing the extra pulls in the Python
+> packages but **not** a browser — a Chrome or Chromium binary must be present
+> on the system `PATH`. If none is found (or a preview extra is not installed),
+> HTML files fall back to raw-text rendering, and Markdown/code/Word degrade to
+> their text extractors, so the dialog stays usable.
+
 ## Configuration
 
 All options can be passed as keyword arguments:
@@ -144,6 +152,10 @@ fd = FileDialog(callback=on_select, config=config)
 - **ZipSlip protection** — safe extraction of archive entries with path validation.
 - **Graceful degradation** — missing optional libraries are logged, never crash the dialog.
 - **Memory efficiency** — LRU texture caching and background indexing for deep searches.
+- **Untrusted HTML** — HTML, Markdown, Word, and code previews are rendered by a
+  headless Chrome subprocess, which executes the document's JavaScript and may
+  issue network requests. Preview only content you trust, or run in a sandboxed
+  environment when browsing untrusted files.
 
 ## HiDPI / 4K Displays (Windows)
 

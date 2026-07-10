@@ -472,6 +472,74 @@ class TestFileDialogLifecycle:
         dialog._dir_index.invalidate.assert_called_once_with()
         cleanup.assert_called_once_with()
 
+    def test_temp_cleanup_deferred_until_last_instance(self):
+        """The shared extraction dir is wiped only when the last dialog closes.
+
+        Two live instances share a class-level temp dir; destroying the first
+        must not delete files the second is still previewing.
+        """
+        def _make():
+            d = FileDialog.__new__(FileDialog)
+            d._destroyed = False
+            d._bg_generation = 0
+            d._index_generation = 0
+            d._dir_index = MagicMock()
+            d._search_debounce_timer = None
+            d._preview = MagicMock()
+            d._icons = MagicMock()
+            d._config = MagicMock(tag="dialog_tag")
+            return d
+
+        first, second = _make(), _make()
+
+        with patch("dpg_navigator._dialog.dpg") as mock_dpg, \
+             patch.object(DirectoryLister, "cleanup_temp_files") as cleanup, \
+             patch.object(FileDialog, "_instance_count", 2), \
+             patch.object(FileDialog, "_shared_selec_theme", None), \
+             patch.object(FileDialog, "_shared_size_theme", None), \
+             patch.object(FileDialog, "_shared_preview_active_theme", None):
+            mock_dpg.does_item_exist.return_value = False
+
+            first.destroy()
+            assert FileDialog._instance_count == 1
+            cleanup.assert_not_called()
+
+            second.destroy()
+            assert FileDialog._instance_count == 0
+            cleanup.assert_called_once_with()
+
+
+class TestHtmlPreviewFallback:
+    """HTML preview degrades to raw text when the Chrome backend is absent."""
+
+    @staticmethod
+    def _entry():
+        return type("Entry", (), {
+            "name": "page.html",
+            "full_path": "/tmp/page.html",
+        })()
+
+    def test_falls_back_to_text_without_backend(self):
+        panel = PreviewPanel.__new__(PreviewPanel)
+        panel._panel_id = 1
+        panel._html = None
+        entry = self._entry()
+
+        with patch.object(PreviewPanel, "_render_text_preview") as text_mock:
+            PreviewPanel._render_html_preview(panel, entry)
+
+        text_mock.assert_called_once_with(entry)
+
+    def test_no_fallback_when_panel_missing(self):
+        panel = PreviewPanel.__new__(PreviewPanel)
+        panel._panel_id = None
+        panel._html = None
+
+        with patch.object(PreviewPanel, "_render_text_preview") as text_mock:
+            PreviewPanel._render_html_preview(panel, self._entry())
+
+        text_mock.assert_not_called()
+
 
 class TestTagCollision:
     """A second dialog with an already-taken tag must not reuse the live id.

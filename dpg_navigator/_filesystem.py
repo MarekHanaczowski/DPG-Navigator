@@ -530,16 +530,22 @@ class DirectoryIndex:
         generation: int,
         get_generation: Callable[[], int],
         max_depth: int = INDEX_SCAN_DEPTH,
+        show_hidden: bool = False,
     ) -> None:
         """Recursively scan *root* and populate the in-memory index.
 
         Checks ``get_generation()`` against *generation* periodically to
-        allow early cancellation when the user navigates away.
+        allow early cancellation when the user navigates away. Hidden
+        directories are descended only when *show_hidden* is set, mirroring
+        the shallow :meth:`DirectoryLister.list_directory` behavior.
         """
         entries: list[FileEntry] = []
 
         try:
-            self._walk(root, root, entries, 0, max_depth, generation, get_generation)
+            self._walk(
+                root, root, entries, 0, max_depth,
+                generation, get_generation, show_hidden,
+            )
         except _Cancelled:
             return
 
@@ -567,6 +573,7 @@ class DirectoryIndex:
         max_depth: int,
         generation: int,
         get_generation: Callable[[], int],
+        show_hidden: bool,
     ) -> None:
         """Recursive os.scandir walk with depth limit and cancellation."""
         if depth > max_depth:
@@ -615,13 +622,24 @@ class DirectoryIndex:
                             is_hidden=hidden,
                         ))
 
-                    if is_dir and not hidden:
+                    # Recurse into real subdirectories only. Symlinked dirs are
+                    # skipped so the index cannot escape the selected tree or
+                    # loop on cycles; hidden dirs are descended only when the
+                    # caller opted into show_hidden.
+                    if (
+                        is_dir
+                        and not item.is_symlink()
+                        and (show_hidden or not hidden)
+                    ):
                         subdirs.append(item.path)
                 except (OSError, PermissionError):
                     continue
 
         for subdir in subdirs:
-            self._walk(root, subdir, out, depth + 1, max_depth, generation, get_generation)
+            self._walk(
+                root, subdir, out, depth + 1, max_depth,
+                generation, get_generation, show_hidden,
+            )
 
 
 class _Cancelled(Exception):

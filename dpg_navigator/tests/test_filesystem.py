@@ -745,6 +745,46 @@ class TestDirectoryIndex:
         assert not idx.is_stale(ttl=60.0)
         assert idx.is_stale(ttl=0.0)
 
+    def test_hidden_dir_not_descended_by_default(self, tmp_path):
+        """Contents of hidden dirs are absent unless show_hidden is set."""
+        secret = tmp_path / ".secret"
+        secret.mkdir()
+        (secret / "needle.txt").write_text("x")
+
+        idx = DirectoryIndex()
+        idx.build(str(tmp_path), 0, lambda: 0)  # show_hidden defaults to False
+        assert idx.search("needle", show_hidden=False) == []
+        assert idx.search("needle", show_hidden=True) == []
+
+    def test_hidden_dir_descended_with_show_hidden(self, tmp_path):
+        """With show_hidden=True the walker recurses into hidden dirs."""
+        secret = tmp_path / ".secret"
+        secret.mkdir()
+        (secret / "needle.txt").write_text("x")
+
+        idx = DirectoryIndex()
+        idx.build(str(tmp_path), 0, lambda: 0, show_hidden=True)
+        results = idx.search("needle", show_hidden=True)
+        assert len(results) == 1
+        assert results[0].name == "needle.txt"
+
+    def test_symlinked_dir_not_followed(self, tmp_path):
+        """A symlinked directory must not let the index escape the root."""
+        target = tmp_path / "target"
+        target.mkdir()
+        (target / "escaped.txt").write_text("x")
+        root = tmp_path / "root"
+        root.mkdir()
+        try:
+            os.symlink(str(target), str(root / "link"), target_is_directory=True)
+        except (OSError, NotImplementedError, AttributeError):
+            pytest.skip("symlink creation not permitted on this platform")
+
+        idx = DirectoryIndex()
+        idx.build(str(root), 0, lambda: 0, show_hidden=True)
+        # The symlink target's contents live outside `root` and must not appear.
+        assert idx.search("escaped") == []
+
     def test_cancellation_via_generation(self, nested_tree):
         """Build should abort when generation changes mid-scan."""
         gen = [0]

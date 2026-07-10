@@ -199,11 +199,12 @@ class FileDialog(KeyboardMixin):
         if dpg.does_item_exist(self._config.tag):
             dpg.delete_item(self._config.tag)
 
-        # Cleanup any temporary files extracted during this session
-        DirectoryLister.cleanup_temp_files()
-
         FileDialog._instance_count -= 1
         if FileDialog._instance_count <= 0:
+            # The extraction temp dir is shared across all dialogs, so only
+            # wipe it once the last instance is gone — otherwise closing one
+            # dialog would delete preview files another is still using.
+            DirectoryLister.cleanup_temp_files()
             for attr in ("_shared_selec_theme", "_shared_size_theme", "_shared_preview_active_theme"):
                 theme_id = getattr(FileDialog, attr)
                 if theme_id is not None and dpg.does_item_exist(theme_id):
@@ -737,23 +738,30 @@ class FileDialog(KeyboardMixin):
                 return
             self._refresh_listing(search_query=query)
 
-        subfolder_on = (
-            self._config.search_subfolders
-            and hasattr(self, "_subfolder_checkbox")
-            and dpg.get_value(self._subfolder_checkbox)
-        )
+            # Read all widget state inside the mutex; only the plain Python
+            # values below cross back to this background thread, so there is no
+            # unsynchronized DPG access racing with teardown or navigation.
+            subfolder_on = bool(
+                self._config.search_subfolders
+                and hasattr(self, "_subfolder_checkbox")
+                and dpg.get_value(self._subfolder_checkbox)
+            )
+            search_exists = dpg.does_item_exist(self._search_input)
+            current_query = (
+                dpg.get_value(self._search_input) if search_exists else query
+            )
+            # _refresh_listing bumped _bg_generation; capture the fresh value.
+            fresh_gen = self._bg_generation
+
         if query and subfolder_on and self._dir_index.ready:
-            # _refresh_listing bumped _bg_generation; pass the fresh value so the
-            # deep-search generation guard does not reject it.
-            self._run_deep_search(query, self._bg_generation)
+            # Pass the fresh generation so the deep-search guard accepts it.
+            self._run_deep_search(query, fresh_gen)
 
         # A keystroke landing while this refresh ran was dropped: its timer got
         # cancelled by _refresh_listing and its generation snapshot invalidated.
         # If the box now holds a different query, schedule a fresh pass for it.
-        if dpg.does_item_exist(self._search_input):
-            current_query = dpg.get_value(self._search_input)
-            if current_query != query:
-                self._schedule_search(current_query)
+        if search_exists and current_query != query:
+            self._schedule_search(current_query)
 
     def _on_subfolder_toggle(self, sender, app_data, user_data) -> None:
         """Handle subfolder search checkbox toggle."""
@@ -884,6 +892,7 @@ class FileDialog(KeyboardMixin):
         thread = threading.Thread(
             target=self._dir_index.build,
             args=(self._current_dir, gen, lambda: self._index_generation),
+            kwargs={"show_hidden": self._config.show_hidden},
             daemon=True,
         )
         thread.start()
