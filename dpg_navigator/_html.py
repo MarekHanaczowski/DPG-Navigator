@@ -37,6 +37,30 @@ def html_available() -> bool:
     return _Html2Image is not None and _np is not None and _PILImage is not None
 
 
+_chrome_available_cache: bool | None = None
+
+
+def chrome_available() -> bool:
+    """Return True if a Chrome/Chromium binary is resolvable for rendering.
+
+    ``html_available()`` only checks the Python packages; html2image still
+    needs a browser binary on the system. The lookup touches the filesystem,
+    so the result is resolved once and cached.
+    """
+    global _chrome_available_cache
+    if _chrome_available_cache is not None:
+        return _chrome_available_cache
+    if not html_available():
+        _chrome_available_cache = False
+        return False
+    try:
+        hti = HTMLRenderer._get_hti()
+        _chrome_available_cache = bool(hti.browser.executable)
+    except Exception:
+        _chrome_available_cache = False
+    return _chrome_available_cache
+
+
 # ── Module-level constants ─────────────────────────────────────
 
 _RENDER_H: int = 8000
@@ -47,6 +71,8 @@ _TRIM_TOLERANCE: int = 5
 _RESIZE_DEBOUNCE: float = 0.4
 _OVERSCAN: int = 20
 _MAX_RENDER_W: int = 4000
+_CHROME_TIMEOUT: float = 30.0
+"""Seconds before a hung Chrome screenshot subprocess is killed."""
 
 _CSS_RESET = (
     "<style>"
@@ -266,6 +292,15 @@ class HTMLRenderer:
                         ],
                         disable_logging=True,
                     )
+                    # html2image runs Chrome via subprocess.run() with no
+                    # timeout, so a hung browser would block the render thread
+                    # forever. Inject a timeout: subprocess.run then kills the
+                    # process and raises TimeoutExpired, which _hti_screenshot
+                    # turns into a clean render failure.
+                    try:
+                        cls._hti.browser._subprocess_run_kwargs["timeout"] = _CHROME_TIMEOUT
+                    except (AttributeError, TypeError):  # pragma: no cover
+                        pass
         return cls._hti
 
     # ── Open / close ──────────────────────────────────────────

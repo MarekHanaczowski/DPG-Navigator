@@ -638,6 +638,19 @@ class TestHtmlPreviewFallback:
 
         text_mock.assert_called_once_with(entry)
 
+    def test_falls_back_to_text_without_chrome_binary(self):
+        panel = PreviewPanel.__new__(PreviewPanel)
+        panel._panel_id = 1
+        panel._html = MagicMock()  # Python backend present...
+        entry = self._entry()
+
+        with patch("dpg_navigator._preview.chrome_available", return_value=False), \
+             patch.object(PreviewPanel, "_render_text_preview") as text_mock:
+            PreviewPanel._render_html_preview(panel, entry)
+
+        text_mock.assert_called_once_with(entry)
+        panel._html.open.assert_not_called()
+
     def test_no_fallback_when_panel_missing(self):
         panel = PreviewPanel.__new__(PreviewPanel)
         panel._panel_id = None

@@ -30,7 +30,7 @@ from ._preview import (
     pygments_available,
 )
 from ._pdf import pdf_available
-from ._html import html_available
+from ._html import html_available, chrome_available
 
 __version__ = "1.0.0b3"
 
@@ -47,6 +47,7 @@ __all__ = [
     "markdown_available",
     "pdf_available",
     "html_available",
+    "chrome_available",
     "excel_available",
     "py7zr_available",
     "pygments_available",

@@ -13,13 +13,14 @@ class TestPublicAPI:
             "FileEntry", "DEFAULT_FILTER_LIST",
             "word_available", "mammoth_available", "pptx_available",
             "markdown_available", "pdf_available", "html_available",
+            "chrome_available",
             "excel_available", "py7zr_available", "pygments_available",
         }
         assert set(dpg_navigator.__all__) == expected
 
     def test_all_length(self):
         import dpg_navigator
-        assert len(dpg_navigator.__all__) == 15
+        assert len(dpg_navigator.__all__) == 16
 
     def test_dialog_config_importable(self):
         from dpg_navigator import DialogConfig

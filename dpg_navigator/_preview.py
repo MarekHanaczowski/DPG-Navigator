@@ -69,7 +69,7 @@ except ImportError:
 from ._types import FileEntry
 from ._filesystem import DirectoryLister
 from ._pdf import PDFRenderer, pdf_available
-from ._html import HTMLRenderer, html_available
+from ._html import HTMLRenderer, html_available, chrome_available
 from ._preview_archive import (
     ArchivePreviewError,
     EncryptedArchiveError,
@@ -802,10 +802,11 @@ class PreviewPanel:
         """Open an HTML file and start background Chrome Headless rendering."""
         if self._panel_id is None:
             return
-        if self._html is None:
-            # HTML backend (html2image + Chrome) unavailable. Routing always
-            # picks HTML for .html/.htm, so degrade to raw-text rendering
-            # instead of leaving the previous preview on screen.
+        if self._html is None or not chrome_available():
+            # HTML backend unavailable — either the Python packages are missing
+            # or no Chrome/Chromium binary is resolvable. Routing always picks
+            # HTML for .html/.htm, so degrade to raw-text rendering instead of
+            # leaving the previous preview on screen (or hanging on a render).
             self._render_text_preview(entry)
             return
         self._clear_for_html()

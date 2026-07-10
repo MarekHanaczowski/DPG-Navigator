@@ -23,6 +23,11 @@ Desktop.ini
 # Claude Code
 .claude/
 
+# Coverage
+.coverage
+.coverage.*
+htmlcov/
+
 # Pytest
 .pytest_cache/
 .tmp/

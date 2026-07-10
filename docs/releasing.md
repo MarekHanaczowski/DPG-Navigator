@@ -51,6 +51,7 @@ python -m twine check dist/*
 
 Then run the wheel smoke test:
 
+```bash
 python -m venv .smoke_venv
 python -m pip --python .smoke_venv install --no-deps dist/dpg_navigator-<version>-py3-none-any.whl
 python -m pip --python .smoke_venv install "dearpygui>=1.9.1" "psutil>=5.9.0"

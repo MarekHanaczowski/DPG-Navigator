@@ -1,5 +1,13 @@
 # Rekomendacje Rozwoju Repozytorium `dpg-navigator`
 
+> **Dokument historyczny.** Powstał we wczesnej fazie projektu. Część
+> stwierdzeń o stanie repozytorium (np. „brak konfiguracji CI, lintingu i
+> type-checkingu") jest już nieaktualna — CI (ruff, mypy, pytest na
+> Ubuntu/Windows/macOS), automatyczna publikacja przez OIDC oraz limity
+> ekstrakcji i podglądu są wdrożone. Aktualny stan zmian znajduje się w
+> [`CHANGELOG.md`](CHANGELOG.md). Ten plik zachowano jako zapis pierwotnych
+> rekomendacji i kierunku prac.
+
 ## Cel dokumentu
 
 Ten dokument zbiera szczegółowe rekomendacje techniczne dla repozytorium `dpg-navigator` na podstawie analizy kodu, struktury projektu i testów. Celem nie jest tylko wskazanie "co poprawić", ale uporządkowanie prac według ryzyka, wpływu i kosztu wdrożenia.

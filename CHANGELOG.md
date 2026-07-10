@@ -24,7 +24,16 @@ All notable changes to this project will be documented in this file.
 - Word `.docx` files are again rendered pixel-perfect through mammoth + Chrome
   when that backend is available (the router previously always used the
   python-docx text fallback), matching the documented behavior.
+- The Chrome screenshot subprocess now runs with a timeout, so a hung browser
+  is killed and the render fails cleanly instead of leaving the panel stuck on
+  "Rendering..." forever.
 - Removed a stray trailing-whitespace line in the text-preview pager.
+
+### Added
+
+- `chrome_available()` detects whether a Chrome/Chromium binary is resolvable
+  (not just the Python packages). HTML preview now degrades to raw text when
+  the browser binary is missing, instead of failing at render time.
 
 ### Changed
 
@@ -33,6 +42,8 @@ All notable changes to this project will be documented in this file.
   security note about rendering untrusted HTML in headless Chrome.
 - The publish workflow now runs the full CI quality gate (ruff, mypy, pytest)
   before building or publishing any distribution.
+- CI now covers macOS and Python 3.11/3.12 (matching the declared support) and
+  runs an informational `pip-audit` dependency scan.
 
 ## [1.0.0b2] - 2026-06-01
 
