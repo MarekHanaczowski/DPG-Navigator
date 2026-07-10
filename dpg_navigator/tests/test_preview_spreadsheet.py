@@ -1,5 +1,7 @@
 """Tests for Excel metadata loading used by the preview panel."""
 
+from __future__ import annotations
+
 import pytest
 
 from dpg_navigator._preview_spreadsheet import (

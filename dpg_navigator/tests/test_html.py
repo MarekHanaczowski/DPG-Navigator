@@ -4,6 +4,8 @@ These exercise pure logic (backend availability, subprocess-timeout wiring)
 without launching a real Chrome/Chromium process.
 """
 
+from __future__ import annotations
+
 from unittest.mock import MagicMock, patch
 
 import pytest

@@ -6,6 +6,8 @@ DearPyGui mocked only at the call boundary. They establish the thread-lifecycle
 baseline for the JobManager work in docs/ROADMAP.md (P1 #1).
 """
 
+from __future__ import annotations
+
 import threading
 import time
 from unittest.mock import MagicMock, patch

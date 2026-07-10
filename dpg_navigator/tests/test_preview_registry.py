@@ -1,5 +1,7 @@
 """Tests for preview extension registry and renderer routing."""
 
+from __future__ import annotations
+
 from dpg_navigator._preview_registry import (
     CODE_EXTS,
     HTML_EXTS,

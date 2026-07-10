@@ -1,5 +1,7 @@
 """Tests for pure table parsing helpers."""
 
+from __future__ import annotations
+
 from dpg_navigator._preview_table import parse_csv_table
 
 

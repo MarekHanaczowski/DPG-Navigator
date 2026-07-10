@@ -1,5 +1,7 @@
 """Tests for dpg_navigator._filesystem — DirectoryLister (pure logic, no DPG)."""
 
+from __future__ import annotations
+
 import os
 import time
 import zipfile

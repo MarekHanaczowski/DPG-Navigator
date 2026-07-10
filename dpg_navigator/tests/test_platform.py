@@ -3,6 +3,8 @@
 Tests all functions including is_mod_key_down() (mocked DPG).
 """
 
+from __future__ import annotations
+
 import os
 import platform
 from unittest.mock import patch, MagicMock

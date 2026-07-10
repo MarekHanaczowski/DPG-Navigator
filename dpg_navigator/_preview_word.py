@@ -7,7 +7,7 @@ from __future__ import annotations
 # MIT licensed
 
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Union
 
 _DocxDocument: Any
 try:
@@ -45,7 +45,10 @@ class WordTable:
     rows: list[list[str]]
 
 
-WordBlock = WordParagraph | WordTable
+# Runtime type alias — a plain assignment (not an annotation), so
+# `from __future__ import annotations` does not stringify it; use Union so it
+# evaluates on Python < 3.10.
+WordBlock = Union[WordParagraph, WordTable]
 
 
 @dataclass(frozen=True)

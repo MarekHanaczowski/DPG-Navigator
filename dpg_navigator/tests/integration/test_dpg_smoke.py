@@ -8,6 +8,8 @@ Not collected unless ``DPG_INTEGRATION=1`` because ``import dearpygui`` needs a
 display/GPU.
 """
 
+from __future__ import annotations
+
 import threading
 import time
 

@@ -3,6 +3,8 @@
 Tests pure logic and constants; DPG widget calls are mocked.
 """
 
+from __future__ import annotations
+
 import os
 from unittest.mock import MagicMock, patch, call
 

@@ -1,5 +1,7 @@
 """Tests for dpg_navigator.__init__ — public API re-exports and __all__."""
 
+from __future__ import annotations
+
 import pytest
 
 

@@ -7,6 +7,8 @@ Imports validate_folder_name and build_selection_list from the ACTUAL source
 (dpg_navigator._filesystem) instead of duplicating the logic in tests.
 """
 
+from __future__ import annotations
+
 import os
 import time
 from unittest.mock import patch, MagicMock

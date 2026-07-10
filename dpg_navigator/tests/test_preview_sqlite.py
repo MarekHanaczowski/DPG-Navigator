@@ -1,5 +1,7 @@
 """Tests for SQLite metadata loading used by the preview panel."""
 
+from __future__ import annotations
+
 import sqlite3
 from unittest.mock import patch
 

@@ -1,5 +1,7 @@
 """Tests for dpg_navigator._types — enums, dataclasses, constants."""
 
+from __future__ import annotations
+
 import pytest
 
 from dpg_navigator._types import (

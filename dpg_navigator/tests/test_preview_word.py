@@ -1,5 +1,7 @@
 """Tests for Word document loading used by the preview panel."""
 
+from __future__ import annotations
+
 from types import SimpleNamespace
 
 import pytest

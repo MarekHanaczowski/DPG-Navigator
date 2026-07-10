@@ -12,6 +12,8 @@ Run them with a display, e.g.::
     xvfb-run -a env DPG_INTEGRATION=1 pytest -m integration
 """
 
+from __future__ import annotations
+
 import os
 
 if os.environ.get("DPG_INTEGRATION") != "1":

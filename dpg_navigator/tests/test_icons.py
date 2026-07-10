@@ -4,6 +4,8 @@ Only tests pure data structures and lookup logic; DPG texture loading
 is NOT tested (requires DPG context).
 """
 
+from __future__ import annotations
+
 import os
 
 import pytest

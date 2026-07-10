@@ -1,5 +1,7 @@
 """Tests for archive metadata loading used by the preview panel."""
 
+from __future__ import annotations
+
 import zipfile
 from unittest.mock import patch
 
