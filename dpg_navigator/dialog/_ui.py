@@ -5,12 +5,12 @@ import os
 from ._state import DialogState
 from ._logic import DialogLogic
 from .._platform import get_drives, get_special_dirs
-from .._types import DialogMode, FileEntry
+from .._types import DialogMode, FileEntry, DialogConfig
 from .._filesystem import DirectoryLister
 from .._job_manager import JobManager
 
 class DialogUIBuilder:
-    def __init__(self, dialog, state: DialogState, logic: DialogLogic, config: dict):
+    def __init__(self, dialog, state: DialogState, logic: DialogLogic, config: DialogConfig):
         self.dialog = dialog
         self.state = state
         self.logic = logic
