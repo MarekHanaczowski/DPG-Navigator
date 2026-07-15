@@ -1,0 +1,104 @@
+"""Archive preview renderer."""
+import dearpygui.dearpygui as dpg
+import os
+import time
+
+from ._base import BaseRenderer, PreviewContext
+from .._types import FileEntry
+from typing import Callable, Optional
+
+try:
+    import zipfile
+except ImportError:
+    zipfile = None
+try:
+    import py7zr
+except ImportError:
+    py7zr = None
+
+class ArchiveRenderer(BaseRenderer):
+    def __init__(self, request_update_cb: Callable[[FileEntry], None]):
+        self._request_update = request_update_cb
+        self._current_entry = None
+        self._ctx = None
+
+    def render(self, entry: FileEntry, ctx: PreviewContext) -> None:
+        self._ctx = ctx
+        self._current_entry = entry
+        ext = entry.ext
+        if ext == '.zip':
+            self._render_zip_preview(entry)
+        elif ext in ('.7z', '.cb7'):
+            self._render_7z_preview(entry)
+        else:
+            ctx.show_error("Unsupported archive", f"{ext} is not supported")
+
+    def clear(self) -> None:
+        self._current_entry = None
+        self._ctx = None
+
+    def _render_zip_preview(self, entry: FileEntry) -> None:
+            """Parse a ZIP archive and display its contents as a native DPG table."""
+            if self._panel_id is None:
+                return
+    
+            try:
+                table = load_zip_table(entry.full_path, self._TABLE_MAX_ROWS)
+            except EncryptedArchiveError:
+                self._render_table_widget(entry.name, [], [], "Encrypted ZIP archive (Password required)")
+                return
+            except ArchivePreviewError:
+                self.clear()
+                return
+    
+            self._render_table_widget(
+                entry.name, table.headers, table.rows, table.status,
+                row_click_callback=lambda s, a, u: self._on_zip_item_clicked(entry.full_path, table.rows[u][0])
+            )
+    def _on_zip_item_clicked(self, archive_path: str, internal_path: str) -> None:
+            """Extract a single file from a ZIP archive and preview it."""
+            self._preview_archive_member(archive_path, internal_path)
+    def _preview_archive_member(self, archive_path: str, internal_path: str) -> None:
+            """Extract an archive member and route it through the normal preview flow."""
+            try:
+                virtual_path = f"{archive_path}|/{internal_path}"
+                extracted_path = DirectoryLister.extract_from_archive(
+                    virtual_path,
+                    max_size=self._TEXT_PREVIEW_MAX_SIZE,
+                    allow_large_extensions=self._PDF_EXTS,
+                )
+                
+                if extracted_path:
+                    stat = os.stat(extracted_path)
+                    virtual_entry = FileEntry(
+                        name=f"[{os.path.basename(archive_path)}] {os.path.basename(internal_path)}",
+                        full_path=extracted_path,
+                        is_dir=False,
+                        size_bytes=stat.st_size,
+                        modified_time=stat.st_mtime,
+                        is_hidden=False,
+                    )
+                    self.update(virtual_entry)
+            except Exception:
+                pass
+    def _render_7z_preview(self, entry: FileEntry) -> None:
+            """Parse a 7z archive and display its contents as a native DPG table."""
+            if self._panel_id is None:
+                return
+    
+            try:
+                table = load_7z_table(entry.full_path, self._TABLE_MAX_ROWS)
+            except EncryptedArchiveError:
+                self._render_table_widget(entry.name, [], [], "Encrypted 7z archive (Password required)")
+                return
+            except ArchivePreviewError:
+                self.clear()
+                return
+    
+            self._render_table_widget(
+                entry.name, table.headers, table.rows, table.status,
+                row_click_callback=lambda s, a, u: self._on_7z_item_clicked(entry.full_path, table.rows[u][0])
+            )
+    def _on_7z_item_clicked(self, archive_path: str, internal_path: str) -> None:
+            """Extract a single file from a 7z archive and preview it."""
+            self._preview_archive_member(archive_path, internal_path)

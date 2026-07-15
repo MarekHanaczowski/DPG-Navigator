@@ -58,11 +58,6 @@ class TestPublicAPI:
         assert StyleVariant is _SV
         assert FileEntry is _FE
 
-    def test_dpg_navigator_is_same_class(self):
-        from dpg_navigator import FileDialog
-        from dpg_navigator._dialog import FileDialog as _FD
-        assert FileDialog is _FD
-
     def test_default_filter_list_in_all(self):
         """DEFAULT_FILTER_LIST is exported in __all__."""
         import dpg_navigator

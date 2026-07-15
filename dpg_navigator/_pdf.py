@@ -15,6 +15,8 @@ from typing import Any, cast
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
+from ._job_manager import JobManager
+
 try:
     import pypdfium2 as _pdfium  # type: ignore[import-untyped]
 except Exception:  # optional backend absent or incompatible (e.g. old Python)
@@ -289,12 +291,10 @@ class PDFRenderer:
     def _start_prefetch(self, page_num: int) -> None:
         """Prefetch neighboring pages in a background thread."""
         gen = self._prefetch_generation
-        thread = threading.Thread(
-            target=self._prefetch_worker,
-            args=(page_num, gen),
-            daemon=True,
+        JobManager.submit(
+            self._prefetch_worker,
+            page_num, gen
         )
-        thread.start()
 
     def _prefetch_worker(self, page_num: int, gen: int) -> None:
         """Background thread: render and cache neighboring pages."""

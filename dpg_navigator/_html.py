@@ -18,6 +18,8 @@ from typing import Any, cast
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
+from ._job_manager import JobManager
+
 try:
     from html2image import Html2Image as _Html2Image  # type: ignore[import-untyped]
 except Exception:  # optional backend absent or incompatible (e.g. old Python)
@@ -291,6 +293,9 @@ class HTMLRenderer:
                             '--force-device-scale-factor=1',
                             '--disable-gpu',
                             '--log-level=3',
+                            '--disable-javascript',
+                            '--proxy-server="http://127.0.0.1:0"',
+                            f'--user-data-dir={os.path.join(tempfile.gettempdir(), "dpg_nav_chrome_profile")}',
                         ],
                         disable_logging=True,
                     )
@@ -373,7 +378,7 @@ class HTMLRenderer:
         self._render_generation += 1
 
         if self._resize_timer is not None:
-            self._resize_timer.cancel()
+            JobManager.cancel_timer(self._resize_timer)
             self._resize_timer = None
 
         if self._tex_exists:
@@ -480,11 +485,10 @@ class HTMLRenderer:
         self._is_rendering = True
         self._status_text = "Rendering..."
         gen = self._render_generation
-        threading.Thread(
-            target=self._render_worker,
-            args=(content_w, gen),
-            daemon=True,
-        ).start()
+        JobManager.submit(
+            self._render_worker,
+            content_w, gen
+        )
 
     def _render_worker(self, content_w: int, gen: int) -> None:
         """Background render thread.
@@ -664,7 +668,7 @@ class HTMLRenderer:
             return
 
         if self._resize_timer is not None:
-            self._resize_timer.cancel()
+            JobManager.cancel_timer(self._resize_timer)
 
         # Capture target dimensions for the closure
         target_w, target_h = w, h
@@ -702,6 +706,4 @@ class HTMLRenderer:
                     and self._full_array is not None):
                 self._start_render(content_w)
 
-        self._resize_timer = threading.Timer(_RESIZE_DEBOUNCE, _debounced)
-        self._resize_timer.daemon = True
-        self._resize_timer.start()
+        self._resize_timer = JobManager.schedule_timer(_RESIZE_DEBOUNCE, _debounced)

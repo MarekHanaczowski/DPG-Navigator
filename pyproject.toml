@@ -27,6 +27,7 @@ classifiers = [
 dependencies = [
     "dearpygui>=1.9.1",
     "psutil>=5.9.0",
+    "bleach>=6.0",
 ]
 
 [project.optional-dependencies]

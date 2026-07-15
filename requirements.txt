@@ -1,6 +1,7 @@
 # Core dependencies
 dearpygui>=1.9.1
 psutil>=5.9.0
+bleach>=6.0              # Markdown/HTML sanitization
 
 # Optional — preview features (install what you need)
 # pip install dpg-navigator[all]  installs everything below

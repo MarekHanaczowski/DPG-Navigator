@@ -21,8 +21,16 @@ from __future__ import annotations
 # MIT licensed
 
 from ._types import DialogConfig, DialogMode, StyleVariant, FileEntry, DEFAULT_FILTER_LIST
-from ._dialog import FileDialog
-from ._preview import (
+
+class FileDialog:
+    def __new__(cls, *args, **kwargs):
+        config = kwargs.get("config")
+        if config is None:
+            config = DialogConfig(**kwargs)
+        from ._dialog import FileDialog as InternalFileDialog
+        return InternalFileDialog(*args, **kwargs)
+
+from ._availability import (
     word_available,
     mammoth_available,
     pptx_available,
@@ -30,11 +38,12 @@ from ._preview import (
     excel_available,
     py7zr_available,
     pygments_available,
+    pdf_available,
+    html_available,
+    chrome_available,
 )
-from ._pdf import pdf_available
-from ._html import html_available, chrome_available
 
-__version__ = "1.0.0b3"
+__version__ = "1.0.0b4"
 
 __all__ = [
     "FileDialog",

@@ -96,39 +96,40 @@ class TestFormatTime:
         result = DirectoryLister.format_time(ts)
         assert isinstance(result, str)
 
+from dpg_navigator.vfs import VFSRegistry
 
-# ── _get_size ───────────────────────────────────────────────────
+# ── get_size ───────────────────────────────────────────────────
 
 
 class TestGetSize:
     def test_file_size(self, tmp_tree):
         path = str(tmp_tree / "file_a.txt")
-        result = DirectoryLister._get_size(path, is_dir=False, show_dir_size=False)
+        result = VFSRegistry.get_provider(path).get_size(path, is_dir=False, show_dir_size=False)
         assert result == 10
 
     def test_directory_no_show_dir_size(self, tmp_tree):
         path = str(tmp_tree / "dir_alpha")
-        result = DirectoryLister._get_size(path, is_dir=True, show_dir_size=False)
+        result = VFSRegistry.get_provider(path).get_size(path, is_dir=True, show_dir_size=False)
         assert result is None
 
     def test_directory_with_show_dir_size(self, tmp_tree):
         path = str(tmp_tree / "dir_alpha")
-        result = DirectoryLister._get_size(path, is_dir=True, show_dir_size=True)
+        result = VFSRegistry.get_provider(path).get_size(path, is_dir=True, show_dir_size=True)
         assert isinstance(result, int)
         assert result >= 7  # nested.txt = 7 bytes
 
     def test_empty_directory_size(self, empty_dir):
-        result = DirectoryLister._get_size(str(empty_dir), is_dir=True, show_dir_size=True)
+        result = VFSRegistry.get_provider(str(empty_dir)).get_size(str(empty_dir), is_dir=True, show_dir_size=True)
         assert result == 0
 
     def test_nonexistent_file(self, tmp_path):
         path = str(tmp_path / "nonexistent.txt")
-        result = DirectoryLister._get_size(path, is_dir=False, show_dir_size=False)
+        result = VFSRegistry.get_provider(path).get_size(path, is_dir=False, show_dir_size=False)
         assert result is None
 
     def test_file_size_matches_content(self, tmp_tree):
         path = str(tmp_tree / "file_b.py")
-        result = DirectoryLister._get_size(path, is_dir=False, show_dir_size=False)
+        result = VFSRegistry.get_provider(path).get_size(path, is_dir=False, show_dir_size=False)
         assert result == 20
 
 
@@ -414,7 +415,7 @@ class TestListDirectory:
         (d1 / "a.txt").write_text("12345")       # 5 bytes
         (d2 / "b.txt").write_text("123456789")    # 9 bytes
         (d3 / "c.txt").write_text("12")           # 2 bytes
-        size = DirectoryLister._get_size(str(d1), is_dir=True, show_dir_size=True)
+        size = VFSRegistry.get_provider(str(d1)).get_size(str(d1), is_dir=True, show_dir_size=True)
         assert size == 16
 
     def test_depth_limited_dir_size(self, tmp_path):
@@ -428,7 +429,7 @@ class TestListDirectory:
 
         (root / "shallow.txt").write_text("12345")  # 5 bytes, within limit
 
-        size = DirectoryLister._get_size(str(root), is_dir=True, show_dir_size=True)
+        size = VFSRegistry.get_provider(str(root)).get_size(str(root), is_dir=True, show_dir_size=True)
         assert size == 5  # only shallow.txt counted
 
     def test_show_dir_size_integration(self, tmp_path):
@@ -580,7 +581,7 @@ class TestPolishCharacters:
         d = tmp_path / "ścieżka"
         d.mkdir()
         (d / "dane.txt").write_text("12345")  # 5 bytes
-        size = DirectoryLister._get_size(str(d), is_dir=True, show_dir_size=True)
+        size = VFSRegistry.get_provider(str(d)).get_size(str(d), is_dir=True, show_dir_size=True)
         assert size == 5
 
     def test_mixed_ascii_and_polish(self, tmp_path):

@@ -1,0 +1,42 @@
+"""VFS Registry for routing paths to their appropriate provider."""
+
+from __future__ import annotations
+
+from typing import Type
+
+from ._base import VFSProvider
+from ._local import LocalVFSProvider
+from ._archive import ArchiveVFSProvider
+
+class VFSRegistry:
+    """Registry to manage and route paths to the correct VFS provider."""
+    
+    _providers: list[VFSProvider] = []
+    
+    @classmethod
+    def register_default_providers(cls) -> None:
+        """Register the built-in providers."""
+        if not cls._providers:
+            # Order matters: more specific first.
+            # Local is fallback but we put it first for fast path if it doesn't match '|'.
+            # Wait, since they check `is_valid_path`, any order where true match works is fine.
+            cls._providers.extend([
+                ArchiveVFSProvider(),
+                LocalVFSProvider(),
+            ])
+            
+    @classmethod
+    def get_provider(cls, path: str) -> VFSProvider:
+        """Return the first VFS provider that can handle the given path.
+        
+        Falls back to LocalVFSProvider if no specific match is found.
+        """
+        if not cls._providers:
+            cls.register_default_providers()
+            
+        for provider in cls._providers:
+            if provider.is_valid_path(path):
+                return provider
+                
+        # Fallback to local if nothing else matches
+        return cls._providers[-1]
