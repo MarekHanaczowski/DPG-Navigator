@@ -22,13 +22,7 @@ from __future__ import annotations
 
 from ._types import DialogConfig, DialogMode, StyleVariant, FileEntry, DEFAULT_FILTER_LIST
 
-class FileDialog:
-    def __new__(cls, *args, **kwargs):
-        config = kwargs.get("config")
-        if config is None:
-            config = DialogConfig(**kwargs)
-        from ._dialog import FileDialog as InternalFileDialog
-        return InternalFileDialog(*args, **kwargs)
+from ._dialog import FileDialog
 
 from ._availability import (
     word_available,
