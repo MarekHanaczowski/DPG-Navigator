@@ -24,7 +24,6 @@ if __name__ == "__main__":
     if os.path.isfile(_FONT_PATH):
         with dpg.font_registry():
             font = dpg.add_font(_FONT_PATH, 16)
-            dpg.add_font_range(0x0100, 0x017F, parent=font)
         dpg.bind_font(font)
 
     def on_folders(selected):
