@@ -20,8 +20,13 @@ if __name__ == "__main__":
     # Linux:  "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
     # macOS:  "/System/Library/Fonts/SFNS.ttf"
     if os.path.isfile(_FONT_PATH):
-        with dpg.font_registry():
-            font = dpg.add_font(_FONT_PATH, 16)
+        try:
+            from dpg_navigator.renderers.font import load_font_with_unicode
+            with dpg.font_registry():
+                font = load_font_with_unicode(_FONT_PATH, 16)
+        except Exception:
+            with dpg.font_registry():
+                font = dpg.add_font(_FONT_PATH, 16)
         dpg.bind_font(font)
 
     def on_select(selected_files):

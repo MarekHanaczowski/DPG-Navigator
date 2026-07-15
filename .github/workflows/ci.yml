@@ -1,4 +1,4 @@
-name: CI
+﻿name: CI
 
 on:
   # Only main pushes: feature-branch commits are validated via their PR, so
@@ -32,9 +32,10 @@ jobs:
         python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
 
     steps:
-      - uses: actions/checkout@v6
+      # Pin to commit SHA (not floating tags) for supply-chain integrity.
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -46,9 +47,6 @@ jobs:
         run: python -m ruff check .
 
       - name: Type check pure modules
-        # mypy cannot target 3.8, and the numpy that installs on 3.8/3.9 ships
-        # stubs newer mypy can't parse under those targets. Type-check on
-        # 3.10+; runtime compatibility on 3.8/3.9 is covered by the test run.
         if: ${{ matrix.python-version != '3.8' && matrix.python-version != '3.9' }}
         run: >-
           python -m mypy
@@ -91,9 +89,9 @@ jobs:
           - { os: macos-latest, python-version: "3.13" }
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -138,9 +136,9 @@ jobs:
     # not fail unrelated work.
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
         with:
           python-version: "3.13"
           cache: pip
@@ -153,3 +151,31 @@ jobs:
 
       - name: Audit dependencies
         run: python -m pip_audit
+
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install project and CycloneDX
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[all]"
+          python -m pip install cyclonedx-bom
+
+      - name: Generate CycloneDX SBOM
+        run: |
+          python -m cyclonedx_py environment --of JSON -o sbom.cdx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: sbom-cyclonedx
+          path: sbom.cdx.json
+          retention-days: 30

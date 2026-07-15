@@ -170,9 +170,10 @@ if sys.platform == "win32":
 
 ## Requirements
 
-- Python >= 3.10
+- Python >= 3.8
 - [DearPyGui](https://pypi.org/project/dearpygui/) >= 1.9.1
 - [psutil](https://pypi.org/project/psutil/) >= 5.9.0
+- [bleach](https://pypi.org/project/bleach/) >= 6.0
 
 ## Development
 

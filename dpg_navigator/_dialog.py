@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import logging
 import os
-import threading
 import time
 import uuid
+from copy import copy
 from typing import Callable
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
@@ -25,9 +25,8 @@ _log = logging.getLogger(__name__)
 
 from ._types import DialogConfig, DialogMode, StyleVariant, FileEntry, DEFAULT_FILTER_LIST
 from ._icons import IconRegistry
-from ._filesystem import DirectoryLister, DirectoryIndex, validate_folder_name, build_selection_list
+from ._filesystem import DirectoryLister, DirectoryIndex, build_selection_list
 from ._preview_registry import ZIP_EXTS, SEVEN_Z_EXTS
-from ._filesystem import DirectoryLister
 from ._preview import PreviewPanel
 from ._styles import STYLE_REGISTRY
 from ._keyboard import KeyboardMixin
@@ -127,9 +126,10 @@ class FileDialog(KeyboardMixin):
             callback = config
             config = None
 
-        # Build config from kwargs if not provided directly
+        # Build config from kwargs if not provided directly.
+        # Copy shared configs so tag uniquification cannot mutate the caller's object.
         if config is not None:
-            self._config = config
+            self._config = copy(config)
         else:
             self._config = DialogConfig(**kwargs)
 

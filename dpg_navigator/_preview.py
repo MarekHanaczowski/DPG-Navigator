@@ -18,14 +18,17 @@ from .renderers.text import TextRenderer
 from .renderers.data import DataRenderer
 from .renderers.archive import ArchiveRenderer
 from .renderers.document import DocumentRenderer
+from .renderers.font import FontRenderer
+
 
 class PreviewPanel:
-    """The new modular preview panel implementation."""
-    
-    _TEXT_PREVIEW_MAX_SIZE = 100 * 1024  # 100 KB
+    """Route selected files to the appropriate DearPyGui preview renderer."""
+
+    _TEXT_PREVIEW_MAX_SIZE = 100 * 1024
 
     @staticmethod
     def preview_image_exts() -> frozenset[str]:
+        """Return image extensions supported by the image preview path."""
         return STB_IMAGE_EXTS | PILLOW_EXTRA_EXTS
     
     def __init__(self, config: DialogConfig, preview_width: int, show: bool):
@@ -49,6 +52,7 @@ class PreviewPanel:
         
         self._renderers: dict[PreviewKind, BaseRenderer] = {
             PreviewKind.IMAGE: ImageRenderer(),
+            PreviewKind.FONT: FontRenderer(),
             PreviewKind.TEXT: TextRenderer(self._load_text_content, self.update),
             PreviewKind.CODE: TextRenderer(self._load_text_content, self.update),
             PreviewKind.CSV: DataRenderer(self._load_text_content),
@@ -66,10 +70,8 @@ class PreviewPanel:
         self._active_renderer: BaseRenderer | None = None
 
     def _preview_capabilities(self) -> PreviewCapabilities:
-        """Determines what backends are available. Hardcoded defaults for demo."""
-        # Using the same available functions as _preview.py
+        """Probe optional preview backends available in the current environment."""
         from ._pdf import pdf_available
-        from ._html import html_available, chrome_available
         from ._preview_archive import seven_zip_available
         from ._preview_word import word_available
         from ._availability import mammoth_available, pptx_available
@@ -120,12 +122,20 @@ class PreviewPanel:
         self.layout()
 
     def layout(self) -> None:
-        """Called on resize to readjust the preview panel layout."""
+        """Ask the active renderer to re-layout its content after a resize."""
         if not self._panel_id or not self._show:
             return
-            
+        handler = getattr(self._active_renderer, "on_resize", None)
+        if callable(handler):
+            handler(None, None, None)
+
     def on_resize(self, sender, app_data, user_data) -> None:
-        self.layout()
+        """Forward a DearPyGui resize event to the active renderer."""
+        if not self._panel_id or not self._show:
+            return
+        handler = getattr(self._active_renderer, "on_resize", None)
+        if callable(handler):
+            handler(sender, app_data, user_data)
 
     def clear(self) -> None:
         if self._panel_id:
@@ -159,12 +169,10 @@ class PreviewPanel:
         # Clear previous state
         self.clear()
         
-        # Hardcoded extensions for now
-        image_exts = frozenset({".png", ".jpg", ".jpeg", ".bmp"})
         kind = resolve_preview_kind(
             entry.name,
             capabilities=self.ctx.capabilities,
-            image_extensions=image_exts,
+            image_extensions=self.preview_image_exts(),
         )
         
         renderer = self._renderers.get(kind)

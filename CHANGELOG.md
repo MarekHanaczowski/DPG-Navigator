@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Font preview loads Latin-1 + Latin Extended-A glyph ranges (Polish diacritics)
+  and common punctuation (€, dashes, quotes) via DPG `add_font_range` /
+  `add_font_chars`, with pangrams including „Zazółć gęślą jaźń”.
+- CI generates a CycloneDX SBOM (`sbom.cdx.json`, artifact `sbom-cyclonedx`).
+
+### Changed
+
+- GitHub Actions third-party steps are pinned to commit SHAs (not floating tags)
+  in `ci.yml` and `publish.yml`.
+
 ## [1.0.0b3] - 2026-07-10
 
 ### Fixed

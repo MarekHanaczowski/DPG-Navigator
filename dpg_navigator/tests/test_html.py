@@ -74,3 +74,28 @@ class TestChromeTimeout:
         with patch.object(HTMLRenderer, "_hti", None):
             hti = HTMLRenderer._get_hti()
             assert hti.browser._subprocess_run_kwargs.get("timeout") == _CHROME_TIMEOUT
+
+
+class TestHtmlSizeLimit:
+    """open()/open_string() reject oversized sources before Chrome."""
+
+    def test_open_string_rejects_oversized(self):
+        from dpg_navigator import _html as htmlmod
+
+        big = "x" * (htmlmod._MAX_HTML_BYTES + 10)
+        renderer = HTMLRenderer("test_tag")
+        # Avoid real texture/chrome work: close() is fine without open
+        with patch.object(renderer, "_recreate_texture"), \
+             patch.object(renderer, "_start_render") as start:
+            ok = renderer.open_string(big, 100, 100)
+            assert ok is False
+            start.assert_not_called()
+            assert "large" in renderer.status_text.lower()
+
+    def test_shutdown_shared_clears_singleton(self):
+        HTMLRenderer._hti = object()
+        htmlmod = __import__("dpg_navigator._html", fromlist=["_chrome_available_cache"])
+        htmlmod._chrome_available_cache = True
+        HTMLRenderer.shutdown_shared()
+        assert HTMLRenderer._hti is None
+        assert htmlmod._chrome_available_cache is None

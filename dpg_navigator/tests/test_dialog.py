@@ -133,16 +133,15 @@ class TestPathTraversalValidation:
             assert validate_folder_name("folder/sub", str(tmp_path)) is not None
 
     def test_empty_name(self, tmp_path):
-        """Empty name passes validation (other checks handle it)."""
-        assert validate_folder_name("", str(tmp_path)) is None
+        """Empty name is rejected."""
+        assert validate_folder_name("", str(tmp_path)) is not None
 
     def test_whitespace_name(self, tmp_path):
-        assert validate_folder_name("   ", str(tmp_path)) is None
+        assert validate_folder_name("   ", str(tmp_path)) is not None
 
-    def test_single_dot_valid(self, tmp_path):
-        """Single dot is not '..' so passes the first check, but realpath
-        resolves it to current_dir, which starts with current_dir."""
-        assert validate_folder_name(".", str(tmp_path)) is None
+    def test_single_dot_rejected(self, tmp_path):
+        """Bare '.' is not a valid new folder name."""
+        assert validate_folder_name(".", str(tmp_path)) is not None
 
     def test_error_message_contains_name(self, tmp_path):
         """Error messages from validate_folder_name include the offending name."""
@@ -197,6 +196,18 @@ class TestReturnSelectionLogic:
         result = build_selection_list(original, "", "/tmp")
         assert result == original
         assert result is not original
+
+    def test_typed_name_rejects_parent_traversal(self, tmp_path):
+        result = build_selection_list([], "..", str(tmp_path))
+        assert result == []
+
+    def test_typed_name_rejects_path_separators(self, tmp_path):
+        result = build_selection_list([], f"sub{os.sep}file.txt", str(tmp_path))
+        assert result == []
+
+    def test_typed_name_rejects_dotdot_segment(self, tmp_path):
+        result = build_selection_list([], f"..{os.sep}escape.txt", str(tmp_path))
+        assert result == []
 
 
 # ── Double-click detection logic ────────────────────────────────

@@ -29,7 +29,7 @@ class DialogState:
     # Search
     search_query: str = ""
     index_generation: int = 0
-    search_debounce_timer: threading.Timer | None = None
+    search_debounce_timer: Any = None  # JobManager.TimerTask | None
     deep_separator_row: int | None = None
     
     # Preview & UI
@@ -41,14 +41,20 @@ class DialogState:
     bg_generation: int = 0
     
     def navigate(self, path: str) -> None:
-        """Update history and set current_dir."""
-        if self.current_dir and not self.is_navigating_history:
-            # Truncate forward history if we navigated back and then went somewhere new
-            self.history = self.history[: self.history_index + 1]
+        """Update history stack and set current_dir.
+
+        History is a simple stack of previous directories. ``go_back`` pops
+        entries; forward history is not retained (browser-style back only).
+        """
+        if (
+            self.current_dir
+            and not self.is_navigating_history
+            and self.current_dir != path
+        ):
             if not self.history or self.history[-1] != self.current_dir:
                 self.history.append(self.current_dir)
             self.history_index = len(self.history) - 1
-            
+
         self.current_dir = path
         self.selected_files.clear()
         self.selected_elements.clear()
@@ -56,4 +62,4 @@ class DialogState:
         self.focused_row_index = -1
         self.search_query = ""
         self.pending_size_cells.clear()
-        self.is_navigating_history = False
+        # is_navigating_history is cleared by go_back's finally block

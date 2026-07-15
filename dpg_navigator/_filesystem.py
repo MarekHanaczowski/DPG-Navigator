@@ -174,12 +174,18 @@ def validate_folder_name(name: str, current_dir: str) -> str | None:
     """Validate a folder name against path traversal attacks.
 
     Returns an error message string if the name is invalid, or None if valid.
-    Rejects names containing '..', path separators, or names that resolve
-    outside the current directory via symlinks.
+    Rejects empty/whitespace names, ``.`` / ``..``, path separators, or names
+    that resolve outside the current directory via symlinks.
     """
-    if (".." in name
-            or os.sep in name
-            or (os.altsep and os.altsep in name)):
+    if not name or not name.strip():
+        return "Folder name cannot be empty."
+    if name in (".", ".."):
+        return f"Invalid folder name: '{name}'."
+    if (
+        ".." in name
+        or os.sep in name
+        or (os.altsep and os.altsep in name)
+    ):
         return f"Invalid folder name: '{name}'."
 
     new_path = os.path.join(current_dir, name)
@@ -199,12 +205,29 @@ def build_selection_list(
     """Build the final file selection list.
 
     If no files are selected, uses the typed filename to construct a path.
+    Rejects typed names that escape *current_dir* (``..``, separators that
+    leave the directory). Absolute typed paths are kept as explicit intent.
     Returns a new list (does not mutate the input).
     """
     if not selected_files:
         typed_name = typed_name.strip()
-        if typed_name:
-            return [os.path.join(current_dir, typed_name)]
+        if not typed_name:
+            return []
+        if os.path.isabs(typed_name):
+            return [typed_name]
+        # Same rejection policy as validate_folder_name for relative names.
+        if (
+            ".." in typed_name
+            or os.sep in typed_name
+            or (os.altsep and os.altsep in typed_name)
+        ):
+            return []
+        candidate = os.path.join(current_dir, typed_name)
+        real_dir = os.path.realpath(current_dir)
+        real_cand = os.path.realpath(candidate)
+        if not (real_cand == real_dir or real_cand.startswith(real_dir + os.sep)):
+            return []
+        return [candidate]
     return list(selected_files)
 
 

@@ -75,8 +75,11 @@ _TRIM_TOLERANCE: int = 5
 _RESIZE_DEBOUNCE: float = 0.4
 _OVERSCAN: int = 20
 _MAX_RENDER_W: int = 4000
+_MAX_HTML_BYTES: int = 2 * 1024 * 1024
+"""Reject HTML/Markdown sources larger than this before spawning Chrome."""
 _CHROME_TIMEOUT: float = 30.0
 """Seconds before a hung Chrome screenshot subprocess is killed."""
+_CHROME_PROFILE_DIRNAME: str = "dpg_nav_chrome_profile"
 
 _CSS_RESET = (
     "<style>"
@@ -286,6 +289,10 @@ class HTMLRenderer:
         if cls._hti is None:
             with cls._hti_lock:
                 if cls._hti is None:
+                    profile_dir = os.path.join(
+                        tempfile.gettempdir(), _CHROME_PROFILE_DIRNAME,
+                    )
+                    os.makedirs(profile_dir, exist_ok=True)
                     cls._hti = _Html2Image(
                         output_path=tempfile.gettempdir(),
                         custom_flags=[
@@ -295,7 +302,8 @@ class HTMLRenderer:
                             '--log-level=3',
                             '--disable-javascript',
                             '--proxy-server="http://127.0.0.1:0"',
-                            f'--user-data-dir={os.path.join(tempfile.gettempdir(), "dpg_nav_chrome_profile")}',
+                            '--block-new-web-contents',
+                            f'--user-data-dir={profile_dir}',
                         ],
                         disable_logging=True,
                     )
@@ -333,10 +341,14 @@ class HTMLRenderer:
         self.close()
 
         try:
-            with open(path, encoding="utf-8", errors="replace") as f:
-                raw_html = f.read()
+            with open(path, "rb") as f:
+                raw_bytes = f.read(_MAX_HTML_BYTES + 1)
         except (OSError, PermissionError):
             return False
+        if len(raw_bytes) > _MAX_HTML_BYTES:
+            self._status_text = "File too large for preview"
+            return False
+        raw_html = raw_bytes.decode("utf-8", errors="replace")
 
         self._current_path = path
         self._html_content = _inject_helpers(raw_html)
@@ -361,6 +373,10 @@ class HTMLRenderer:
         Returns True if rendering started.
         """
         self.close()
+
+        if len(html_content.encode("utf-8", errors="replace")) > _MAX_HTML_BYTES:
+            self._status_text = "Content too large for preview"
+            return False
 
         self._current_path = ""
         self._html_content = _inject_helpers(html_content)
@@ -405,6 +421,19 @@ class HTMLRenderer:
         self._on_complete = None
         self._on_resize_complete = None
         self._status_text = ""
+
+    @classmethod
+    def shutdown_shared(cls) -> None:
+        """Drop the shared Html2Image singleton after the last dialog closes.
+
+        Does not force-kill an in-flight Chrome subprocess (subprocess timeout
+        already bounds hang time); clears the handle so the next open creates
+        a fresh browser config.
+        """
+        with cls._hti_lock:
+            cls._hti = None
+        global _chrome_available_cache
+        _chrome_available_cache = None
 
     # ── Texture management ────────────────────────────────────
 

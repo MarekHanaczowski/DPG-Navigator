@@ -158,14 +158,23 @@ class DocumentRenderer(BaseRenderer):
         elif ext == '.pdf':
             self._render_pdf_preview(entry)
         elif ext in ('.docx', '.doc'):
-            self._render_word_preview(entry)
+            if self._ctx.capabilities.mammoth and chrome_available():
+                self._render_word_html_preview(entry)
+            else:
+                self._render_word_preview(entry)
         elif ext == '.pptx':
             self._render_pptx_preview(entry)
         else:
             ctx.show_error("Unsupported document", f"{ext} is not supported")
 
     def clear(self) -> None:
+        if self._html is not None:
+            self._html.close()
+        if self._pdf is not None:
+            self._pdf.close()
         self._clear_for_html()
+        self._html = None
+        self._pdf = None
         self._current_entry = None
         self._ctx = None
 
@@ -357,10 +366,37 @@ class DocumentRenderer(BaseRenderer):
         """Open a PDF and display its first page in the preview panel."""
         self._show_pdf_from_path(entry.full_path)
 
-    def on_mouse_wheel(self, sender, app_data, user_data) -> None:
-        """Navigate PDF pages with the mouse wheel."""
+    def on_resize(self, sender, app_data, user_data) -> None:
+        """Re-layout the active HTML or PDF preview after a panel resize."""
+        dims = self._html_panel_size()
+        if dims is None:
+            return
+        render_w, render_h = dims
+
+        if self._html is not None and self._html.is_open:
+            self._html.on_resize(render_w, render_h)
+            return
+
         if self._pdf is None or not self._pdf.is_open:
             return
+        page_info = self._pdf.on_resize(render_w, render_h)
+        if page_info is None or self._ctx is None or self._ctx.panel_id is None:
+            return
+
+        dpg.delete_item(self._ctx.panel_id, children_only=True)
+        if self._pdf.tex_id is not None:
+            self._pdf_image_id = dpg.add_image(
+                self._pdf.tex_id,
+                parent=self._ctx.panel_id,
+            )
+        self._pdf_page_label = dpg.add_text(
+            f"Page {page_info[0] + 1} / {page_info[1]}",
+            color=[180, 180, 180],
+            parent=self._ctx.panel_id,
+        )
+
+    def on_mouse_wheel(self, sender, app_data, user_data) -> None:
+        """Scroll HTML previews or navigate PDF pages with the mouse wheel."""
         try:
             delta = float(app_data)
         except (TypeError, ValueError):
@@ -368,6 +404,17 @@ class DocumentRenderer(BaseRenderer):
         if delta == 0:
             return
 
+        if self._html is not None and self._html.is_open:
+            self._html.on_scroll(delta)
+            if (
+                self._html_status_label is not None
+                and dpg.does_item_exist(self._html_status_label)
+            ):
+                dpg.set_value(self._html_status_label, self._html.status_text)
+            return
+
+        if self._pdf is None or not self._pdf.is_open:
+            return
         page_info = (
             self._pdf.prev_page()
             if delta > 0

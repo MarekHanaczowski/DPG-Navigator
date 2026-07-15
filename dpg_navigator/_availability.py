@@ -40,7 +40,7 @@ def chrome_available() -> bool:
         return False
     try:
         _h2i = _Html2Image()
-        return bool(_h2i.browser_executable)
+        return bool(_h2i.browser.executable)
     except Exception:
         return False
 

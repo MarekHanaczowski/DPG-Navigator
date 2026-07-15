@@ -38,6 +38,10 @@ python -m pytest -q
 
 Push the release commit and confirm that every GitHub Actions matrix job passes.
 
+CI also generates a CycloneDX SBOM (`sbom.cdx.json`) as the `sbom-cyclonedx`
+artifact. Third-party Actions are pinned to commit SHAs in
+`.github/workflows/ci.yml` and `publish.yml` (not floating tags).
+
 ## 3. Optional local build and smoke test
 
 The publish workflow builds and validates distributions automatically. Local

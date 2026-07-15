@@ -1,58 +1,72 @@
 import sys
 import os
 
-# Add parent directory to path so we can import dpg_navigator
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if sys.platform == "win32":
+    try:
+        import ctypes
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except Exception:
+        pass
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 from dpg_navigator import FileDialog, DialogConfig
 
 
 def _bind_ui_font() -> None:
-    windows_dir = os.environ.get("WINDIR", r"C:\Windows")
-    font_candidates = {
-        "win32": [
-            os.path.join(windows_dir, "Fonts", "segoeui.ttf"),
-            os.path.join(windows_dir, "Fonts", "arial.ttf"),
-        ],
-        "linux": [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
-        ],
-        "darwin": [
-            "/System/Library/Fonts/Supplemental/Arial.ttf",
+    candidates = []
+    if sys.platform == "win32":
+        windir = os.environ.get("WINDIR", r"C:\Windows")
+        candidates.extend([
+            os.path.join(windir, "Fonts", "segoeui.ttf"),
+            os.path.join(windir, "Fonts", "arial.ttf"),
+            os.path.join(windir, "Fonts", "tahoma.ttf"),
+        ])
+    elif sys.platform == "darwin":
+        candidates.extend([
             "/System/Library/Fonts/SFNS.ttf",
-        ],
-    }
-    for font_path in font_candidates.get(sys.platform, []):
-        if os.path.isfile(font_path):
+            "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+            "/Library/Fonts/Arial.ttf",
+        ])
+    else:
+        candidates.extend([
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+        ])
+    font_path = next((path for path in candidates if os.path.isfile(path)), None)
+    if font_path is None:
+        return
+    try:
+        from dpg_navigator.renderers.font import load_font_with_unicode
+
+        with dpg.font_registry():
+            font = load_font_with_unicode(font_path, 16)
+    except Exception:
+        try:
             with dpg.font_registry():
                 font = dpg.add_font(font_path, 16)
-            dpg.bind_font(font)
+        except Exception:
             return
+    dpg.bind_font(font)
 
 
 def main():
     dpg.create_context()
     _bind_ui_font()
-    
-    # Configure DPG
     dpg.create_viewport(title="DPG Navigator - Modular Architecture Demo", width=1200, height=800)
     dpg.setup_dearpygui()
-
-    # Use the new modular preview!
     config = DialogConfig(
-        title="Choose a file (Modular Dialog + Preview ON)",
+        title="Choose a file",
         show_preview=True,
-        default_path=os.getcwd()
+        default_path=os.getcwd(),
     )
-
     dialog = FileDialog(config)
     dialog.show()
-
     dpg.show_viewport()
     dpg.start_dearpygui()
+    dialog.destroy()
     dpg.destroy_context()
+
 
 if __name__ == "__main__":
     main()
