@@ -109,10 +109,16 @@ class FileDialog(KeyboardMixin):
 
     def __init__(
         self,
+        config: DialogConfig | Callable | None = None,
         callback: Callable | None = None,
-        config: DialogConfig | None = None,
         **kwargs,
     ):
+        # Support old signature FileDialog(callback, config) or FileDialog(callback=on_select)
+        # by checking if the first positional argument is callable.
+        if config is not None and (callable(config) or not isinstance(config, DialogConfig)):
+            callback = config
+            config = None
+
         # Build config from kwargs if not provided directly
         if config is not None:
             self._config = config
