@@ -156,7 +156,7 @@ class FileDialog(KeyboardMixin):
         self.logic = DialogLogic(
             state=self.state,
             config=self._config,
-            refresh_ui_cb=self._render_entries_list,
+            refresh_ui_cb=lambda entries: self.ui._render_entries_list(entries),
             show_error_cb=self._show_message,
             update_path_input_cb=lambda path: dpg.configure_item(self._path_input, default_value=path) if hasattr(self, '_path_input') else None,
             update_size_cell_cb=lambda path, txt: dpg.configure_item(self.state.pending_size_cells[path], label=txt) if path in self.state.pending_size_cells else None
