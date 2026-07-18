@@ -5,10 +5,15 @@ on:
   pull_request:
   workflow_call:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: Python ${{ matrix.python-version }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -70,6 +75,7 @@ jobs:
   audit:
     name: Dependency audit
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     # Informational: surfaces known CVEs in the dependency tree without
     # blocking the build, since a new advisory in a transitive dep should
     # not fail unrelated work.
