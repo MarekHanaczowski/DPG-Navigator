@@ -5,7 +5,15 @@ on:
   # "push:" without a filter no longer double-runs every PR-branch commit.
   push:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
   workflow_call:
 
 concurrency:
