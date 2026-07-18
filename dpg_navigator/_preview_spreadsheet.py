@@ -7,12 +7,12 @@ from __future__ import annotations
 # MIT licensed
 
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 try:
     from openpyxl import load_workbook as _load_workbook  # type: ignore[import-untyped]
 except Exception:  # optional backend absent or incompatible (e.g. old Python)
-    _load_workbook = None
+    _load_workbook = cast(Any, None)
 
 
 class ExcelPreviewError(Exception):

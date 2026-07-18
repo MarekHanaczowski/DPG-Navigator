@@ -85,6 +85,15 @@ class FileDialog(KeyboardMixin):
     _DEFAULT_SELECTABLE_HEIGHT: int = 16
     """Default height in pixels for selectable table rows."""
 
+    # Attribute type declarations: `state`/`ui` are assigned in __init__ but
+    # referenced earlier (self.ui inside a callback lambda) so mypy needs the
+    # types up front; `_preview_btn`/`_new_folder_group` are DPG item tags set
+    # externally by DialogUIBuilder (dialog/_ui.py) on this instance.
+    state: DialogState
+    ui: DialogUIBuilder
+    _preview_btn: int | str | None = None
+    _new_folder_group: int | str | None = None
+
     _DEFAULT_IMAGE_TRANSPARENCY: int = 100
     """Alpha value (0-255) for hidden file icon tinting."""
 

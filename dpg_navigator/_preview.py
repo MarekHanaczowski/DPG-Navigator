@@ -61,8 +61,8 @@ class PreviewPanel:
         from ._pdf import pdf_available
         from ._html import html_available, chrome_available
         from ._preview_archive import seven_zip_available
-        from ._preview_word import word_available, mammoth_available
-        from ._preview_presentation import pptx_available
+        from ._preview_word import word_available
+        from ._availability import mammoth_available, pptx_available
         
         # Determine markdown availability
         try:
@@ -83,11 +83,15 @@ class PreviewPanel:
         except ImportError:
             excel_available = False
 
+        # PreviewCapabilities fields (see _preview_registry): pdf, word, mammoth,
+        # pptx, markdown, excel, pygments, seven_z. It has no html/chrome fields
+        # — HTML routing is unconditional on extension, so html_available()/
+        # chrome_available() are not part of the capability set.
         return PreviewCapabilities(
-            has_pdf=pdf_available(), has_html=html_available(), has_chrome=chrome_available(),
-            has_word=word_available(), has_mammoth=mammoth_available(), has_pptx=pptx_available(),
-            has_markdown=markdown_available, has_excel=excel_available, has_pygments=pygments_available,
-            has_7z=seven_zip_available()
+            pdf=pdf_available(),
+            word=word_available(), mammoth=mammoth_available(), pptx=pptx_available(),
+            markdown=markdown_available, excel=excel_available, pygments=pygments_available,
+            seven_z=seven_zip_available(),
         )
 
     def attach(self, table_wrapper: int, panel_id: int | None) -> None:
@@ -147,7 +151,11 @@ class PreviewPanel:
         
         # Hardcoded extensions for now
         image_exts = frozenset({".png", ".jpg", ".jpeg", ".bmp"})
-        kind = resolve_preview_kind(entry.name, self.ctx.capabilities, image_exts)
+        kind = resolve_preview_kind(
+            entry.name,
+            capabilities=self.ctx.capabilities,
+            image_extensions=image_exts,
+        )
         
         renderer = self._renderers.get(kind)
         if renderer:
@@ -215,3 +223,37 @@ class PreviewPanel:
         
     def shutdown(self) -> None:
         self.clear()
+
+    def destroy(self) -> None:
+        """Release resources held by the preview panel (alias for shutdown).
+
+        FileDialog.cleanup() calls destroy(); kept as the panel's public
+        teardown name (the monolith used destroy()).
+        """
+        self.shutdown()
+
+    @property
+    def visible(self) -> bool:
+        """Whether the preview panel is currently shown (tracked by toggle)."""
+        return self._show
+
+    def on_mouse_wheel(self, sender, app_data, user_data) -> None:
+        """Route mouse-wheel scroll to the active renderer if it handles it.
+
+        Registered as a global wheel handler by the keyboard mixin. Only the
+        active renderer (when the panel is visible and hovered) gets the event;
+        renderers that don't implement on_mouse_wheel simply ignore it.
+
+        NOTE (migration, 2026-07-18): the monolith scrolled the HTML/PDF preview
+        here directly. In the split architecture that scroll behaviour lives on
+        the individual renderers; this method safely delegates when a renderer
+        exposes on_mouse_wheel and is otherwise a no-op (HTML/PDF wheel-scroll is
+        a follow-up, not a crash).
+        """
+        if self._panel_id is None or not self._show:
+            return
+        if not dpg.does_item_exist(self._panel_id) or not dpg.is_item_hovered(self._panel_id):
+            return
+        handler = getattr(self._active_renderer, "on_mouse_wheel", None)
+        if callable(handler):
+            handler(sender, app_data, user_data)

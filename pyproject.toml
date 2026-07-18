@@ -58,6 +58,12 @@ dev = [
     "pytest-github-actions-annotate-failures>=0.2",
     "ruff>=0.6",
     "mypy>=1.10",
+    # Type stubs for optional backends imported in the mypy-checked modules —
+    # without these the "Type check pure modules" CI step reports
+    # import-untyped for markdown/openpyxl/pygments.
+    "types-Markdown",
+    "types-openpyxl",
+    "types-Pygments",
     "dpg-navigator[all]",
 ]
 

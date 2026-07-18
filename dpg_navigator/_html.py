@@ -18,7 +18,7 @@ from typing import Any, cast
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
-from ._job_manager import JobManager
+from ._job_manager import JobManager, TimerTask
 
 try:
     from html2image import Html2Image as _Html2Image  # type: ignore[import-untyped]
@@ -252,8 +252,8 @@ class HTMLRenderer:
         self._last_render_time: float = 0
         self._status_text: str = ""
 
-        # Resize debounce
-        self._resize_timer: threading.Timer | None = None
+        # Resize debounce (JobManager.schedule_timer returns a TimerTask)
+        self._resize_timer: TimerTask | None = None
 
         # Callbacks (invoked inside dpg.mutex)
         self._on_complete: Any = None
