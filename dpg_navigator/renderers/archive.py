@@ -3,8 +3,16 @@ import dearpygui.dearpygui as dpg
 import os
 import time
 
-from ._base import BaseRenderer, PreviewContext
+from ._base import BaseRenderer, PreviewContext, TableRenderMixin
 from .._types import FileEntry
+from .._filesystem import DirectoryLister
+from .._preview_registry import PDF_EXTS
+from .._preview_archive import (
+    ArchivePreviewError,
+    EncryptedArchiveError,
+    load_7z_table,
+    load_zip_table,
+)
 from typing import Callable, Optional
 
 try:
@@ -16,7 +24,11 @@ try:
 except ImportError:
     py7zr = None
 
-class ArchiveRenderer(BaseRenderer):
+class ArchiveRenderer(TableRenderMixin, BaseRenderer):
+    _TABLE_MAX_ROWS: int = 200
+    _TEXT_PREVIEW_MAX_SIZE: int = 256 * 1024
+    _PDF_EXTS: frozenset[str] = PDF_EXTS
+
     def __init__(self, request_update_cb: Callable[[FileEntry], None]):
         self._request_update = request_update_cb
         self._current_entry = None
@@ -39,7 +51,7 @@ class ArchiveRenderer(BaseRenderer):
 
     def _render_zip_preview(self, entry: FileEntry) -> None:
             """Parse a ZIP archive and display its contents as a native DPG table."""
-            if self._panel_id is None:
+            if self._ctx is None or self._ctx.panel_id is None:
                 return
     
             try:
@@ -78,12 +90,12 @@ class ArchiveRenderer(BaseRenderer):
                         modified_time=stat.st_mtime,
                         is_hidden=False,
                     )
-                    self.update(virtual_entry)
+                    self._request_update(virtual_entry)
             except Exception:
                 pass
     def _render_7z_preview(self, entry: FileEntry) -> None:
             """Parse a 7z archive and display its contents as a native DPG table."""
-            if self._panel_id is None:
+            if self._ctx is None or self._ctx.panel_id is None:
                 return
     
             try:

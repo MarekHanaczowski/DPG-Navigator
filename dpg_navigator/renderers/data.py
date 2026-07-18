@@ -1,4 +1,6 @@
 """Data preview renderer for CSV, Excel, SQLite, and XML."""
+import logging
+import xml.dom.minidom
 import dearpygui.dearpygui as dpg
 import csv
 import traceback
@@ -12,11 +14,24 @@ try:
 except ImportError:
     sqlite3 = None
 
-from ._base import BaseRenderer, PreviewContext
+from ._base import BaseRenderer, PreviewContext, TableRenderMixin
 from .._types import FileEntry
+from .._availability import _load_workbook
+from .._filesystem import DirectoryLister
+from .._preview_table import CsvPreviewError, parse_csv_table
+from .._preview_spreadsheet import ExcelPreviewError, load_excel_table
+from .._preview_sqlite import SQLitePreviewError, load_sqlite_table
 from typing import Callable, Optional, Tuple
 
-class DataRenderer(BaseRenderer):
+_log = logging.getLogger(__name__)
+
+class DataRenderer(TableRenderMixin, BaseRenderer):
+    # _STATUS_HEIGHT is provided by TableRenderMixin.
+    _TABLE_MAX_ROWS: int = 200
+    _TABLE_MAX_COLS: int = 50
+    _TEXT_PREVIEW_MAX_SIZE: int = 256 * 1024
+    _text_offset: int = 0
+
     def __init__(self, load_text_content_cb: Callable[[str, int], Tuple[Optional[str], bool]]):
         self._load_text_content = load_text_content_cb
         self._current_entry = None
@@ -41,112 +56,97 @@ class DataRenderer(BaseRenderer):
         self._current_entry = None
         self._ctx = None
 
-    def _render_table_widget(
-            self,
-            entry_name: str,
-            headers: list[str],
-            rows: list[list[str]],
-            status_text: str,
-            ui_builder=None,
-            row_click_callback=None,
-        ) -> None:
-            """Render tabular data as a native DPG table in the preview panel."""
-            if self._panel_id is None:
-                return
-    
-            self._image_cache = None
-            dpg.delete_item(self._panel_id, children_only=True)
-            tex_tag = f"_preview_tex_{self._config_tag}"
-            if dpg.does_item_exist(tex_tag):
-                dpg.delete_item(tex_tag)
-    
+    def _render_binary_warning(self, entry: FileEntry) -> None:
+        """Show a 'binary file' notice in the panel (no text preview available)."""
+        if self._ctx is None or self._ctx.panel_id is None:
+            return
+        if self._ctx.temp_font is not None:
+            if dpg.does_item_exist(self._ctx.temp_font):
+                dpg.delete_item(self._ctx.temp_font)
+            self._ctx.temp_font = None
+        dpg.delete_item(self._ctx.panel_id, children_only=True)
+        tex_tag = f"_preview_tex_{self._ctx.config_tag}"
+        if dpg.does_item_exist(tex_tag):
+            dpg.delete_item(tex_tag)
+        dpg.add_text(
+            f"Binary file: {entry.name}",
+            color=[128, 128, 128],
+            parent=self._ctx.panel_id,
+        )
+        dpg.add_text(
+            "(No text preview available)",
+            color=[100, 100, 100],
+            parent=self._ctx.panel_id,
+        )
+
+    def _render_text_preview(self, entry: FileEntry) -> None:
+        """Read a text file and display its contents (fallback for data paths)."""
+        if self._ctx is None or self._ctx.panel_id is None:
+            return
+
+        text, is_bin = self._load_text_content(entry.full_path, self._text_offset)
+        if is_bin:
+            self._render_binary_warning(entry)
+            return
+        if text is None:
+            self.clear()
+            return
+
+        if not text.strip():
+            text = "(No text content or only whitespace in this fragment)"
+
+        self._ctx.image_cache = None
+        dpg.delete_item(self._ctx.panel_id, children_only=True)
+        tex_tag = f"_preview_tex_{self._ctx.config_tag}"
+        if dpg.does_item_exist(tex_tag):
+            dpg.delete_item(tex_tag)
+
+        if entry.size_bytes is not None and entry.size_bytes > self._TEXT_PREVIEW_MAX_SIZE:
+            self._render_text_navigation(entry)
+        else:
             dpg.add_text(
-                entry_name,
+                entry.name,
                 color=[180, 180, 255],
-                parent=self._panel_id,
+                parent=self._ctx.panel_id,
             )
-            dpg.add_separator(parent=self._panel_id)
-    
-            if not headers and not rows:
-                dpg.add_text(
-                    status_text or "No data",
-                    color=[128, 128, 128],
-                    parent=self._panel_id,
-                )
-                return
-    
-            header_color = [180, 220, 180]
-            cell_color = [210, 210, 210]
-    
-            bottom_margin = self._STATUS_HEIGHT + 4
-            if ui_builder is not None:
-                bottom_margin += 30
-    
-            with dpg.child_window(
-                parent=self._panel_id,
-                height=-bottom_margin,
-                width=-1,
-            ):
-                with dpg.table(
-                    header_row=False,
-                    borders_innerH=True,
-                    borders_innerV=True,
-                    borders_outerH=True,
-                    borders_outerV=True,
-                    scrollX=True,
-                    scrollY=True,
-                    freeze_rows=1,
-                    resizable=True,
-                    policy=dpg.mvTable_SizingFixedFit,
-                ):
-                    # Pre-calculate column widths to prevent vertical text wrapping 
-                    # (DPG calculates FixedFit based on first visible row)
-                    col_widths = []
-                    for i in range(len(headers)):
-                        max_len = len(str(headers[i]))
-                        for row_data in rows:
-                            if i < len(row_data) and row_data[i] is not None:
-                                max_len = max(max_len, len(str(row_data[i])))
-                        # Avg character width is ~8 pixels, +20 for padding
-                        col_widths.append(min(400, max_len * 8 + 20))
-    
-                    for w in col_widths:
-                        dpg.add_table_column(init_width_or_weight=w)
-    
-                    # Header row (manually colored)
-                    with dpg.table_row():
-                        for col_name in headers:
-                            dpg.add_text(col_name, wrap=0, color=header_color)
-    
-                    # Data rows
-                    for r_idx, row_data in enumerate(rows):
-                        with dpg.table_row():
-                            for c_idx, cell_val in enumerate(row_data):
-                                if c_idx == 0 and row_click_callback is not None:
-                                    dpg.add_selectable(
-                                        label=cell_val,
-                                        callback=row_click_callback,
-                                        user_data=r_idx,
-                                        span_columns=False,
-                                    )
-                                else:
-                                    dpg.add_text(cell_val, wrap=0, color=cell_color)
-                            for _ in range(len(headers) - len(row_data)):
-                                dpg.add_text("", color=cell_color)
-    
-            dpg.add_spacer(height=2, parent=self._panel_id)
-    
-            if ui_builder is not None:
-                ui_builder()
-    
+        dpg.add_separator(parent=self._ctx.panel_id)
+        with dpg.child_window(parent=self._ctx.panel_id, height=-1, width=-1):
+            dpg.add_text(text, wrap=0)
+
+    def _render_text_navigation(self, entry: FileEntry) -> None:
+        """Show name + byte-range label for an oversized text/XML fallback.
+
+        NOTE (migration decision, 2026-07-18): the monolith rendered interactive
+        [<]/[>] paging buttons here via ``_on_text_page_change`` + a repaint
+        callback. DataRenderer has no paging/repaint wiring (it is not a text
+        renderer), so this degrades to a static range label rather than shipping
+        non-functional buttons. If paginated data/XML preview is wanted, wire an
+        update callback into DataRenderer and restore the monolith buttons.
+        """
+        if self._ctx is None or self._ctx.panel_id is None:
+            return
+        if entry.size_bytes is None:
+            dpg.add_text(entry.name, color=[180, 180, 255], parent=self._ctx.panel_id)
+            return
+        size_bytes = entry.size_bytes
+        mb = 1024 * 1024
+        start_mb = self._text_offset / mb
+        end_mb = min(
+            (self._text_offset + self._TEXT_PREVIEW_MAX_SIZE) / mb,
+            size_bytes / mb,
+        )
+        total_mb = size_bytes / mb
+        with dpg.group(horizontal=True, parent=self._ctx.panel_id):
+            dpg.add_text(entry.name, color=[180, 180, 255])
+            dpg.add_spacer(width=4)
             dpg.add_text(
-                status_text,
-                color=[180, 180, 180],
-                parent=self._panel_id,
+                f"{start_mb:.2f}-{end_mb:.2f} of {total_mb:.2f} MB",
+                color=[200, 200, 200],
             )
+
     def _render_csv_preview(self, entry: FileEntry) -> None:
             """Parse a CSV/TSV file and display as a native DPG table."""
-            if self._panel_id is None:
+            if self._ctx is None or self._ctx.panel_id is None:
                 return
     
             text, is_bin = self._load_text_content(entry.full_path)
@@ -181,7 +181,7 @@ class DataRenderer(BaseRenderer):
             )
     def _render_excel_preview(self, entry: FileEntry, sheet_name_to_load: str | None = None) -> None:
             """Parse an Excel .xlsx file and display as a native DPG table."""
-            if self._panel_id is None:
+            if self._ctx is None or self._ctx.panel_id is None:
                 return
     
             try:
@@ -198,7 +198,7 @@ class DataRenderer(BaseRenderer):
     
             def _build_excel_ui():
                 if len(table.sheetnames) > 1:
-                    with dpg.group(horizontal=True, parent=self._panel_id):
+                    with dpg.group(horizontal=True, parent=self._ctx.panel_id):
                         dpg.add_text("Sheet:", color=[180, 180, 180])
                         def on_sheet_changed(sender, app_data, user_data):
                             self._render_excel_preview(entry, sheet_name_to_load=app_data)
@@ -215,7 +215,7 @@ class DataRenderer(BaseRenderer):
             )
     def _render_xml_preview(self, entry: FileEntry) -> None:
             """Parse an XML file and display its pretty-printed contents."""
-            if self._panel_id is None:
+            if self._ctx is None or self._ctx.panel_id is None:
                 return
     
             raw_text, is_bin = self._load_text_content(entry.full_path, self._text_offset)
@@ -239,9 +239,9 @@ class DataRenderer(BaseRenderer):
             if not text:
                 text = "(No identifiable XML or text content in this fragment)"
     
-            self._image_cache = None
-            dpg.delete_item(self._panel_id, children_only=True)
-            tex_tag = f"_preview_tex_{self._config_tag}"
+            self._ctx.image_cache = None
+            dpg.delete_item(self._ctx.panel_id, children_only=True)
+            tex_tag = f"_preview_tex_{self._ctx.config_tag}"
             if dpg.does_item_exist(tex_tag):
                 dpg.delete_item(tex_tag)
     
@@ -252,15 +252,15 @@ class DataRenderer(BaseRenderer):
                 dpg.add_text(
                     entry.name,
                     color=[180, 180, 255],
-                    parent=self._panel_id,
+                    parent=self._ctx.panel_id,
                 )
     
-            dpg.add_separator(parent=self._panel_id)
-            with dpg.child_window(parent=self._panel_id, height=-1, width=-1):
+            dpg.add_separator(parent=self._ctx.panel_id)
+            with dpg.child_window(parent=self._ctx.panel_id, height=-1, width=-1):
                 dpg.add_text(text, wrap=0)
     def _render_sqlite_preview(self, entry: FileEntry, table_name_to_load: str | None = None) -> None:
             """Parse a SQLite database file and display a table's contents."""
-            if self._panel_id is None:
+            if self._ctx is None or self._ctx.panel_id is None:
                 return
     
             try:
@@ -277,7 +277,7 @@ class DataRenderer(BaseRenderer):
     
             def _build_db_ui():
                 if len(table.tables) > 1:
-                    with dpg.group(horizontal=True, parent=self._panel_id):
+                    with dpg.group(horizontal=True, parent=self._ctx.panel_id):
                         dpg.add_text("Table:", color=[200, 200, 200])
                         dpg.add_combo(
                             items=table.tables,

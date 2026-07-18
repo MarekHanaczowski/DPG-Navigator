@@ -1,6 +1,7 @@
 """UI Builder for the file dialog."""
 import dearpygui.dearpygui as dpg
 import os
+import time
 
 from ._state import DialogState
 from ._logic import DialogLogic
@@ -8,6 +9,7 @@ from .._platform import get_drives, get_special_dirs
 from .._types import DialogMode, FileEntry, DialogConfig
 from .._filesystem import DirectoryLister
 from .._job_manager import JobManager
+from .._preview import PreviewPanel
 
 class DialogUIBuilder:
     def __init__(self, dialog, state: DialogState, logic: DialogLogic, config: DialogConfig):

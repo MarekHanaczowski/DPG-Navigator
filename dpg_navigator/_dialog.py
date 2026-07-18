@@ -73,7 +73,7 @@ class FileDialog(KeyboardMixin):
 
     Example::
 
-        fd = ModularFileDialog(callback=my_handler, default_path="..",
+        fd = FileDialog(callback=my_handler, default_path="..",
                         show_preview=True)
         fd.show()
         # ... later:
@@ -216,8 +216,8 @@ class FileDialog(KeyboardMixin):
         if dpg.does_item_exist(self._config.tag):
             dpg.delete_item(self._config.tag)
 
-        ModularFileDialog._instance_count -= 1
-        if ModularFileDialog._instance_count <= 0:
+        FileDialog._instance_count -= 1
+        if FileDialog._instance_count <= 0:
             JobManager.shutdown(wait=True, timeout=2.0)
             # The extraction temp dir is shared across all dialogs, so only
             # wipe it once the last instance is gone — otherwise closing one
@@ -228,7 +228,7 @@ class FileDialog(KeyboardMixin):
                 if theme_id is not None and dpg.does_item_exist(theme_id):
                     dpg.delete_item(theme_id)
                 setattr(FileDialog, attr, None)
-            ModularFileDialog._instance_count = 0
+            FileDialog._instance_count = 0
 
     def change_callback(self, callback: Callable) -> None:
         """Change the callback function. Does NOT modify the OK button directly."""

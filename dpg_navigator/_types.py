@@ -7,6 +7,7 @@ file extension filter list used by FileDialog.
 from __future__ import annotations
 # MIT licensed
 
+import os
 from dataclasses import dataclass
 from enum import Enum, auto
 
@@ -32,6 +33,16 @@ class FileEntry:
     size_bytes: int | None
     modified_time: float
     is_hidden: bool
+
+    @property
+    def ext(self) -> str:
+        """Lowercase file extension including the leading dot (e.g. '.csv').
+
+        The preview renderers dispatch on ``entry.ext``; FileEntry never stored
+        it as a field (pre- and post-refactor), so it is derived from ``name``
+        here — a computed property is frozen-dataclass safe.
+        """
+        return os.path.splitext(self.name)[1].lower()
 
 
 @dataclass
