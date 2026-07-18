@@ -1,4 +1,5 @@
 """Archive preview renderer."""
+from __future__ import annotations  # PEP 604/585 in signatures need this on py3.8/3.9
 import dearpygui.dearpygui as dpg
 import os
 import time

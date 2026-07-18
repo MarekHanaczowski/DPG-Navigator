@@ -1,4 +1,5 @@
 """Data preview renderer for CSV, Excel, SQLite, and XML."""
+from __future__ import annotations  # PEP 604/585 in signatures need this on py3.8/3.9
 import logging
 import xml.dom.minidom
 import dearpygui.dearpygui as dpg

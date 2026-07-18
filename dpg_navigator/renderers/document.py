@@ -1,4 +1,5 @@
 """Document preview renderer for HTML, Markdown, PDF, Word, and PPTX."""
+from __future__ import annotations  # PEP 604/585 in signatures need this on py3.8/3.9
 import io
 import array
 import logging
