@@ -1,4 +1,5 @@
 """Business logic for the file dialog."""
+from __future__ import annotations  # PEP 604/585 annotations need this on py3.8/3.9
 
 import os
 import threading

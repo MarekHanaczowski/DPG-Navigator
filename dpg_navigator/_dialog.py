@@ -9,7 +9,6 @@ PowerPoint (.pptx), Markdown, HTML, CSV/TSV, Excel (.xlsx), SQLite
 databases, fonts (.ttf/.otf), ZIP/7z archives, and syntax-highlighted
 source code (via Pygments).
 """
-
 from __future__ import annotations
 # MIT licensed
 

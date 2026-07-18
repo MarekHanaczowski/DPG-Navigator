@@ -1,4 +1,5 @@
 """State management for the file dialog."""
+from __future__ import annotations  # PEP 604/585 annotations need this on py3.8/3.9
 
 from dataclasses import dataclass, field
 import threading
