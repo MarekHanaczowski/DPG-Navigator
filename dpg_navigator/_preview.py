@@ -1,4 +1,5 @@
 """Modular Preview Panel component for the file dialog."""
+from __future__ import annotations  # PEP 604/585 in signatures need this on py3.8/3.9
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 from typing import Optional, Callable
