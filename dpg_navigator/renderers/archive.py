@@ -1,6 +1,7 @@
 """Archive preview renderer."""
 from __future__ import annotations  # PEP 604/585 in signatures need this on py3.8/3.9
 import dearpygui.dearpygui as dpg
+import logging
 import os
 import time
 
@@ -15,6 +16,8 @@ from .._preview_archive import (
     load_zip_table,
 )
 from typing import Callable, Optional
+
+_log = logging.getLogger(__name__)
 
 try:
     import zipfile
@@ -80,7 +83,6 @@ class ArchiveRenderer(TableRenderMixin, BaseRenderer):
                     max_size=self._TEXT_PREVIEW_MAX_SIZE,
                     allow_large_extensions=self._PDF_EXTS,
                 )
-                
                 if extracted_path:
                     stat = os.stat(extracted_path)
                     virtual_entry = FileEntry(
@@ -92,8 +94,28 @@ class ArchiveRenderer(TableRenderMixin, BaseRenderer):
                         is_hidden=False,
                     )
                     self._request_update(virtual_entry)
+                else:
+                    _log.warning(
+                        "Could not extract archive member %s from %s",
+                        internal_path,
+                        archive_path,
+                    )
+                    if self._ctx is not None:
+                        self._ctx.show_error(
+                            "Preview unavailable",
+                            f"Could not extract {internal_path!r}",
+                        )
             except Exception:
-                pass
+                _log.exception(
+                    "Failed to preview archive member %s in %s",
+                    internal_path,
+                    archive_path,
+                )
+                if self._ctx is not None:
+                    self._ctx.show_error(
+                        "Preview failed",
+                        f"Could not preview {internal_path!r}",
+                    )
     def _render_7z_preview(self, entry: FileEntry) -> None:
             """Parse a 7z archive and display its contents as a native DPG table."""
             if self._ctx is None or self._ctx.panel_id is None:

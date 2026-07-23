@@ -6,6 +6,7 @@ without launching a real Chrome/Chromium process.
 
 from __future__ import annotations
 
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -16,6 +17,8 @@ from dpg_navigator._html import (
     chrome_available,
     html_available,
     _CHROME_TIMEOUT,
+    _inject_helpers,
+    _read_overflow_marker,
 )
 
 

@@ -28,6 +28,7 @@ dependencies = [
     "dearpygui>=1.9.1",
     "psutil>=5.9.0",
     "bleach>=6.0",
+    "defusedxml>=0.7.1",
 ]
 
 [project.optional-dependencies]

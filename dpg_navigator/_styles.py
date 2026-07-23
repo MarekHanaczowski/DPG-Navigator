@@ -56,6 +56,10 @@ class SidebarRenderer(ABC):
         """Build the sidebar widgets inside the given parent container."""
         ...
 
+    def update_drives(self, drives: list[str]) -> None:
+        """Update mounted drives after background enumeration."""
+        ...
+
 
 class LabeledSidebar(SidebarRenderer):
     """Style 0: icon + text label, resizable sidebar with directory tree."""
@@ -121,6 +125,11 @@ class LabeledSidebar(SidebarRenderer):
         # Container for the tree table (rebuilt on expand/collapse)
         self._tree_container = dpg.add_group(parent=parent)
         self._rebuild_tree()
+
+    def update_drives(self, drives: list[str]) -> None:
+        self._drives = drives
+        if self._tree_container is not None and dpg.does_item_exist(self._tree_container):
+            self._rebuild_tree()
 
     def _rebuild_tree(self) -> None:
         """Rebuild the entire drive tree table from current expanded state."""
@@ -201,6 +210,11 @@ class LabeledSidebar(SidebarRenderer):
 class CompactSidebar(SidebarRenderer):
     """Style 1: icon-only buttons, narrow sidebar (~40px)."""
 
+    def __init__(self):
+        self._on_navigate: Callable[[str], None] | None = None
+        self._icons: IconRegistry | None = None
+        self._drive_container: int | str | None = None
+
     def get_width(self) -> int:
         """Return the default width in pixels for this sidebar style."""
         return 40
@@ -211,6 +225,8 @@ class CompactSidebar(SidebarRenderer):
 
     def render(self, parent, shortcuts, drives, icons, on_navigate, custom_dirs=None):
         """Render icon-only shortcut buttons and drive buttons in a narrow sidebar."""
+        self._on_navigate = on_navigate
+        self._icons = icons
         for name, path in shortcuts.items():
             icon_name = _SHORTCUT_ICON_MAP.get(name, "folder")
             icon_tag = icons.get(icon_name)
@@ -246,21 +262,34 @@ class CompactSidebar(SidebarRenderer):
 
         dpg.add_separator(parent=parent)
 
-        hd_tag = icons.get("hd")
+        self._drive_container = dpg.add_group(parent=parent)
+        self._render_drives(drives)
+
+    def update_drives(self, drives: list[str]) -> None:
+        if self._drive_container is None or self._icons is None:
+            return
+        if dpg.does_item_exist(self._drive_container):
+            dpg.delete_item(self._drive_container, children_only=True)
+            self._render_drives(drives)
+
+    def _render_drives(self, drives: list[str]) -> None:
+        if self._icons is None or self._drive_container is None or self._on_navigate is None:
+            return
+        hd_tag = self._icons.get("hd")
         for drive in drives:
             if hd_tag:
                 dpg.add_image_button(
                     hd_tag,
                     user_data=drive,
-                    callback=lambda s, ad, ud: on_navigate(ud),
-                    parent=parent,
+                    callback=lambda s, ad, ud: self._on_navigate(ud),
+                    parent=self._drive_container,
                 )
             else:
                 dpg.add_button(
                     label=os.path.basename(drive) or drive,
                     user_data=drive,
-                    callback=lambda s, ad, ud: on_navigate(ud),
-                    parent=parent,
+                    callback=lambda s, ad, ud: self._on_navigate(ud),
+                    parent=self._drive_container,
                 )
 
 

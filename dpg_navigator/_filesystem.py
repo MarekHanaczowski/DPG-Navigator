@@ -62,7 +62,8 @@ def _short_md5(data: bytes) -> str:
     try:
         return hashlib.md5(data, usedforsecurity=False).hexdigest()[:8]
     except TypeError:
-        return hashlib.md5(data).hexdigest()[:8]
+        # Python 3.8 fallback; used only for non-cryptographic temp-dir naming.
+        return hashlib.md5(data).hexdigest()[:8]  # nosec B324
 
 
 class DirectoryLister:
@@ -97,7 +98,7 @@ class DirectoryLister:
                 shutil.rmtree(DirectoryLister._session_temp_dir, ignore_errors=True)
                 DirectoryLister._session_temp_dir = None
             except Exception:
-                pass
+                _log.debug("Failed to cleanup session temp dir", exc_info=True)
 
     @staticmethod
     def list_directory(

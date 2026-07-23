@@ -15,11 +15,68 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from dpg_navigator._filesystem import validate_folder_name, build_selection_list, DirectoryLister
+from dpg_navigator._filesystem import (
+    validate_folder_name,
+    build_selection_list,
+    DirectoryIndex,
+    DirectoryLister,
+)
 from dpg_navigator._types import DialogConfig, FileEntry
+from dpg_navigator.dialog._state import DialogState
+from dpg_navigator.dialog._ui import DialogUIBuilder
 from dpg_navigator.vfs import VFSRegistry
 from dpg_navigator._dialog import FileDialog
 from dpg_navigator._preview import PreviewPanel
+
+
+class TestSidebarDriveLoading:
+    def test_sidebar_build_defers_drive_enumeration(self):
+        builder = DialogUIBuilder.__new__(DialogUIBuilder)
+        builder.dialog = MagicMock()
+        builder.dialog._sidebar.get_width.return_value = 200
+        builder.dialog._destroyed = False
+        builder.logic = MagicMock()
+        builder.config = MagicMock(
+            show_shortcuts=True,
+            custom_dirs=[],
+        )
+
+        with patch("dpg_navigator.dialog._ui.dpg") as mock_dpg, \
+             patch("dpg_navigator.dialog._ui.get_special_dirs", return_value={}), \
+             patch("dpg_navigator.dialog._ui.get_drives") as get_drives, \
+             patch("dpg_navigator.dialog._ui.JobManager.submit") as submit:
+            mock_dpg.child_window.return_value = MagicMock()
+            builder._build_sidebar("dialog", 56)
+
+        get_drives.assert_not_called()
+        submit.assert_called_once_with(
+            builder._load_sidebar_drives,
+            "dialog_shortcut_menu",
+        )
+        builder.dialog._sidebar.render.assert_called_once()
+        assert builder.dialog._sidebar.render.call_args.kwargs["drives"] == []
+
+    def test_delayed_drive_result_updates_sidebar(self):
+        builder = DialogUIBuilder.__new__(DialogUIBuilder)
+        builder.dialog = MagicMock()
+        builder.dialog._destroyed = False
+        builder.dialog._sidebar = MagicMock()
+
+        def delayed_drives():
+            time.sleep(0.01)
+            return ["/slow-network-mount"]
+
+        with patch(
+            "dpg_navigator.dialog._ui.get_drives",
+            side_effect=delayed_drives,
+        ), patch("dpg_navigator.dialog._ui.dpg") as mock_dpg:
+            mock_dpg.does_item_exist.return_value = True
+            mock_dpg.mutex.return_value = MagicMock()
+            builder._load_sidebar_drives("dialog_shortcut_menu")
+
+        builder.dialog._sidebar.update_drives.assert_called_once_with(
+            ["/slow-network-mount"]
+        )
 
 
 # ── Path traversal validation ───────────────────────────────────
@@ -475,6 +532,39 @@ class TestPolishCharactersValidation:
 
 
 # ── Preview image extension tests ──────────────────────────────
+
+
+class TestDialogCompatibilityAdapters:
+    def test_keyboard_mixin_adapters_share_dialog_state(self):
+        dialog = FileDialog.__new__(FileDialog)
+        dialog.state = DialogState()
+        dialog.logic = MagicMock()
+
+        size_cache: dict[str, tuple[int | None, float]] = {"file.txt": (4, 1.0)}
+        directory_index = DirectoryIndex()
+        selected_files = ["/tmp/file.txt"]
+        selected_elements = [11]
+        row_entries = {
+            12: FileEntry("file.txt", "/tmp/file.txt", False, 4, 1.0, False),
+        }
+
+        dialog._size_cache = size_cache
+        dialog._dir_index = directory_index
+        dialog._selected_files = selected_files
+        dialog._selected_elements = selected_elements
+        dialog._row_entries = row_entries
+        dialog._current_dir = "/tmp"
+        dialog._focused_row_index = 2
+        dialog._last_clicked_element = 11
+
+        assert dialog.state.size_cache is size_cache
+        assert dialog.logic._dir_index is directory_index
+        assert dialog.state.selected_files is selected_files
+        assert dialog.state.selected_elements is selected_elements
+        assert dialog.state.row_entries is row_entries
+        assert dialog.state.current_dir == "/tmp"
+        assert dialog.state.focused_row_index == 2
+        assert dialog.state.last_clicked_element == 11
 
 
 class TestCsvParsing:

@@ -141,6 +141,7 @@ class FileDialog(KeyboardMixin):
 
         self._callback = callback
         self._destroyed = False
+        self.state = DialogState()
 
         # Resolve default_path at runtime (not at import time)
         self.state.current_dir = (
@@ -157,8 +158,6 @@ class FileDialog(KeyboardMixin):
             self._filter_list = list(self._config.filter_list)
 
         # Modular State & Logic
-        self.state = DialogState()
-        self.state.current_dir = self.state.current_dir
         self.state.current_filter = self._config.file_filter
         
         self.logic = DialogLogic(
@@ -200,6 +199,105 @@ class FileDialog(KeyboardMixin):
         self.ui = DialogUIBuilder(self, self.state, self.logic, self._config)
         self.ui._build_ui()
 
+    # ── Compatibility adapters for KeyboardMixin ────────────────
+
+    @property
+    def _size_cache(self) -> dict[str, tuple[int | None, float]]:
+        return self.state.size_cache
+
+    @_size_cache.setter
+    def _size_cache(self, value: dict[str, tuple[int | None, float]]) -> None:
+        self.state.size_cache = value
+
+    @property
+    def _dir_index(self) -> DirectoryIndex:
+        return self.logic._dir_index
+
+    @_dir_index.setter
+    def _dir_index(self, value: DirectoryIndex) -> None:
+        self.logic._dir_index = value
+
+    @property
+    def _selected_files(self) -> list[str]:
+        return self.state.selected_files
+
+    @_selected_files.setter
+    def _selected_files(self, value: list[str]) -> None:
+        self.state.selected_files = value
+
+    @property
+    def _selected_elements(self) -> list[int]:
+        return self.state.selected_elements
+
+    @_selected_elements.setter
+    def _selected_elements(self, value: list[int]) -> None:
+        self.state.selected_elements = value
+
+    @property
+    def _row_entries(self) -> dict[int, FileEntry]:
+        return self.state.row_entries
+
+    @_row_entries.setter
+    def _row_entries(self, value: dict[int, FileEntry]) -> None:
+        self.state.row_entries = value
+
+    @property
+    def _current_dir(self) -> str:
+        return self.state.current_dir
+
+    @_current_dir.setter
+    def _current_dir(self, value: str) -> None:
+        self.state.current_dir = value
+
+    @property
+    def _focused_row_index(self) -> int:
+        return self.state.focused_row_index
+
+    @_focused_row_index.setter
+    def _focused_row_index(self, value: int) -> None:
+        self.state.focused_row_index = value
+
+    @property
+    def _last_clicked_element(self) -> int | None:
+        return self.state.last_clicked_element
+
+    @_last_clicked_element.setter
+    def _last_clicked_element(self, value: int | None) -> None:
+        self.state.last_clicked_element = value
+
+    def _navigate_to(self, path: str) -> None:
+        self.logic.navigate_to(path)
+
+    def _refresh_listing(self, search_query: str = "") -> None:
+        self.logic.refresh_listing(search_query)
+
+    def _start_index_build(self) -> None:
+        self.logic.start_index_build()
+
+    def _safe_refresh_ui(self, entries) -> None:
+        """Marshal UI refresh onto the DPG thread via mutex."""
+        if self._destroyed:
+            return
+        with dpg.mutex():
+            if self._destroyed or not hasattr(self, "ui"):
+                return
+            self.ui._render_entries_list(entries)
+
+    def _safe_update_path_input(self, path: str) -> None:
+        if self._destroyed or not hasattr(self, "_path_input"):
+            return
+        with dpg.mutex():
+            if dpg.does_item_exist(self._path_input):
+                dpg.configure_item(self._path_input, default_value=path)
+
+    def _safe_update_size_cell(self, path: str, txt: str) -> None:
+        if self._destroyed:
+            return
+        with dpg.mutex():
+            cell = self.state.pending_size_cells.get(path)
+            if cell is not None and dpg.does_item_exist(cell):
+                dpg.configure_item(cell, label=txt)
+
     # ── Public API ──────────────────────────────────────────────
 
     def show(self) -> None:
@@ -224,13 +322,18 @@ class FileDialog(KeyboardMixin):
         if dpg.does_item_exist(self._config.tag):
             dpg.delete_item(self._config.tag)
 
-        FileDialog._instance_count -= 1
+        FileDialog._instance_count = max(0, FileDialog._instance_count - 1)
         if FileDialog._instance_count <= 0:
             JobManager.shutdown(wait=True, timeout=2.0)
             # The extraction temp dir is shared across all dialogs, so only
             # wipe it once the last instance is gone — otherwise closing one
             # dialog would delete preview files another is still using.
             DirectoryLister.cleanup_temp_files()
+            try:
+                from ._html import HTMLRenderer
+                HTMLRenderer.shutdown_shared()
+            except Exception:
+                _log.debug("HTMLRenderer shutdown failed", exc_info=True)
             for attr in ("_shared_selec_theme", "_shared_size_theme", "_shared_preview_active_theme"):
                 theme_id = getattr(FileDialog, attr)
                 if theme_id is not None and dpg.does_item_exist(theme_id):

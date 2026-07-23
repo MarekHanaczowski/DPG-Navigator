@@ -66,19 +66,19 @@ class PreviewPanel:
         
         # Determine markdown availability
         try:
-            import markdown
+            import markdown  # type: ignore[import-untyped]
             markdown_available = True
         except ImportError:
             markdown_available = False
             
         try:
-            from pygments import highlight
+            from pygments import highlight  # type: ignore[import-untyped]
             pygments_available = True
         except ImportError:
             pygments_available = False
             
         try:
-            import openpyxl
+            import openpyxl  # type: ignore[import-untyped]
             excel_available = True
         except ImportError:
             excel_available = False

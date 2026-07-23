@@ -26,6 +26,16 @@ if os.name == "nt":
 
 _SYSTEM = platform.system()  # "Windows" / "Linux" / "Darwin"
 
+# Map user-facing names to the keys expected by xdg-user-dir(1).
+_XDG_NAME_MAP = {
+    "Downloads": "DOWNLOAD",
+    "Desktop": "DESKTOP",
+    "Pictures": "PICTURES",
+    "Documents": "DOCUMENTS",
+    "Music": "MUSIC",
+    "Videos": "VIDEOS",
+}
+
 if _SYSTEM == "Linux":
     import subprocess
 
@@ -72,7 +82,7 @@ def get_special_dirs() -> dict[str, str]:
         for name in names:
             real_name = macos_mapping.get(name, name)
             dirs[name] = os.path.join(home, real_name)
-    else:  # Windows
+    elif _SYSTEM == "Windows":
         _SHELL_FOLDER_MAP = {
             "Desktop": "Desktop",
             "Downloads": "{374DE290-123F-4565-9164-39C4925E467B}",
@@ -95,6 +105,10 @@ def get_special_dirs() -> dict[str, str]:
                     dirs[name] = os.path.join(home, name)
             else:
                 dirs[name] = os.path.join(home, name)
+    else:
+        # Unknown platform: fall back to conventional home subdirectories.
+        for name in names:
+            dirs[name] = os.path.join(home, name)
 
     # Filter to only existing directories
     return {k: v for k, v in dirs.items() if v and os.path.isdir(v)}
@@ -102,16 +116,17 @@ def get_special_dirs() -> dict[str, str]:
 
 def _get_xdg_dir(name: str) -> str | None:
     """Get XDG user directory path on Linux (handles non-English locales)."""
+    xdg_key = _XDG_NAME_MAP.get(name, name.upper())
     try:
         result = subprocess.run(
-            ["xdg-user-dir", name.upper()],
+            ["xdg-user-dir", xdg_key],
             capture_output=True, text=True, timeout=2
         )
         if result.returncode == 0:
             path = result.stdout.strip()
             if path and os.path.isdir(path):
                 return path
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError, UnicodeDecodeError):
         pass
     return None
 

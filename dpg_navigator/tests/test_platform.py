@@ -431,6 +431,30 @@ class TestGetXdgDir:
             result = _get_xdg_dir("DOCUMENTS")
         assert result == str(tmp_path)
 
+    def test_downloads_uses_xdg_download_key(self, tmp_path):
+        from dpg_navigator._platform import _get_xdg_dir
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0, stdout=str(tmp_path) + "\n"
+            )
+            result = _get_xdg_dir("Downloads")
+
+        assert result == str(tmp_path)
+        mock_run.assert_called_once_with(
+            ["xdg-user-dir", "DOWNLOAD"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+
+    def test_decode_error_returns_none(self):
+        from dpg_navigator._platform import _get_xdg_dir
+        with patch(
+            "subprocess.run",
+            side_effect=UnicodeDecodeError("utf-8", b"", 0, 1, "invalid byte"),
+        ):
+            assert _get_xdg_dir("Documents") is None
+
     def test_nonexistent_dir_returns_none(self):
         from dpg_navigator._platform import _get_xdg_dir
         with patch("subprocess.run") as mock_run:

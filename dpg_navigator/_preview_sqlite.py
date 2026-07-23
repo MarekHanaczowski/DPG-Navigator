@@ -70,7 +70,12 @@ def load_sqlite_table(
         all_headers = [info[1] for info in cursor.fetchall()]
         headers = all_headers[:max_cols]
 
-        cursor.execute(f'SELECT * FROM "{safe_table_name}" LIMIT {max_rows};')
+        # Table name originates from sqlite_master and is quoted above; it cannot
+        # be a parameter in SQLite, so B608 is a false positive here.
+        cursor.execute(
+            f'SELECT * FROM "{safe_table_name}" LIMIT ?;',  # nosec B608
+            (max_rows,),
+        )
         rows = [
             [str(cell) for cell in row[:max_cols]]
             for row in cursor.fetchall()
@@ -79,8 +84,8 @@ def load_sqlite_table(
         # Bounded count: scan at most MAX_COUNT_SCAN+1 rows instead of the whole
         # table, so a huge table cannot stall the preview on COUNT(*).
         cursor.execute(
-            f'SELECT COUNT(*) FROM '
-            f'(SELECT 1 FROM "{safe_table_name}" LIMIT {MAX_COUNT_SCAN + 1});'
+            f'SELECT COUNT(*) FROM (SELECT 1 FROM "{safe_table_name}" LIMIT ?);',  # nosec B608
+            (MAX_COUNT_SCAN + 1,),
         )
         counted = cursor.fetchone()[0]
         count_capped = counted > MAX_COUNT_SCAN

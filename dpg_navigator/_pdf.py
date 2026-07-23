@@ -9,9 +9,12 @@ from __future__ import annotations
 # MIT licensed
 
 import ctypes
+import logging
 import threading
 from collections import OrderedDict
 from typing import Any, cast
+
+_log = logging.getLogger(__name__)
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
@@ -138,7 +141,7 @@ class PDFRenderer:
                 try:
                     self._doc.close()
                 except Exception:
-                    pass
+                    _log.debug("Failed to close PDF document", exc_info=True)
                 self._doc = None
         self._total_pages = 0
         self._current_page = 0
@@ -318,4 +321,4 @@ class PDFRenderer:
                     if len(self._page_cache) > self._CACHE_SIZE:
                         self._page_cache.popitem(last=False)
             except Exception:
-                pass
+                _log.debug("PDF prefetch failed for page %s", n, exc_info=True)

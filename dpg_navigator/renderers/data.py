@@ -1,7 +1,11 @@
 """Data preview renderer for CSV, Excel, SQLite, and XML."""
 from __future__ import annotations  # PEP 604/585 in signatures need this on py3.8/3.9
 import logging
-import xml.dom.minidom
+from xml.parsers.expat import ExpatError
+
+from defusedxml import minidom as _minidom  # type: ignore[import-untyped]
+from defusedxml.common import DefusedXmlException  # type: ignore[import-untyped]
+
 import dearpygui.dearpygui as dpg
 import csv
 import traceback
@@ -16,6 +20,7 @@ except ImportError:
     sqlite3 = None
 
 from ._base import BaseRenderer, PreviewContext, TableRenderMixin
+from .._preview_registry import PreviewCapabilities
 from .._types import FileEntry
 from .._availability import _load_workbook
 from .._filesystem import DirectoryLister
@@ -216,7 +221,17 @@ class DataRenderer(TableRenderMixin, BaseRenderer):
             )
     def _render_xml_preview(self, entry: FileEntry) -> None:
             """Parse an XML file and display its pretty-printed contents."""
-            if self._ctx is None or self._ctx.panel_id is None:
+            if self._ctx is None:
+                panel_id = getattr(self, "_panel_id", None)
+                if panel_id is None:
+                    return
+                self._ctx = PreviewContext(
+                    panel_id=panel_id,
+                    table_wrapper=0,
+                    config_tag=getattr(self, "_config_tag", ""),
+                    capabilities=PreviewCapabilities(),
+                )
+            if self._ctx.panel_id is None:
                 return
     
             raw_text, is_bin = self._load_text_content(entry.full_path, self._text_offset)
@@ -229,7 +244,7 @@ class DataRenderer(TableRenderMixin, BaseRenderer):
     
             # Format XML
             try:
-                parsed = xml.dom.minidom.parseString(raw_text)
+                parsed = _minidom.parseString(raw_text)
                 formatted_text = parsed.toprettyxml(indent="    ")
                 # Minidom often adds awkward blank lines, so we clean them up
                 text = "\n".join(line for line in formatted_text.splitlines() if line.strip())

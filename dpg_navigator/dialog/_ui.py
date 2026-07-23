@@ -1,8 +1,11 @@
 """UI Builder for the file dialog."""
 from __future__ import annotations  # PEP 604/585 annotations need this on py3.8/3.9
 import dearpygui.dearpygui as dpg
+import logging
 import os
 import time
+
+_log = logging.getLogger(__name__)
 
 from ._state import DialogState
 from ._logic import DialogLogic
@@ -46,7 +49,7 @@ class DialogUIBuilder:
             display_type = "Dir" if entry.is_dir else "File"
             if entry.is_dir and self.config.show_dir_size and not relative_label:
                 cached = self.state.size_cache.get(entry.full_path)
-                if cached is not None and time.time() - cached[1] < self._SIZE_CACHE_TTL:
+                if cached is not None and time.time() - cached[1] < self.dialog._SIZE_CACHE_TTL:
                     display_size = DirectoryLister.format_size(cached[0])
                 else:
                     display_size = "..."
@@ -54,7 +57,7 @@ class DialogUIBuilder:
                 display_size = DirectoryLister.format_size(entry.size_bytes)
     
             tint = (
-                [255, 255, 255, self._image_transparency]
+                [255, 255, 255, self.dialog._image_transparency]
                 if entry.is_hidden
                 else [255, 255, 255, 255]
             )
@@ -88,7 +91,7 @@ class DialogUIBuilder:
     
                 if self.config.allow_drag:
                     drag = dpg.add_drag_payload(
-                        parent=cell_name, payload_type=self._payload_type
+                        parent=cell_name, payload_type=self.dialog._payload_type
                     )
                     if entry.is_dir:
                         folder_icon = self.dialog._icons.get("folder")
@@ -128,7 +131,7 @@ class DialogUIBuilder:
                     "", color=[255, 80, 80], show=False
                 )
     
-            self._build_keyboard_handlers()
+            self.dialog._build_keyboard_handlers()
             if self.config.show_preview:
                 self.dialog._preview.build_handlers(tag, self.dialog._is_dialog_active)
     def _build_themes(self) -> None:
@@ -173,15 +176,29 @@ class DialogUIBuilder:
                 height=-info_px,
             ):
                 shortcuts = get_special_dirs()
-                drives = get_drives()
                 self.dialog._sidebar.render(
                     parent=sidebar_tag,
                     shortcuts=shortcuts,
-                    drives=drives,
+                    drives=[],
                     icons=self.dialog._icons,
                     on_navigate=self.logic.navigate_to,
                     custom_dirs=self.config.custom_dirs,
                 )
+            JobManager.submit(self._load_sidebar_drives, sidebar_tag)
+
+    def _load_sidebar_drives(self, sidebar_tag: str) -> None:
+        try:
+            drives = get_drives()
+        except Exception:
+            _log.exception("Failed to enumerate mounted drives")
+            drives = []
+        if self.dialog._destroyed:
+            return
+        with dpg.mutex():
+            if self.dialog._destroyed or not dpg.does_item_exist(sidebar_tag):
+                return
+            self.dialog._sidebar.update_drives(drives)
+
     def _build_explorer_area(self, info_px: int) -> None:
             """Build the main explorer area: toolbar, search, table, preview."""
             with dpg.child_window(height=-info_px):
@@ -252,7 +269,7 @@ class DialogUIBuilder:
                 if add_folder_icon:
                     btn = dpg.add_image_button(
                         add_folder_icon,
-                        callback=lambda s, ad, ud: self._show_new_folder_dialog(),
+                        callback=lambda s, ad, ud: self.dialog._show_new_folder_dialog(),
                     )
                     with dpg.tooltip(btn):
                         dpg.add_text("New folder")
@@ -397,6 +414,18 @@ class DialogUIBuilder:
     
                 for entry in entries:
                     try:
-                        self.dialog._render_entry(entry)
+                        parent = (
+                            os.path.dirname(entry.full_path) if entry.full_path else ""
+                        )
+                        relative = bool(
+                            self.state.search_query
+                            and parent
+                            and os.path.normpath(parent)
+                            != os.path.normpath(self.state.current_dir)
+                        )
+                        self._render_entry(entry, relative_label=relative)
                     except Exception:
-                        continue
+                        _log.exception(
+                            "Failed to render entry: %s",
+                            getattr(entry, "full_path", "?"),
+                        )
