@@ -34,3 +34,7 @@ htmlcov/
 .pytest_tmp/
 .pytest_tmp_cache/
 .smoke_venv*/
+
+# Local diagnostics
+*.stackdump
+pyright_output*.txt

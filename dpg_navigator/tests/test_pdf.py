@@ -239,6 +239,41 @@ class TestPageNavigation:
             assert page_info == (0, 5)
 
 
+class TestDocumentRendererWheel:
+    def _make_renderer(self):
+        from dpg_navigator.renderers.document import DocumentRenderer
+
+        renderer = DocumentRenderer(lambda path, offset: (None, False))
+        renderer._pdf = MagicMock()
+        renderer._pdf.is_open = True
+        renderer._pdf_page_label = "page_label"
+        return renderer
+
+    def test_wheel_up_shows_previous_page(self):
+        renderer = self._make_renderer()
+        renderer._pdf.prev_page.return_value = (1, 4)
+
+        with patch("dpg_navigator.renderers.document.dpg") as mock_dpg:
+            mock_dpg.does_item_exist.return_value = True
+            renderer.on_mouse_wheel(None, 1.0, None)
+
+        renderer._pdf.prev_page.assert_called_once_with()
+        renderer._pdf.next_page.assert_not_called()
+        mock_dpg.set_value.assert_called_once_with("page_label", "Page 2 / 4")
+
+    def test_wheel_down_shows_next_page(self):
+        renderer = self._make_renderer()
+        renderer._pdf.next_page.return_value = (2, 4)
+
+        with patch("dpg_navigator.renderers.document.dpg") as mock_dpg:
+            mock_dpg.does_item_exist.return_value = True
+            renderer.on_mouse_wheel(None, -1.0, None)
+
+        renderer._pdf.next_page.assert_called_once_with()
+        renderer._pdf.prev_page.assert_not_called()
+        mock_dpg.set_value.assert_called_once_with("page_label", "Page 3 / 4")
+
+
 class TestResourceCleanup:
     def test_close_clears_all_state(self, make_renderer):
         import numpy as np

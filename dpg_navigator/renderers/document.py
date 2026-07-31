@@ -357,6 +357,31 @@ class DocumentRenderer(BaseRenderer):
         """Open a PDF and display its first page in the preview panel."""
         self._show_pdf_from_path(entry.full_path)
 
+    def on_mouse_wheel(self, sender, app_data, user_data) -> None:
+        """Navigate PDF pages with the mouse wheel."""
+        if self._pdf is None or not self._pdf.is_open:
+            return
+        try:
+            delta = float(app_data)
+        except (TypeError, ValueError):
+            return
+        if delta == 0:
+            return
+
+        page_info = (
+            self._pdf.prev_page()
+            if delta > 0
+            else self._pdf.next_page()
+        )
+        if (
+            self._pdf_page_label is not None
+            and dpg.does_item_exist(self._pdf_page_label)
+        ):
+            dpg.set_value(
+                self._pdf_page_label,
+                f"Page {page_info[0] + 1} / {page_info[1]}",
+            )
+
     def _show_pdf_from_path(self, path: str) -> None:
         """Core PDF rendering — shared by PDF files and Word conversions."""
         if self._ctx is None or self._ctx.panel_id is None:

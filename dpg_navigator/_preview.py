@@ -5,7 +5,13 @@ import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 from typing import Optional, Callable
 
 from ._types import FileEntry, DialogConfig
-from ._preview_registry import PreviewCapabilities, PreviewKind, resolve_preview_kind
+from ._preview_registry import (
+    PILLOW_EXTRA_EXTS,
+    STB_IMAGE_EXTS,
+    PreviewCapabilities,
+    PreviewKind,
+    resolve_preview_kind,
+)
 from .renderers._base import PreviewContext, BaseRenderer
 from .renderers.image import ImageRenderer
 from .renderers.text import TextRenderer
@@ -17,6 +23,10 @@ class PreviewPanel:
     """The new modular preview panel implementation."""
     
     _TEXT_PREVIEW_MAX_SIZE = 100 * 1024  # 100 KB
+
+    @staticmethod
+    def preview_image_exts() -> frozenset[str]:
+        return STB_IMAGE_EXTS | PILLOW_EXTRA_EXTS
     
     def __init__(self, config: DialogConfig, preview_width: int, show: bool):
         self._config = config
@@ -244,11 +254,8 @@ class PreviewPanel:
         active renderer (when the panel is visible and hovered) gets the event;
         renderers that don't implement on_mouse_wheel simply ignore it.
 
-        NOTE (migration, 2026-07-18): the monolith scrolled the HTML/PDF preview
-        here directly. In the split architecture that scroll behaviour lives on
-        the individual renderers; this method safely delegates when a renderer
-        exposes on_mouse_wheel and is otherwise a no-op (HTML/PDF wheel-scroll is
-        a follow-up, not a crash).
+        PDF page navigation is implemented by DocumentRenderer; renderers that
+        do not expose on_mouse_wheel simply ignore the event.
         """
         if self._panel_id is None or not self._show:
             return
