@@ -47,13 +47,9 @@ class BaseRenderer(Protocol):
 class TableRenderMixin:
     """Shared native-DPG table renderer for tabular previews.
 
-    Both DataRenderer (CSV/Excel/SQLite/XML) and ArchiveRenderer (zip/7z
-    listings) render their content as a table. The monolith had a single
-    ``_render_table_widget``; the MVC split left it only on DataRenderer while
-    ArchiveRenderer still called it. Hoisted here so both share one copy.
-
-    Including classes must set ``self._ctx`` (a PreviewContext) in ``render()``
-    before any helper here runs — matching how DataRenderer/ArchiveRenderer work.
+    ``DataRenderer`` and ``ArchiveRenderer`` both use this mixin. Including
+    classes must set ``self._ctx`` to a ``PreviewContext`` in ``render()``
+    before calling any helper here.
     """
 
     _STATUS_HEIGHT: int = 42

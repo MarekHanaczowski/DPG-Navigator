@@ -3,7 +3,8 @@
 Data rozpoznania: 2026-07-19
 Katalog repozytorium: `O:\Projekty\DPG Navigator`
 
-> Ten dokument jest tylko rozpoznaniem (scope). Nie modyfikowano kodu produkcyjnego —
+> **Historyczny snapshot.** Ten dokument jest tylko rozpoznaniem (scope) stanu z
+> 2026-07-19. Nie modyfikowano kodu produkcyjnego —
 > wszystkie artefakty audytu trafiają wyłącznie do katalogu `audit/`.
 
 ## 1. Tożsamość projektu

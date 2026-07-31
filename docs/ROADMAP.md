@@ -11,17 +11,14 @@ can trail the first stable release.
 ## P1 — before stable 1.0.0
 
 ### 1. Worker / process lifecycle (`JobManager`)
-- **Why:** background workers, debounce timers and the Chrome render process are
-  daemon threads. `destroy()` bumps generation counters but keeps no task
-  registry, never `join()`s with a deadline, and does not own the browser
-  process. A dialog torn down mid-render leaks a thread (and possibly a Chrome
-  process). The render timeout added in `1.0.0b3` is the first piece of this.
-- **Scope:** a small `JobManager` owning `(generation, threading.Event, futures)`
-  with a controlled shutdown; route the size-computation, index-build, deep
-  search, PDF prefetch and HTML render threads through it.
-- **First step:** inventory every `threading.Thread(...)` / `threading.Timer`
-  in `_dialog.py`, `_html.py`, `_pdf.py`; give each a cancel token and a
-  join-with-timeout in `destroy()`.
+- **Why:** `JobManager` now tracks worker threads and joins them with a bounded
+  timeout, while generation counters invalidate stale results. Remaining work is
+  per-task cancellation for long-running PDF/HTML operations and explicit browser
+  process ownership.
+- **Scope:** add cancellation tokens or futures to the PDF prefetch and HTML
+  render paths, and make teardown report work that exceeds its deadline.
+- **First step:** inventory every long-running task in `_html.py` and `_pdf.py`,
+  then add cancellation checks without blocking the DearPyGui main thread.
 - **Effort:** large. **Risk:** medium — touches concurrency; land with the
   integration tests below.
 
@@ -52,14 +49,13 @@ can trail the first stable release.
 
 ## P2 — quality / maturity
 
-### 4. Split `PreviewPanel` and `FileDialog`
-- **Why:** `_preview.py` (~2000 lines) and `_dialog.py` (~1200) mix routing,
-  lifecycle, per-format rendering and background services.
-- **Scope:** extract renderers into `preview/renderers/*` behind the existing
-  registry; split `FileDialog` into `DialogState` / `DialogController` /
-  `BackgroundServices`.
-- **Effort:** large. **Risk:** low functionally (pure refactor) but broad diff —
-  do it after the P1 tests exist so regressions are caught.
+### 4. Split `PreviewPanel` and `FileDialog` — **DONE**
+- `FileDialog` now orchestrates `DialogState`, `DialogLogic`, `DialogUIBuilder`,
+  `PreviewPanel`, and the sidebar renderer.
+- Preview routing lives in `_preview_registry.py`; format-specific DPG renderers
+  live in `renderers/`, while parsing remains in the pure `_preview_*.py` loaders.
+- Remaining maintenance is limited to keeping the compatibility adapters thin and
+  adding focused integration coverage for the live DearPyGui paths.
 
 ### 5. Tooling gates
 - **Broader ruff + `ruff format --check`:** expand beyond `E9/F63/F7/F82` to
@@ -74,10 +70,11 @@ can trail the first stable release.
   and a **coverage gate** (`pytest-cov`) with a threshold for the pure-data
   modules only — do not force a high GUI number.
 
-### 6. Supply chain & release provenance
-- Pin GitHub Actions to commit SHAs and enable Dependabot/Renovate.
-- Generate an SBOM (CycloneDX) and a `THIRD_PARTY_NOTICES.md` / `pip-licenses`
-  report (bundled icons + transitive deps). `pip-audit` already runs in CI.
+### 6. Supply chain & release provenance — **PARTIAL**
+- GitHub Actions are pinned to commit SHAs and CI generates a CycloneDX SBOM.
+- **Remaining:** enable Dependabot/Renovate and generate a
+  `THIRD_PARTY_NOTICES.md` / `pip-licenses` report for bundled icons and
+  transitive dependencies.
 - Make `pyproject.toml` the single source of truth for dependencies (drop or
   auto-generate `requirements.txt`).
 

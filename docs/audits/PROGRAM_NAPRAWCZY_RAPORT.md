@@ -1,5 +1,10 @@
 # Faza 2.2 Zakończona: Defragmentacja Monolitów (Architektura MVC)
 
+> **Dokument historyczny.** Ten raport zachowuje opis wykonanej fazy i używane
+> wówczas nazwy robocze (`_modular_dialog.py`, `_modular_preview.py`). Aktualne
+> moduły to `dpg_navigator/_dialog.py`, `dpg_navigator/_preview.py` oraz katalogi
+> `dialog/` i `renderers/`.
+
 Udało się zrealizować jeden z głównych celów programu naprawczego, drastycznie upraszczając monolit `_dialog.py` (w wersji modułowej `_modular_dialog.py`) oraz usuwając gigantyczne powielenia kodu renderującego w plikach `renderers/`.
 
 ## Wykonane kroki (Część 2 - Renderery):

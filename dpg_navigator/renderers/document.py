@@ -125,6 +125,8 @@ img { max-width: 100%; height: auto; }
 
 
 class DocumentRenderer(BaseRenderer):
+    """Render HTML, Markdown, PDF, Word, and PowerPoint previews."""
+
     _TEXT_PREVIEW_MAX_SIZE: int = 256 * 1024
     """Maximum file size in bytes to attempt text preview (256 KB)."""
 
@@ -148,6 +150,7 @@ class DocumentRenderer(BaseRenderer):
         self._pdf_page_label = None
 
     def render(self, entry: FileEntry, ctx: PreviewContext) -> None:
+        """Render a document using the backend selected by its extension."""
         self._ctx = ctx
         self._current_entry = entry
         ext = entry.ext
@@ -168,6 +171,7 @@ class DocumentRenderer(BaseRenderer):
             ctx.show_error("Unsupported document", f"{ext} is not supported")
 
     def clear(self) -> None:
+        """Close active heavy backends and clear the preview state."""
         if self._html is not None:
             self._html.close()
         if self._pdf is not None:

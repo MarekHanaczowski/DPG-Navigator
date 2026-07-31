@@ -107,6 +107,7 @@ class PreviewPanel:
         )
 
     def attach(self, table_wrapper: int, panel_id: int | None) -> None:
+        """Attach the preview panel and explorer wrapper item IDs."""
         self._table_wrapper = table_wrapper
         self._panel_id = panel_id
         if self._panel_id:
@@ -115,6 +116,7 @@ class PreviewPanel:
             self.ctx.table_wrapper = self._table_wrapper
             
     def toggle(self, explorer_table: int) -> None:
+        """Show or hide the preview child window."""
         if not self._panel_id:
             return
         self._show = not self._show
@@ -138,6 +140,7 @@ class PreviewPanel:
             handler(sender, app_data, user_data)
 
     def clear(self) -> None:
+        """Clear the panel and release the active renderer's state."""
         if self._panel_id:
             dpg.delete_item(self._panel_id, children_only=True)
         if self._active_renderer:
@@ -151,6 +154,7 @@ class PreviewPanel:
             dpg.add_text(detail, color=[200, 200, 200], parent=self._panel_id)
 
     def update(self, entry: FileEntry | None) -> None:
+        """Route a selected file to its active preview renderer."""
         if not self._panel_id or not self._show:
             return
             
@@ -236,18 +240,14 @@ class PreviewPanel:
             return None, False
 
     def build_handlers(self, dialog_tag: str, is_active_fn: Callable[[], bool]) -> None:
-        """Register global handlers if needed."""
-        pass
-        
+        """Keep the compatibility hook; global handlers live on KeyboardMixin."""
+
     def shutdown(self) -> None:
+        """Clear the active renderer and release preview-owned resources."""
         self.clear()
 
     def destroy(self) -> None:
-        """Release resources held by the preview panel (alias for shutdown).
-
-        FileDialog.cleanup() calls destroy(); kept as the panel's public
-        teardown name (the monolith used destroy()).
-        """
+        """Release preview resources during :meth:`FileDialog.destroy`."""
         self.shutdown()
 
     @property

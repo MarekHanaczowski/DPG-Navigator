@@ -7,6 +7,8 @@ from .._types import FileEntry
 from typing import Callable, Tuple, Optional
 
 class TextRenderer(BaseRenderer):
+    """Render text and syntax-highlighted source previews."""
+
     _TEXT_PREVIEW_MAX_SIZE = 100 * 1024  # 100 KB chunks
 
     def __init__(self, load_text_content_cb: Callable[[str, int], Tuple[Optional[str], bool]], request_update_cb: Callable[[FileEntry], None]):
@@ -16,6 +18,7 @@ class TextRenderer(BaseRenderer):
         self._current_entry = None
 
     def render(self, entry: FileEntry, ctx: PreviewContext) -> None:
+        """Render the current text fragment and optional paging controls."""
         if self._current_entry is None or self._current_entry.full_path != entry.full_path:
             self._text_offset = 0
             self._current_entry = entry
@@ -118,4 +121,6 @@ class TextRenderer(BaseRenderer):
             self._request_update(self._current_entry)
 
     def clear(self) -> None:
-        pass
+        """Reset the current text entry and paging offset."""
+        self._current_entry = None
+        self._text_offset = 0

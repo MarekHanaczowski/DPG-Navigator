@@ -1,5 +1,9 @@
 # Audyt projektu dpg-navigator — kompleksowe podsumowanie
 
+> **Dokument historyczny.** Poniższa inwentaryzacja i rekomendacje dotyczą wersji
+> sprzed rozdzielenia dialogu i rendererów; nie opisują aktualnego rozmiaru ani
+> podziału modułów.
+
 ## 1. Architektura i struktura kodu
 
 ### Struktura modułów

@@ -16,6 +16,8 @@ from .._job_manager import JobManager
 from .._preview import PreviewPanel
 
 class DialogUIBuilder:
+    """Build and refresh the DearPyGui widget tree for a ``FileDialog``."""
+
     def __init__(self, dialog, state: DialogState, logic: DialogLogic, config: DialogConfig):
         self.dialog = dialog
         self.state = state
@@ -396,8 +398,9 @@ class DialogUIBuilder:
                         dpg.add_text("Close dialog (Esc)")
     def _render_entries_list(self, entries: list[FileEntry]) -> None:
             with dpg.mutex():
-                if hasattr(self, "_status_label") and dpg.does_item_exist(self.dialog._status_label):
-                    dpg.hide_item(self.dialog._status_label)
+                status_label = getattr(self.dialog, "_status_label", None)
+                if status_label is not None and dpg.does_item_exist(status_label):
+                    dpg.hide_item(status_label)
     
                 dpg.configure_item(self.dialog._path_input, default_value=self.state.current_dir)
     
@@ -412,8 +415,19 @@ class DialogUIBuilder:
                         height=self.dialog._selec_height,
                     )
     
+                self.state.deep_separator_row = None
                 for entry in entries:
                     try:
+                        if entry.name == "\0deep_sep":
+                            with dpg.table_row(parent=self.dialog._explorer_table) as separator_row:
+                                dpg.add_selectable(
+                                    label="-- Subfolders --",
+                                    enabled=False,
+                                    span_columns=True,
+                                    height=self.dialog._selec_height,
+                                )
+                            self.state.deep_separator_row = separator_row
+                            continue
                         parent = (
                             os.path.dirname(entry.full_path) if entry.full_path else ""
                         )

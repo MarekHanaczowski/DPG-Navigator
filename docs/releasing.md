@@ -58,7 +58,7 @@ Then run the wheel smoke test:
 ```bash
 python -m venv .smoke_venv
 python -m pip --python .smoke_venv install --no-deps dist/dpg_navigator-<version>-py3-none-any.whl
-python -m pip --python .smoke_venv install "dearpygui>=1.9.1" "psutil>=5.9.0"
+python -m pip --python .smoke_venv install "dearpygui>=1.9.1" "psutil>=5.9.0" "bleach>=6.0" "defusedxml>=0.7.1"
 python -m pip --python .smoke_venv show dpg-navigator
 python -c "import dpg_navigator; from dpg_navigator import FileDialog, DialogConfig; print(dpg_navigator.__version__); print(FileDialog.__name__); print(DialogConfig().title)"
 ```

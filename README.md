@@ -66,12 +66,21 @@ The callback can be changed at any time via `fd.change_callback(new_handler)`.
 - Two sidebar styles: labeled (icon + text) and compact (icon-only)
 - Cross-platform: Windows, Linux, macOS
 
+## Architecture
+
+The package keeps filesystem/search logic separate from DearPyGui rendering:
+
+- `FileDialog` orchestrates the dialog and public lifecycle.
+- `dialog/_state.py`, `dialog/_logic.py`, and `dialog/_ui.py` hold state, GUI-free behavior, and widget construction.
+- `_preview_registry.py` routes file extensions, while `PreviewPanel` delegates rendering to format-specific classes in `renderers/`.
+- Preview loaders such as `_preview_word.py` and `_preview_spreadsheet.py` return plain data and can be tested without a DearPyGui context.
+
 ## Rich Preview Panel
 
 The integrated preview panel renders files directly inside the dialog:
 
 - **Images** — native stb_image loading with Pillow fallback for WebP, TIFF, HEIC, and SVG; aspect-ratio scaling and centering.
-- **PDF** — page-by-page rendering via pypdfium2 with mouse wheel navigation, LRU cache, and background prefetch.
+- **PDF** — page-by-page rendering via pypdfium2 with mouse wheel navigation over the preview panel (wheel down = next page, wheel up = previous page), LRU cache, and background prefetch.
 - **Word (.docx)** — pixel-perfect HTML render via mammoth + Chrome Headless, or python-docx styled text extraction as fallback.
 - **PowerPoint (.pptx)** — slide text, tables, speaker notes, and inline image extraction via python-pptx.
 - **Markdown** — rendered preview using the `markdown` library piped through Chrome Headless with a dark theme.
@@ -84,7 +93,7 @@ The integrated preview panel renders files directly inside the dialog:
 - **Source code** — syntax highlighting for 500+ languages via Pygments, rendered through Chrome Headless.
 - **XML** — pretty-printed via minidom.
 
-Each renderer is optional — missing dependencies are detected at import time and the dialog gracefully falls back to a plain text view.
+Optional preview backends are detected at import time. When a preview-specific dependency or browser is unavailable, the dialog falls back to a text view or an explanatory message instead of failing during import.
 
 ## Optional Dependencies
 
@@ -168,12 +177,29 @@ if sys.platform == "win32":
     ctypes.windll.shcore.SetProcessDpiAwareness(2)
 ```
 
+## Unicode filenames
+
+DearPyGui's default font does not contain every Unicode glyph. If the dialog must
+show filenames with Polish or other non-ASCII characters, bind a system font with
+Unicode coverage after `dpg.create_context()` and before creating `FileDialog`.
+The demo and examples use the helper below, which also handles older DearPyGui
+versions that need explicit glyph ranges:
+
+```python
+from dpg_navigator.renderers.font import load_font_with_unicode
+
+with dpg.font_registry():
+    ui_font = load_font_with_unicode("C:/Windows/Fonts/segoeui.ttf", 16)
+dpg.bind_font(ui_font)
+```
+
 ## Requirements
 
 - Python >= 3.8
 - [DearPyGui](https://pypi.org/project/dearpygui/) >= 1.9.1
 - [psutil](https://pypi.org/project/psutil/) >= 5.9.0
 - [bleach](https://pypi.org/project/bleach/) >= 6.0
+- [defusedxml](https://pypi.org/project/defusedxml/) >= 0.7.1
 
 ## Development
 

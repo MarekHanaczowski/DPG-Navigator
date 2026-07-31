@@ -4,8 +4,8 @@ Data: 2026-07-19
 Commit audytowany: `b0372f6` (lokalny `main`; `origin/main` +8 commitów — patrz
 `audit/00-scope.md` §2). Ustalenia planu dotyczą stanu **lokalnego**.
 
-> Dokument planistyczny. Nie modyfikowano kodu produkcyjnego; artefakt wyłącznie
-> w `audit/`. Bazuje na `audit/01-inventory.md` (inwentaryzacja) + bezpośrednim
+> Dokument planistyczny i historyczny. Nie modyfikowano kodu produkcyjnego; artefakt
+> wyłącznie w `audit/`. Bazuje na `audit/01-inventory.md` (inwentaryzacja) + bezpośrednim
 > odczycie kodu (VFS, `_html.py`, `_job_manager.py`, `dialog/_logic.py`,
 > `_filesystem.py`, `_dialog.py`, `_preview_sqlite.py`).
 

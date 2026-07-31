@@ -15,9 +15,9 @@ python -m ruff check .           # lint (correctness rules only: E9,F63,F7,F82; 
 python -m pytest -q              # run the unit test suite
 pytest dpg_navigator/tests/test_filesystem.py::test_name   # single test
 
-# mypy is run only on an explicit list of pure (GUI-free) modules, and only on
-# Python != 3.8/3.9 in CI. Do NOT run it over the whole package — modules that
-# import dearpygui are intentionally excluded. See the exact list in
+# mypy is run only on the explicit file list in CI, and only on Python != 3.8/3.9.
+# The list is maintained manually and includes a few orchestration modules that
+# import DearPyGui; do not run mypy over the whole package. See the exact list in
 # .github/workflows/ci.yml ("Type check pure modules") or README "Development".
 
 python demo.py                   # launch the interactive demo dialog (needs a display)
@@ -93,7 +93,7 @@ Themes, the shared Chrome renderer, the extraction temp dir, and `JobManager` ar
 
 ## DearPyGui gotchas (recurring in this codebase)
 
-- The default DPG font has no Unicode symbols — use ASCII (`v`, `>`, `<`), not `▾▸`.
+- The default DPG font has incomplete Unicode coverage — use ASCII (`v`, `>`, `<`) for built-in labels, or bind a Unicode-capable font when displaying international filenames. The demo uses `load_font_with_unicode()`.
 - Use `with dpg.table() as id:` (context manager); `dpg.add_table()` returns an int, not a CM.
 - Store `add_raw_texture()`'s **integer** return value and pass it around; string tags for raw textures are unreliable across delete/recreate cycles.
 - `self.state.current_dir` is used everywhere instead of `os.chdir()` — never mutate the process CWD.

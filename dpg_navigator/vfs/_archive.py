@@ -148,7 +148,7 @@ class ArchiveVFSProvider(VFSProvider):
         return entries
 
     def get_size(self, path: str, is_dir: bool, show_dir_size: bool) -> int | None:
-        """Virtual directories size computing is not implemented."""
+        """Return ``None`` because archive directory sizes are not computed."""
         return None
 
     def extract_file(

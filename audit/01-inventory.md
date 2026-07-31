@@ -4,6 +4,9 @@ Data: 2026-07-19
 Commit audytowany: `b0372f6` (lokalny `main`; patrz `audit/00-scope.md` §2 —
 `origin/main` zawiera 8 dodatkowych commitów nieobecnych lokalnie).
 
+> **Historyczny snapshot.** Wymiary i stan branchy w tym dokumencie dotyczą wyłącznie
+> audytowanego commita, nie bieżącego `release/1.0.0`.
+
 > Ten dokument jest wyłącznie inwentaryzacją stanu repozytorium — nie zawiera
 > ocen, ryzyk ani rekomendacji (to zadanie kolejnych etapów audytu). Nie
 > modyfikowano kodu produkcyjnego; artefakt zapisany wyłącznie w `audit/`.

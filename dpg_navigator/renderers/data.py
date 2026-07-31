@@ -32,6 +32,8 @@ from typing import Callable, Optional, Tuple
 _log = logging.getLogger(__name__)
 
 class DataRenderer(TableRenderMixin, BaseRenderer):
+    """Render CSV, spreadsheet, SQLite, and XML data in native DPG tables."""
+
     # _STATUS_HEIGHT is provided by TableRenderMixin.
     _TABLE_MAX_ROWS: int = 200
     _TABLE_MAX_COLS: int = 50
@@ -44,6 +46,7 @@ class DataRenderer(TableRenderMixin, BaseRenderer):
         self._ctx = None
 
     def render(self, entry: FileEntry, ctx: PreviewContext) -> None:
+        """Render a supported data file into the preview panel."""
         self._ctx = ctx
         self._current_entry = entry
         ext = entry.ext
@@ -59,6 +62,7 @@ class DataRenderer(TableRenderMixin, BaseRenderer):
             ctx.show_error("Unsupported data format", f"{ext} is not supported")
 
     def clear(self) -> None:
+        """Release the current data preview context."""
         self._current_entry = None
         self._ctx = None
 
@@ -120,14 +124,10 @@ class DataRenderer(TableRenderMixin, BaseRenderer):
             dpg.add_text(text, wrap=0)
 
     def _render_text_navigation(self, entry: FileEntry) -> None:
-        """Show name + byte-range label for an oversized text/XML fallback.
+        """Show a static byte-range label for an oversized text/XML fallback.
 
-        NOTE (migration decision, 2026-07-18): the monolith rendered interactive
-        [<]/[>] paging buttons here via ``_on_text_page_change`` + a repaint
-        callback. DataRenderer has no paging/repaint wiring (it is not a text
-        renderer), so this degrades to a static range label rather than shipping
-        non-functional buttons. If paginated data/XML preview is wanted, wire an
-        update callback into DataRenderer and restore the monolith buttons.
+        DataRenderer has no repaint callback for paging, so it reports the
+        displayed byte range instead of creating non-functional controls.
         """
         if self._ctx is None or self._ctx.panel_id is None:
             return
@@ -220,7 +220,7 @@ class DataRenderer(TableRenderMixin, BaseRenderer):
                 ui_builder=_build_excel_ui
             )
     def _render_xml_preview(self, entry: FileEntry) -> None:
-            """Parse an XML file and display its pretty-printed contents."""
+            """Parse XML with ``defusedxml`` and display pretty-printed contents."""
             if self._ctx is None:
                 panel_id = getattr(self, "_panel_id", None)
                 if panel_id is None:

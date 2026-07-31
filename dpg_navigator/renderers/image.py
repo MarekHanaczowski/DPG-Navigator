@@ -16,6 +16,8 @@ except Exception:
     _PILImage = cast(Any, None)
 
 class ImageRenderer(BaseRenderer):
+    """Render raster images through DearPyGui or Pillow fallback loading."""
+
     _STB_IMAGE_EXTS = frozenset({
         ".png", ".jpg", ".jpeg", ".bmp", ".tga",
         ".gif", ".psd", ".hdr", ".pic", ".pgm", ".ppm", ".pnm",
@@ -39,6 +41,7 @@ class ImageRenderer(BaseRenderer):
             return img_w, img_h, float_data
 
     def render(self, entry: FileEntry, ctx: PreviewContext) -> None:
+        """Load an image and add its texture to the preview panel."""
         if ctx.panel_id is None:
             return
 
@@ -87,4 +90,4 @@ class ImageRenderer(BaseRenderer):
         dpg.add_image(tex_tag, parent=ctx.panel_id)
 
     def clear(self) -> None:
-        pass
+        """Leave texture cleanup to the shared preview context and panel."""

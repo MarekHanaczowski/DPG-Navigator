@@ -6,10 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- Font preview loads Latin-1 + Latin Extended-A glyph ranges (Polish diacritics)
-  and common punctuation (€, dashes, quotes) via DPG `add_font_range` /
-  `add_font_chars`, with pangrams including „Zazółć gęślą jaźń”.
+- Font preview loads Unicode-aware fonts with Polish diacritics and common
+  punctuation (€, dashes, quotes); explicit glyph-range registration is used only
+  on DearPyGui versions that require it, with pangrams including „Zazółć gęślą jaźń”.
 - CI generates a CycloneDX SBOM (`sbom.cdx.json`, artifact `sbom-cyclonedx`).
+- PDF preview supports mouse-wheel page navigation and updates the page counter.
+- Preview routing now includes the live `.ttf`/`.otf` font renderer.
 
 ### Changed
 

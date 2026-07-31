@@ -97,6 +97,7 @@ class FontRenderer(BaseRenderer):
         self._font_ids: list = []
 
     def render(self, entry: FileEntry, ctx: PreviewContext) -> None:
+        """Load the selected font at several sizes and render Unicode samples."""
         self.clear()
         if not ctx.panel_id:
             return
@@ -150,6 +151,7 @@ class FontRenderer(BaseRenderer):
                             pass
 
     def clear(self) -> None:
+        """Delete fonts created for the current font preview."""
         for font_id in self._font_ids:
             if dpg.does_item_exist(font_id):
                 try:

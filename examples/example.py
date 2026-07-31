@@ -12,16 +12,27 @@ from dpg_navigator import FileDialog
 if __name__ == "__main__":
     dpg.create_context()
 
-    # --- Font with Polish / Central European characters ---
-    # DPG default font only covers Basic Latin.
-    # To display filenames with ąćęłńóśźż etc., load a system font
-    # with Latin Extended-A range (0x0100-0x017F).
-    _FONT_PATH = "C:/Windows/Fonts/segoeui.ttf"  # Windows default
-    # Linux:  "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-    # macOS:  "/System/Library/Fonts/SFNS.ttf"
-    if os.path.isfile(_FONT_PATH):
+    # Use a system font with Polish/Unicode glyphs for international filenames.
+    if sys.platform == "win32":
+        font_candidates = [
+            os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts", "segoeui.ttf"),
+            os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts", "arial.ttf"),
+        ]
+    elif sys.platform == "darwin":
+        font_candidates = [
+            "/System/Library/Fonts/SFNS.ttf",
+            "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        ]
+    else:
+        font_candidates = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+        ]
+    _FONT_PATH = next((path for path in font_candidates if os.path.isfile(path)), None)
+    if _FONT_PATH:
         try:
             from dpg_navigator.renderers.font import load_font_with_unicode
+
             with dpg.font_registry():
                 font = load_font_with_unicode(_FONT_PATH, 16)
         except Exception:

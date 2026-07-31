@@ -29,6 +29,8 @@ except ImportError:
     py7zr = None
 
 class ArchiveRenderer(TableRenderMixin, BaseRenderer):
+    """Render ZIP and 7z archive listings and selected members."""
+
     _TABLE_MAX_ROWS: int = 200
     _TEXT_PREVIEW_MAX_SIZE: int = 256 * 1024
     _PDF_EXTS: frozenset[str] = PDF_EXTS
@@ -39,6 +41,7 @@ class ArchiveRenderer(TableRenderMixin, BaseRenderer):
         self._ctx = None
 
     def render(self, entry: FileEntry, ctx: PreviewContext) -> None:
+        """Render an archive listing in the supplied preview context."""
         self._ctx = ctx
         self._current_entry = entry
         ext = entry.ext
@@ -50,6 +53,7 @@ class ArchiveRenderer(TableRenderMixin, BaseRenderer):
             ctx.show_error("Unsupported archive", f"{ext} is not supported")
 
     def clear(self) -> None:
+        """Release the current archive preview context."""
         self._current_entry = None
         self._ctx = None
 
