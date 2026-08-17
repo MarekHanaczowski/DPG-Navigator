@@ -24,6 +24,13 @@ From source:
 pip install .
 ```
 
+Runtime and extra dependencies are declared only in [`pyproject.toml`](pyproject.toml).
+`requirements.txt` is a pointer so `pip install -r requirements.txt` still
+installs this project; do not add version pins there.
+
+Third-party licenses (including bundled Icons8 assets) are listed in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
 ## Quick Start
 
 ```python
@@ -217,6 +224,7 @@ dpg.bind_font(ui_font)
 ```bash
 pip install -e ".[dev]"
 python -m ruff check .
+python -m ruff format --check .
 python -m mypy dpg_navigator/_types.py dpg_navigator/_filesystem.py dpg_navigator/_platform.py dpg_navigator/_icons.py dpg_navigator/_styles.py dpg_navigator/_keyboard.py dpg_navigator/_preview_registry.py dpg_navigator/_preview_table.py dpg_navigator/_preview_archive.py dpg_navigator/_preview_spreadsheet.py dpg_navigator/_preview_sqlite.py dpg_navigator/_preview_word.py dpg_navigator/_preview_presentation.py dpg_navigator/_preview.py dpg_navigator/_dialog.py dpg_navigator/_pdf.py dpg_navigator/_html.py dpg_navigator/_availability.py dpg_navigator/_job_manager.py dpg_navigator/vfs/_base.py dpg_navigator/vfs/_registry.py dpg_navigator/vfs/_local.py dpg_navigator/vfs/_archive.py dpg_navigator/vfs/__init__.py dpg_navigator/dialog/_state.py dpg_navigator/dialog/_logic.py dpg_navigator/dialog/_ui.py
 pytest
 # opt-in real DearPyGui smoke (needs a display)
@@ -242,8 +250,10 @@ Created and maintained by **HACE**.
 ## Credits
 
 - Original concept: [file_dialog](https://github.com/totallynotdrait/file_dialog) by Dr. AIT
-- Icons: [Icons8 — 3D Fluency](https://icons8.com/icons/3d-fluency)
+- Icons: [Icons8 — 3D Fluency](https://icons8.com/icons/3d-fluency) ([icons8.com](https://icons8.com))
 
 ## License
 
 [MIT](LICENSE) — Copyright (c) 2024–2026 HACE
+
+Bundled icons and declared third-party packages: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

@@ -1,14 +1,15 @@
 """Business logic for the file dialog."""
+
 from __future__ import annotations
 
 import os
 import time
 from typing import Callable
 
-from ._state import DialogState
-from .._filesystem import DirectoryLister, DirectoryIndex, validate_folder_name
+from .._filesystem import DirectoryIndex, DirectoryLister, validate_folder_name
 from .._job_manager import JobManager
-from .._types import FileEntry, DialogConfig, DialogMode
+from .._types import DialogConfig, DialogMode, FileEntry
+from ._state import DialogState
 
 _SEARCH_DEBOUNCE = 0.3
 
@@ -85,11 +86,7 @@ class DialogLogic:
                 )
                 self.update_path_input(self.state.current_dir)
                 return
-            resolved = (
-                f"{resolved_archive}|/{virtual_inner}"
-                if virtual_inner
-                else f"{resolved_archive}|/"
-            )
+            resolved = f"{resolved_archive}|/{virtual_inner}" if virtual_inner else f"{resolved_archive}|/"
             self.state.navigate(resolved)
             self.refresh_listing()
             return

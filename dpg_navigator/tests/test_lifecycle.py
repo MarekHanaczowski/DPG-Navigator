@@ -174,8 +174,7 @@ class TestGoUpShortcuts:
         sender = 7
         dialog.state.last_click_time = time.time()
         dialog.state.last_clicked_element = sender
-        with patch("dpg_navigator._dialog.dpg") as mock_dpg, \
-             patch("dpg_navigator._dialog._platform") as plat:
+        with patch("dpg_navigator._dialog.dpg") as mock_dpg, patch("dpg_navigator._dialog._platform") as plat:
             plat.is_mod_key_down.return_value = False
             dialog._on_back(sender, None, None)
         dialog.logic.go_up.assert_called_once()

@@ -5,20 +5,18 @@ Tests pure logic and constants; DPG widget calls are mocked.
 
 from __future__ import annotations
 
-import os
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from dpg_navigator._types import StyleVariant
 from dpg_navigator._styles import (
-    SidebarRenderer,
-    LabeledSidebar,
-    CompactSidebar,
-    STYLE_REGISTRY,
     _SHORTCUT_ICON_MAP,
+    STYLE_REGISTRY,
+    CompactSidebar,
+    LabeledSidebar,
+    SidebarRenderer,
 )
-
+from dpg_navigator._types import StyleVariant
 
 # ── STYLE_REGISTRY ──────────────────────────────────────────────
 
@@ -67,11 +65,10 @@ class TestShortcutIconMap:
     def test_all_icon_names_exist_in_icon_registry(self):
         """Every icon name in _SHORTCUT_ICON_MAP must exist in ICON_NAMES."""
         from dpg_navigator._icons import ICON_NAMES
+
         icon_set = set(ICON_NAMES)
         for name, icon in _SHORTCUT_ICON_MAP.items():
-            assert icon in icon_set, (
-                f"_SHORTCUT_ICON_MAP[{name!r}] = {icon!r} not in ICON_NAMES"
-            )
+            assert icon in icon_set, f"_SHORTCUT_ICON_MAP[{name!r}] = {icon!r} not in ICON_NAMES"
 
 
 # ── LabeledSidebar ──────────────────────────────────────────────
@@ -172,9 +169,11 @@ class TestSidebarRendererABC:
 
     def test_subclass_must_implement_all(self):
         """Incomplete subclass should raise TypeError on instantiation."""
+
         class Incomplete(SidebarRenderer):
             def get_width(self):
                 return 100
+
             # Missing is_resizable and render
 
         with pytest.raises(TypeError):
@@ -184,9 +183,14 @@ class TestSidebarRendererABC:
         class Complete(SidebarRenderer):
             def get_width(self):
                 return 100
+
             def is_resizable(self):
                 return False
+
             def render(self, parent, shortcuts, drives, icons, on_navigate):
+                pass
+
+            def update_drives(self, drives):
                 pass
 
         instance = Complete()

@@ -55,11 +55,11 @@ can trail the first stable release.
 - Remaining maintenance is limited to keeping the compatibility adapters thin and
   adding focused integration coverage for the live DearPyGui paths.
 
-### 5. Tooling gates
-- **Broader ruff + `ruff format --check`:** expand beyond `E9/F63/F7/F82` to
-  import order, bugbear, pyupgrade, simplify. **Note:** the first run surfaces a
-  backlog (trailing whitespace, imports) — budget a dedicated cleanup pass, do
-  not fold it into a feature commit.
+### 5. Tooling gates — **PARTIAL**
+- **Broader ruff + `ruff format --check`:** **DONE.** Lint selects `E9`, `F`,
+  `W`, `I` (isort), `B` (bugbear), `UP` (pyupgrade), `SIM` (simplify), with
+  `SIM105`/`SIM108` ignored on purpose. CI runs `ruff check .` and
+  `ruff format --check .`.
 - **Whole-package mypy:** move from the hand-maintained file list to
   `files = ["dpg_navigator"]`, then progressively enable `warn_return_any`,
   `disallow_any_generics`, `disallow_untyped_defs`; replace `cast(Any, None)`
@@ -68,13 +68,17 @@ can trail the first stable release.
   and a **coverage gate** (`pytest-cov`) with a threshold for the pure-data
   modules only — do not force a high GUI number.
 
-### 6. Supply chain & release provenance — **PARTIAL**
+### 6. Supply chain & release provenance — **DONE**
 - GitHub Actions are pinned to commit SHAs, CI generates a CycloneDX SBOM, and
   Dependabot watches GitHub Actions and pip weekly.
-- **Remaining:** generate a `THIRD_PARTY_NOTICES.md` / `pip-licenses` report for
-  bundled icons and transitive dependencies.
-- Make `pyproject.toml` the single source of truth for dependencies (drop or
-  auto-generate `requirements.txt`).
+- [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) covers the MIT project
+  license, bundled Icons8 3D Fluency PNGs (free-use link attribution), and
+  SPDX identifiers for packages declared in `pyproject.toml` (including the
+  LGPL `py7zr` extra). Transitive versions live in the CI SBOM, not a second
+  hand-maintained pin list.
+- `pyproject.toml` is the single source of truth for dependencies.
+  `requirements.txt` is a pointer (`pip install .`) so old `-r` links keep
+  working.
 
 ### 7. Typed public API — **DONE**
 - Host selection callback is `SelectionCallback` (`Protocol` for

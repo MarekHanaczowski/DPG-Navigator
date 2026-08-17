@@ -16,6 +16,9 @@ All notable changes to this project will be documented in this file.
   `list[str] → None`. `FileDialog` constructor overloads distinguish
   `DialogConfig` from keyword options. `DialogConfig` validates sizes, filters,
   paths, and `custom_dirs` at construction.
+- `THIRD_PARTY_NOTICES.md` lists bundled Icons8 assets and SPDX licenses for
+  packages declared in `pyproject.toml`. The file ships in the sdist and is
+  force-included in the wheel.
 
 ### Changed
 
@@ -42,6 +45,10 @@ All notable changes to this project will be documented in this file.
 - CI runs the opt-in DearPyGui smoke tests under xvfb (`continue-on-error`),
   including Chrome HTML preview (skipped without a browser), Word HTML/text
   switch, and oversize-archive selection.
+- `requirements.txt` no longer duplicates dependency pins; it installs this
+  project from `pyproject.toml`.
+- Ruff lint covers pyflakes, whitespace, isort, bugbear, pyupgrade, and
+  simplify (`target-version` py38). CI also runs `ruff format --check`.
 
 ### Fixed
 

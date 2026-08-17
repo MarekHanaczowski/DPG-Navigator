@@ -6,8 +6,8 @@ lookup through _EXT_LOOKUP.
 """
 
 from __future__ import annotations
-# MIT licensed
 
+# MIT licensed
 import logging
 import os
 
@@ -17,16 +17,46 @@ _log = logging.getLogger(__name__)
 
 # All icon names matching files in images/ directory
 ICON_NAMES = [
-    "add_folder", "app", "back", "big_picture",
-    "config", "database", "desktop", "document",
-    "documents", "downloads",
-    "folder", "gears", "hd", "home", "iso",
-    "link", "markdown", "mini_document",
-    "mini_folder", "music", "music_note", "object",
-    "pdf", "picture", "picture_folder", "presentation",
-    "python", "refresh", "script", "search", "spreadsheet",
-    "text", "up", "url", "vector", "video", "videos", "web",
-    "word", "zip",
+    "add_folder",
+    "app",
+    "back",
+    "big_picture",
+    "config",
+    "database",
+    "desktop",
+    "document",
+    "documents",
+    "downloads",
+    "folder",
+    "gears",
+    "hd",
+    "home",
+    "iso",
+    "link",
+    "markdown",
+    "mini_document",
+    "mini_folder",
+    "music",
+    "music_note",
+    "object",
+    "pdf",
+    "picture",
+    "picture_folder",
+    "presentation",
+    "python",
+    "refresh",
+    "script",
+    "search",
+    "spreadsheet",
+    "text",
+    "up",
+    "url",
+    "vector",
+    "video",
+    "videos",
+    "web",
+    "word",
+    "zip",
 ]
 
 # Mapping: tuple of file extensions -> icon name
@@ -34,25 +64,91 @@ EXTENSION_MAP: dict[tuple[str, ...], str] = {
     # System / binary libraries
     (".dll", ".a", ".o", ".so", ".ko", ".sys", ".drv"): "gears",
     # Images
-    (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".webp",
-     ".ico", ".tga", ".raw", ".cr2", ".nef", ".heic"): "picture",
+    (
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".bmp",
+        ".tiff",
+        ".webp",
+        ".ico",
+        ".tga",
+        ".raw",
+        ".cr2",
+        ".nef",
+        ".heic",
+    ): "picture",
     # Executables
     (".msi", ".exe", ".bat", ".bin", ".elf", ".com", ".out", ".apk"): "app",
     # Disc images
     (".iso",): "iso",
     # Archives
-    (".zip", ".rar", ".deb", ".rpm", ".tar.gz", ".tar", ".gz", ".bz2",
-     ".xz", ".lzo", ".lz4", ".7z", ".ppack", ".tgz", ".cab",
-     ".zst", ".lz", ".arj"): "zip",
+    (
+        ".zip",
+        ".rar",
+        ".deb",
+        ".rpm",
+        ".tar.gz",
+        ".tar",
+        ".gz",
+        ".bz2",
+        ".xz",
+        ".lzo",
+        ".lz4",
+        ".7z",
+        ".ppack",
+        ".tgz",
+        ".cab",
+        ".zst",
+        ".lz",
+        ".arj",
+    ): "zip",
     # Python
     (".py", ".pyo", ".pyw", ".pyi", ".pyc", ".pyz", ".pyd"): "python",
     # Code / scripts
-    (".c", ".js", ".cs", ".cpp", ".h", ".hpp", ".sh", ".pyl", ".rs",
-     ".vbs", ".cmd", ".java", ".go", ".swift", ".ts", ".rb", ".pl",
-     ".php", ".lua", ".dart", ".r", ".ps1", ".asm",
-     ".kt", ".kts", ".scala", ".jl", ".ex", ".exs", ".erl", ".clj",
-     ".nim", ".groovy", ".f90", ".f95",
-     ".tsx", ".jsx", ".vue", ".svelte", ".wasm"): "script",
+    (
+        ".c",
+        ".js",
+        ".cs",
+        ".cpp",
+        ".h",
+        ".hpp",
+        ".sh",
+        ".pyl",
+        ".rs",
+        ".vbs",
+        ".cmd",
+        ".java",
+        ".go",
+        ".swift",
+        ".ts",
+        ".rb",
+        ".pl",
+        ".php",
+        ".lua",
+        ".dart",
+        ".r",
+        ".ps1",
+        ".asm",
+        ".kt",
+        ".kts",
+        ".scala",
+        ".jl",
+        ".ex",
+        ".exs",
+        ".erl",
+        ".clj",
+        ".nim",
+        ".groovy",
+        ".f90",
+        ".f95",
+        ".tsx",
+        ".jsx",
+        ".vue",
+        ".svelte",
+        ".wasm",
+    ): "script",
     # Web markup
     (".html", ".htm", ".xml", ".css"): "web",
     # Databases
@@ -63,19 +159,58 @@ EXTENSION_MAP: dict[tuple[str, ...], str] = {
     # Plain text
     (".txt", ".rtf", ".log", ".csv", ".patch", ".diff"): "text",
     # Config / data
-    (".json", ".ini", ".yaml", ".yml", ".config", ".toml",
-     ".env", ".lock"): "config",
+    (".json", ".ini", ".yaml", ".yml", ".config", ".toml", ".env", ".lock"): "config",
     # Markup / documentation
     (".md", ".rst", ".tex", ".adoc"): "markdown",
     # Audio
-    (".mp3", ".ogg", ".wav", ".flac", ".aac", ".m4a", ".wma",
-     ".aiff", ".mid", ".midi", ".opus", ".ape", ".wv"): "music_note",
+    (
+        ".mp3",
+        ".ogg",
+        ".wav",
+        ".flac",
+        ".aac",
+        ".m4a",
+        ".wma",
+        ".aiff",
+        ".mid",
+        ".midi",
+        ".opus",
+        ".ape",
+        ".wv",
+    ): "music_note",
     # Video
-    (".mp4", ".mov", ".mkv", ".avi", ".wmv", ".flv", ".webm",
-     ".mpeg", ".mpg", ".3gp", ".m4v", ".vob", ".m2ts", ".mts"): "video",
+    (
+        ".mp4",
+        ".mov",
+        ".mkv",
+        ".avi",
+        ".wmv",
+        ".flv",
+        ".webm",
+        ".mpeg",
+        ".mpg",
+        ".3gp",
+        ".m4v",
+        ".vob",
+        ".m2ts",
+        ".mts",
+    ): "video",
     # 3D models / CAD
-    (".obj", ".fbx", ".blend", ".stl", ".3ds", ".dae", ".ply",
-     ".glb", ".gltf", ".step", ".iges", ".dwg", ".dxf"): "object",
+    (
+        ".obj",
+        ".fbx",
+        ".blend",
+        ".stl",
+        ".3ds",
+        ".dae",
+        ".ply",
+        ".glb",
+        ".gltf",
+        ".step",
+        ".iges",
+        ".dwg",
+        ".dxf",
+    ): "object",
     # Vector graphics
     (".svg", ".ai", ".eps", ".psd"): "vector",
     # PDF / eBooks
@@ -83,8 +218,7 @@ EXTENSION_MAP: dict[tuple[str, ...], str] = {
     # Rich documents (Word, ODT)
     (".doc", ".docx", ".odt"): "word",
     # Spreadsheets
-    (".xls", ".xlsx", ".xlsm", ".xlt", ".xltx", ".ods",
-     ".numbers"): "spreadsheet",
+    (".xls", ".xlsx", ".xlsm", ".xlt", ".xltx", ".ods", ".numbers"): "spreadsheet",
     # Presentations
     (".ppt", ".pptx", ".pot", ".potx", ".odp", ".key"): "presentation",
 }
@@ -119,9 +253,7 @@ class IconRegistry:
                 try:
                     w, h, _, data = dpg.load_image(path)
                     tag = f"{self._tag_prefix}_ico_{name}"
-                    dpg.add_static_texture(
-                        width=w, height=h, default_value=data, tag=tag
-                    )
+                    dpg.add_static_texture(width=w, height=h, default_value=data, tag=tag)
                     self._tags[name] = tag
                 except Exception:
                     _log.warning("Failed to load icon '%s' from %s", name, path)

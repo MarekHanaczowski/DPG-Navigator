@@ -13,7 +13,7 @@ class TestDecodePreviewBytes:
         assert encoding is None
 
     def test_utf8(self):
-        text, is_bin, encoding = decode_preview_bytes("Zażółć".encode("utf-8"))
+        text, is_bin, encoding = decode_preview_bytes("Zażółć".encode())
         assert is_bin is False
         assert text == "Zażółć"
         assert encoding == "utf-8-sig"
@@ -42,7 +42,8 @@ class TestDecodePreviewBytes:
     def test_known_encoding_skips_detection(self):
         raw = "ab".encode("utf-16")
         text, is_bin, encoding = decode_preview_bytes(
-            raw, known_encoding="utf-16",
+            raw,
+            known_encoding="utf-16",
         )
         assert is_bin is False
         assert text == "ab"

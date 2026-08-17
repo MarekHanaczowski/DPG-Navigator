@@ -1,8 +1,8 @@
 """Pure table parsing helpers for preview renderers."""
 
 from __future__ import annotations
-# MIT licensed
 
+# MIT licensed
 import csv
 import io
 import os
@@ -44,11 +44,7 @@ def parse_csv_table(
                 dialect = None
             delimiter = dialect.delimiter if dialect else ","
 
-        reader = (
-            csv.reader(stream, dialect)
-            if dialect
-            else csv.reader(stream, delimiter=delimiter)
-        )
+        reader = csv.reader(stream, dialect) if dialect else csv.reader(stream, delimiter=delimiter)
 
         all_rows: list[list[str]] = []
         total_rows = 0

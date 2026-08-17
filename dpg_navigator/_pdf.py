@@ -6,11 +6,11 @@ and background prefetch of neighboring pages.
 """
 
 from __future__ import annotations
-# MIT licensed
 
+# MIT licensed
 import ctypes
-import os
 import logging
+import os
 import threading
 from collections import OrderedDict
 from concurrent.futures import Future
@@ -192,14 +192,14 @@ class PDFRenderer:
 
         # Initialize to white using memmove from numpy
         white = _np.ones(buf_size, dtype=_np.float32)
-        self._buf_ptr = ctypes.addressof(
-            ctypes.c_float.from_buffer(self._tex_buffer)
-        )
+        self._buf_ptr = ctypes.addressof(ctypes.c_float.from_buffer(self._tex_buffer))
         ctypes.memmove(self._buf_ptr, white.ctypes.data, white.nbytes)
 
         with dpg.texture_registry():
             self._tex_id = dpg.add_raw_texture(
-                self._tex_w, self._tex_h, self._tex_buffer,
+                self._tex_w,
+                self._tex_h,
+                self._tex_buffer,
                 format=dpg.mvFormat_Float_rgba,
             )
         self._tex_exists = True
@@ -210,7 +210,7 @@ class PDFRenderer:
 
     # ── Rendering pipeline ────────────────────────────────────
 
-    def _render_to_array(self, page_num: int, w: int, h: int) -> "_np.ndarray":
+    def _render_to_array(self, page_num: int, w: int, h: int) -> _np.ndarray:
         """Render a single page to a numpy float32 RGBA array sized w x h."""
         if self._doc is None:
             raise RuntimeError("PDF document is not open")
@@ -231,9 +231,13 @@ class PDFRenderer:
         if ih > h:
             pil_img = pil_img.crop((0, 0, iw, h))
             ih = h
-        arr = _np.frombuffer(
-            pil_img.tobytes(), dtype=_np.uint8,
-        ).astype(_np.float32) / 255.0
+        arr = (
+            _np.frombuffer(
+                pil_img.tobytes(),
+                dtype=_np.uint8,
+            ).astype(_np.float32)
+            / 255.0
+        )
 
         if iw != w or ih != h:
             canvas = _np.ones(w * h * 4, dtype=_np.float32)
@@ -241,13 +245,13 @@ class PDFRenderer:
             oy = (h - ih) // 2
             # Vectorized centering on a 2D view of the flat canvas — bit-identical
             # to the former per-row loop, but without Python-level iteration.
-            canvas.reshape(h, w, 4)[oy:oy + ih, ox:ox + iw] = arr.reshape(ih, iw, 4)
+            canvas.reshape(h, w, 4)[oy : oy + ih, ox : ox + iw] = arr.reshape(ih, iw, 4)
             return _np.ascontiguousarray(canvas)
         return _np.ascontiguousarray(arr)
 
     # ── LRU cache ─────────────────────────────────────────────
 
-    def _get_page(self, page_num: int) -> "_np.ndarray":
+    def _get_page(self, page_num: int) -> _np.ndarray:
         """Get a rendered page from cache or render it fresh."""
         with self._cache_lock:
             if page_num in self._page_cache:
@@ -317,10 +321,7 @@ class PDFRenderer:
         """Prefetch neighboring pages in a background thread."""
         self._cancel_prefetch_future()
         gen = self._prefetch_generation
-        self._prefetch_future = JobManager.submit(
-            self._prefetch_worker,
-            page_num, gen
-        )
+        self._prefetch_future = JobManager.submit(self._prefetch_worker, page_num, gen)
 
     def _prefetch_worker(self, page_num: int, gen: int) -> None:
         """Background thread: render and cache neighboring pages."""

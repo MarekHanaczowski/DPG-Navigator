@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch, mock_open
+from unittest.mock import MagicMock, mock_open, patch
+
 import pytest
 
-from dpg_navigator._types import FileEntry
 from dpg_navigator._preview_registry import PreviewCapabilities
+from dpg_navigator._types import FileEntry
 from dpg_navigator.renderers._base import PreviewContext
 from dpg_navigator.renderers.document import DocumentRenderer
 
@@ -21,10 +22,9 @@ def mock_dpg():
 
 @pytest.fixture
 def mock_backends():
-    with patch("dpg_navigator.renderers.document.chrome_available", return_value=True), \
-         patch("dpg_navigator.renderers.document.HTMLRenderer") as mock_html, \
-         patch("dpg_navigator.renderers.document.PDFRenderer") as mock_pdf:
-
+    with patch("dpg_navigator.renderers.document.chrome_available", return_value=True), patch(
+        "dpg_navigator.renderers.document.HTMLRenderer"
+    ) as mock_html, patch("dpg_navigator.renderers.document.PDFRenderer") as mock_pdf:
         # Configure HTMLRenderer mock
         html_instance = mock_html.return_value
         html_instance.open.return_value = True
@@ -77,9 +77,11 @@ def test_render_html(mock_backends):
     renderer.render(entry, ctx)
 
     renderer._html.open.assert_called_once_with(
-        "index.html", 800, 600 - 42,
+        "index.html",
+        800,
+        600 - 42,
         on_complete=renderer._on_html_render_done,
-        on_resize_complete=renderer._on_html_resize_done
+        on_resize_complete=renderer._on_html_resize_done,
     )
 
 
@@ -129,9 +131,9 @@ def test_render_word_text_when_chrome_unavailable(mock_dpg):
     )
     document = MagicMock()
     document.blocks = []
-    with patch("dpg_navigator.renderers.document.chrome_available", return_value=False), \
-         patch("dpg_navigator.renderers.document.HTMLRenderer") as mock_html, \
-         patch("dpg_navigator.renderers.document.load_word_document", return_value=document):
+    with patch("dpg_navigator.renderers.document.chrome_available", return_value=False), patch(
+        "dpg_navigator.renderers.document.HTMLRenderer"
+    ) as mock_html, patch("dpg_navigator.renderers.document.load_word_document", return_value=document):
         renderer.render(entry, ctx)
     mock_html.return_value.open_string.assert_not_called()
     mock_dpg.add_text.assert_called()
@@ -150,9 +152,9 @@ def test_render_word_text_when_mammoth_capability_off(mock_dpg):
     )
     document = MagicMock()
     document.blocks = []
-    with patch("dpg_navigator.renderers.document.chrome_available", return_value=True), \
-         patch("dpg_navigator.renderers.document.HTMLRenderer") as mock_html, \
-         patch("dpg_navigator.renderers.document.load_word_document", return_value=document):
+    with patch("dpg_navigator.renderers.document.chrome_available", return_value=True), patch(
+        "dpg_navigator.renderers.document.HTMLRenderer"
+    ) as mock_html, patch("dpg_navigator.renderers.document.load_word_document", return_value=document):
         renderer.render(entry, ctx)
     mock_html.return_value.open_string.assert_not_called()
     mock_dpg.add_text.assert_called()
@@ -164,8 +166,9 @@ def test_render_html_text_when_chrome_unavailable(mock_dpg):
     renderer = DocumentRenderer(load_text_cb)
     entry = FileEntry("index.html", "index.html", is_dir=False, size_bytes=100, modified_time=0.0, is_hidden=False)
     ctx = PreviewContext(panel_id=1, table_wrapper=2, config_tag="test_tag", capabilities=PreviewCapabilities())
-    with patch("dpg_navigator.renderers.document.chrome_available", return_value=False), \
-         patch("dpg_navigator.renderers.document.HTMLRenderer") as mock_html:
+    with patch("dpg_navigator.renderers.document.chrome_available", return_value=False), patch(
+        "dpg_navigator.renderers.document.HTMLRenderer"
+    ) as mock_html:
         renderer.render(entry, ctx)
     mock_html.return_value.open.assert_not_called()
     load_text_cb.assert_called()

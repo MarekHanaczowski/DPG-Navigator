@@ -6,8 +6,8 @@ auto-trim, overflow detection, and responsive scaling.
 """
 
 from __future__ import annotations
-# MIT licensed
 
+# MIT licensed
 import ctypes
 import logging
 import os
@@ -154,7 +154,9 @@ def _kill_process_tree(proc: Any) -> None:
 
 
 def _chrome_popen_run(
-    command: Any, *args: Any, **kwargs: Any,
+    command: Any,
+    *args: Any,
+    **kwargs: Any,
 ) -> subprocess.CompletedProcess[Any]:
     """``subprocess.run`` stand-in that records Popen so close() can kill it."""
     if args:
@@ -182,6 +184,7 @@ def _chrome_popen_run(
     finally:
         HTMLRenderer._unregister_chrome(proc)
 
+
 _CSS_RESET = (
     "<style>"
     "html,body{margin:0!important;padding:0!important;}"
@@ -197,13 +200,13 @@ _OVERFLOW_MARKER = (
     'var m=document.createElement("div");'
     'm.style.cssText="position:fixed;top:0;left:0;width:10px;height:10px;'
     'z-index:999999;pointer-events:none;";'
-    'var sw=Math.max(document.documentElement.scrollWidth,'
-    'document.body.scrollWidth,document.documentElement.offsetWidth,'
-    'document.body.offsetWidth);'
-    'var v=Math.min(sw,65535);'
+    "var sw=Math.max(document.documentElement.scrollWidth,"
+    "document.body.scrollWidth,document.documentElement.offsetWidth,"
+    "document.body.offsetWidth);"
+    "var v=Math.min(sw,65535);"
     'm.style.backgroundColor="rgb("+(v>>8)+","+(v&255)+",255)";'
-    'document.body.appendChild(m);'
-    '});</script>'
+    "document.body.appendChild(m);"
+    "});</script>"
 )
 
 _FILE_ATTR_RE = re.compile(
@@ -220,22 +223,22 @@ def _strip_file_urls(html: str) -> str:
     html = _FILE_ATTR_RE.sub(r"\1\2\2", html)
     return _FILE_CSS_RE.sub("url()", html)
 
+
 # Lazily computed float32 background color
 _bg_f32_cache: Any = None
 _LANCZOS = getattr(getattr(_PILImage, "Resampling", _PILImage), "LANCZOS", 1)
 
 
-def _get_bg_f32() -> "_np.ndarray":
+def _get_bg_f32() -> _np.ndarray:
     """Return the background color as a float32 RGBA array (cached)."""
     global _bg_f32_cache
     if _bg_f32_cache is None:
-        _bg_f32_cache = (
-            _np.array(_BG_COLOR_RGBA, dtype=_np.float32) / _np.float32(255)
-        )
+        _bg_f32_cache = _np.array(_BG_COLOR_RGBA, dtype=_np.float32) / _np.float32(255)
     return _bg_f32_cache
 
 
 # ── Pure helper functions ──────────────────────────────────────
+
 
 def _inject_helpers(html: str) -> str:
     """Inject CSS reset and JS overflow marker into raw HTML.
@@ -255,7 +258,7 @@ def _inject_helpers(html: str) -> str:
     return html
 
 
-def _auto_trim(img: "_PILImage.Image") -> "_PILImage.Image":
+def _auto_trim(img: _PILImage.Image) -> _PILImage.Image:
     """Trim empty background rows from top and bottom of the render.
 
     Uses vectorized numpy — computes per-row mean deviation from
@@ -276,7 +279,7 @@ def _auto_trim(img: "_PILImage.Image") -> "_PILImage.Image":
     return img.crop((0, y0, w, y1))
 
 
-def _read_overflow_marker(pixels: "_np.ndarray") -> tuple[bool, int]:
+def _read_overflow_marker(pixels: _np.ndarray) -> tuple[bool, int]:
     """Read the JS overflow marker encoded in pixel (3,3).
 
     The marker encodes DOM scrollWidth as RGB: R = width >> 8,
@@ -292,22 +295,22 @@ def _read_overflow_marker(pixels: "_np.ndarray") -> tuple[bool, int]:
     return False, 0
 
 
-def _clear_marker(arr: "_np.ndarray") -> None:
+def _clear_marker(arr: _np.ndarray) -> None:
     """Paint over the marker area with neighboring pixels."""
     s = min(30, arr.shape[0], arr.shape[1])
     h, w = arr.shape[:2]
     if w > s:
-        arr[:s, :s] = arr[:s, s:s + 1]
+        arr[:s, :s] = arr[:s, s : s + 1]
     elif h > s:
-        arr[:s, :s] = arr[s:s + 1, :s]
+        arr[:s, :s] = arr[s : s + 1, :s]
 
 
 def _get_scaled_doc(
-    full_arr: "_np.ndarray",
+    full_arr: _np.ndarray,
     current_w: int,
     target_w: int,
     current_h: int,
-) -> tuple["_np.ndarray", int, int]:
+) -> tuple[_np.ndarray, int, int]:
     """Scale the full render to target width using Lanczos resampling.
 
     Returns (scaled_array, new_width, new_height).
@@ -322,6 +325,7 @@ def _get_scaled_doc(
 
 
 # ── HTMLRenderer class ─────────────────────────────────────────
+
 
 class HTMLRenderer:
     """Renders HTML into a scrollable DPG raw_texture via Chrome Headless.
@@ -418,9 +422,7 @@ class HTMLRenderer:
     @classmethod
     def _unregister_chrome(cls, proc: Any) -> None:
         with cls._chrome_proc_lock:
-            cls._chrome_procs = [
-                item for item in cls._chrome_procs if item[0] is not proc
-            ]
+            cls._chrome_procs = [item for item in cls._chrome_procs if item[0] is not proc]
 
     @classmethod
     def _kill_owned_chrome(cls, owner: Any | None) -> None:
@@ -429,15 +431,12 @@ class HTMLRenderer:
             if owner is None:
                 victims = [proc for proc, _owner in cls._chrome_procs]
             else:
-                victims = [
-                    proc for proc, item_owner in cls._chrome_procs
-                    if item_owner is owner
-                ]
+                victims = [proc for proc, item_owner in cls._chrome_procs if item_owner is owner]
         for proc in victims:
             _kill_process_tree(proc)
 
     @classmethod
-    def _get_hti(cls) -> "_Html2Image":
+    def _get_hti(cls) -> _Html2Image:
         """Lazily initialize the shared Html2Image instance."""
         _ensure_chromium_run_hook()
         if cls._hti is None:
@@ -448,16 +447,16 @@ class HTMLRenderer:
                     cls._hti = _Html2Image(
                         output_path=profile_dir,
                         custom_flags=[
-                            '--hide-scrollbars',
-                            '--force-device-scale-factor=1',
-                            '--disable-gpu',
-                            '--log-level=3',
+                            "--hide-scrollbars",
+                            "--force-device-scale-factor=1",
+                            "--disable-gpu",
+                            "--log-level=3",
                             # JS off: untrusted HTML must not run. The injected
                             # overflow marker is therefore a no-op (see A06).
-                            '--disable-javascript',
+                            "--disable-javascript",
                             '--proxy-server="http://127.0.0.1:0"',
-                            '--block-new-web-contents',
-                            f'--user-data-dir={profile_dir}',
+                            "--block-new-web-contents",
+                            f"--user-data-dir={profile_dir}",
                         ],
                         disable_logging=True,
                     )
@@ -472,8 +471,12 @@ class HTMLRenderer:
     # ── Open / close ──────────────────────────────────────────
 
     def open(
-        self, path: str, w: int, h: int,
-        on_complete=None, on_resize_complete=None,
+        self,
+        path: str,
+        w: int,
+        h: int,
+        on_complete=None,
+        on_resize_complete=None,
     ) -> bool:
         """Open an HTML file and start background rendering.
 
@@ -513,8 +516,12 @@ class HTMLRenderer:
         return True
 
     def open_string(
-        self, html_content: str, w: int, h: int,
-        on_complete=None, on_resize_complete=None,
+        self,
+        html_content: str,
+        w: int,
+        h: int,
+        on_complete=None,
+        on_resize_complete=None,
     ) -> bool:
         """Open raw HTML content and start background rendering.
 
@@ -620,7 +627,8 @@ class HTMLRenderer:
 
         bg = _get_bg_f32()
         self._viewport_buf = _np.empty(
-            (self._tex_h, self._tex_w, 4), dtype=_np.float32,
+            (self._tex_h, self._tex_w, 4),
+            dtype=_np.float32,
         )
         self._viewport_buf[:] = bg
 
@@ -628,13 +636,16 @@ class HTMLRenderer:
             ctypes.c_float.from_buffer(self._tex_buffer),
         )
         ctypes.memmove(
-            self._buf_ptr, self._viewport_buf.ctypes.data,
+            self._buf_ptr,
+            self._viewport_buf.ctypes.data,
             self._viewport_buf.nbytes,
         )
 
         with dpg.texture_registry():
             self._tex_id = dpg.add_raw_texture(
-                self._tex_w, self._tex_h, self._tex_buffer,
+                self._tex_w,
+                self._tex_h,
+                self._tex_buffer,
                 format=dpg.mvFormat_Float_rgba,
             )
         self._tex_exists = True
@@ -642,8 +653,10 @@ class HTMLRenderer:
     # ── Chrome screenshot ─────────────────────────────────────
 
     def _hti_screenshot(
-        self, width: int, height: int,
-    ) -> "_PILImage.Image | None":
+        self,
+        width: int,
+        height: int,
+    ) -> _PILImage.Image | None:
         """Take a Chrome Headless screenshot with overscan compensation.
 
         Renders +20px wider to mask the Windows OS scrollbar reservation
@@ -651,11 +664,7 @@ class HTMLRenderer:
         """
         hti = self._get_hti()
         temp_name = f"dpg_html_{uuid.uuid4().hex[:12]}.png"
-        out_dir = (
-            getattr(hti, "output_path", None)
-            or type(self)._chrome_profile_dir
-            or tempfile.gettempdir()
-        )
+        out_dir = getattr(hti, "output_path", None) or type(self)._chrome_profile_dir or tempfile.gettempdir()
         target_path = os.path.join(str(out_dir), temp_name)
         _chrome_owner.renderer = self
         _chrome_owner.generation = self._render_generation
@@ -692,10 +701,7 @@ class HTMLRenderer:
         self._is_rendering = True
         self._status_text = "Rendering..."
         gen = self._render_generation
-        self._render_future = JobManager.submit(
-            self._render_worker,
-            content_w, gen
-        )
+        self._render_future = JobManager.submit(self._render_worker, content_w, gen)
 
     def _render_worker(self, content_w: int, gen: int) -> None:
         """Background render thread.
@@ -770,7 +776,10 @@ class HTMLRenderer:
 
         # Heavy scaling done OUTSIDE dpg.mutex() — critical for 60fps
         new_doc_array, new_doc_w, new_doc_h = _get_scaled_doc(
-            arr, raw_w, content_w, raw_h,
+            arr,
+            raw_w,
+            content_w,
+            raw_h,
         )
 
         elapsed = (time.perf_counter() - t0) * 1000
@@ -803,8 +812,7 @@ class HTMLRenderer:
         than the viewport.  Uses pre-allocated viewport_buf to avoid
         per-frame numpy allocations.
         """
-        if (self._doc_array is None or self._buf_ptr is None
-                or self._viewport_buf is None):
+        if self._doc_array is None or self._buf_ptr is None or self._viewport_buf is None:
             return
 
         bg = _get_bg_f32()
@@ -818,7 +826,7 @@ class HTMLRenderer:
         if copy_h <= 0 or copy_w <= 0:
             return
 
-        region = self._doc_array[sy:sy + copy_h, :copy_w]
+        region = self._doc_array[sy : sy + copy_h, :copy_w]
 
         self._viewport_buf[:] = bg
 
@@ -827,12 +835,11 @@ class HTMLRenderer:
         else:
             pad_x = _MARGIN
 
-        self._viewport_buf[:copy_h, pad_x:pad_x + copy_w] = (
-            region.astype(_np.float32) / _np.float32(255)
-        )
+        self._viewport_buf[:copy_h, pad_x : pad_x + copy_w] = region.astype(_np.float32) / _np.float32(255)
 
         ctypes.memmove(
-            self._buf_ptr, self._viewport_buf.ctypes.data,
+            self._buf_ptr,
+            self._viewport_buf.ctypes.data,
             self._viewport_buf.nbytes,
         )
 
@@ -897,7 +904,10 @@ class HTMLRenderer:
             new_doc = None
             if self._full_array is not None:
                 new_doc = _get_scaled_doc(
-                    self._full_array, self._full_w, content_w, self._full_h,
+                    self._full_array,
+                    self._full_w,
+                    content_w,
+                    self._full_h,
                 )
 
             with dpg.mutex():
@@ -912,9 +922,7 @@ class HTMLRenderer:
                     self._on_resize_complete()
 
             # Chrome re-render if layout is responsive
-            if not (self._min_unclipped_w > 0
-                    and content_w < self._min_unclipped_w
-                    and self._full_array is not None):
+            if not (self._min_unclipped_w > 0 and content_w < self._min_unclipped_w and self._full_array is not None):
                 self._start_render(content_w)
 
         self._resize_timer = JobManager.schedule_timer(_RESIZE_DEBOUNCE, _debounced)

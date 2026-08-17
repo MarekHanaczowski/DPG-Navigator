@@ -1,4 +1,4 @@
-﻿"""Tests for font preview Unicode range helpers (no DPG context required)."""
+"""Tests for font preview Unicode range helpers (no DPG context required)."""
 
 from __future__ import annotations
 
@@ -28,10 +28,7 @@ class TestFontUnicodeRanges:
         assert 0x2014 in fontmod._EXTRA_CHARS
 
     def test_polish_chars_list_covers_all_diacritics(self):
-        needed = {
-            ord(c)
-            for c in "ąćęłńóśźżĄĆĘŁŃÓŚŹŻ"
-        }
+        needed = {ord(c) for c in "ąćęłńóśźżĄĆĘŁŃÓŚŹŻ"}
         assert needed.issubset(set(fontmod._POLISH_AND_PUNCT_CHARS))
 
     def test_pangrams_include_euro_line(self):

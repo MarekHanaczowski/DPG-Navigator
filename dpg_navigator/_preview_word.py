@@ -4,8 +4,8 @@ Extracts document blocks without depending on DearPyGui.
 """
 
 from __future__ import annotations
-# MIT licensed
 
+# MIT licensed
 from dataclasses import dataclass
 from typing import Any, Callable, Union
 
@@ -86,23 +86,19 @@ def load_word_document(
     try:
         for block in source_blocks:
             if hasattr(block, "rows"):
-                blocks.append(WordTable([
-                    [cell.text.strip() for cell in row.cells]
-                    for row in block.rows
-                ]))
+                blocks.append(WordTable([[cell.text.strip() for cell in row.cells] for row in block.rows]))
                 continue
 
             style_name = ""
             if block.style and block.style.name:
                 style_name = block.style.name.lower()
-            blocks.append(WordParagraph(
-                text=block.text,
-                style_name=style_name,
-                runs=[
-                    WordRun(run.text, bool(run.bold), bool(run.italic))
-                    for run in block.runs
-                ],
-            ))
+            blocks.append(
+                WordParagraph(
+                    text=block.text,
+                    style_name=style_name,
+                    runs=[WordRun(run.text, bool(run.bold), bool(run.italic)) for run in block.runs],
+                )
+            )
     except Exception as exc:
         raise WordPreviewError(str(exc)) from exc
 

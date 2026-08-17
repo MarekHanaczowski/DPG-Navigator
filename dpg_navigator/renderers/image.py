@@ -1,19 +1,22 @@
 """Image preview renderer."""
+
 from __future__ import annotations  # PEP 604/585 annotations need this on py3.8/3.9
 
+import array
 import os
 import tempfile
-import array
 from typing import Any, cast
+
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
-from ._base import BaseRenderer, PreviewContext
 from .._types import FileEntry
+from ._base import BaseRenderer, PreviewContext
 
 try:
     from PIL import Image as _PILImage
 except Exception:
     _PILImage = cast(Any, None)
+
 
 class ImageRenderer(BaseRenderer):
     """Render raster images through DearPyGui or Pillow fallback loading."""
@@ -21,10 +24,22 @@ class ImageRenderer(BaseRenderer):
     _MAX_IMAGE_BYTES = 32 * 1024 * 1024
     """Skip STB/Pillow decode when the file is larger than this."""
 
-    _STB_IMAGE_EXTS = frozenset({
-        ".png", ".jpg", ".jpeg", ".bmp", ".tga",
-        ".gif", ".psd", ".hdr", ".pic", ".pgm", ".ppm", ".pnm",
-    })
+    _STB_IMAGE_EXTS = frozenset(
+        {
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".bmp",
+            ".tga",
+            ".gif",
+            ".psd",
+            ".hdr",
+            ".pic",
+            ".pgm",
+            ".ppm",
+            ".pnm",
+        }
+    )
 
     @staticmethod
     def load_image_pillow(path: str) -> tuple[int, int, Any]:
@@ -32,15 +47,15 @@ class ImageRenderer(BaseRenderer):
         if _PILImage is None:
             raise RuntimeError("Pillow is not installed or unavailable.")
         with _PILImage.open(path) as img:
-            if img.mode != 'RGBA':
-                img = img.convert('RGBA')
+            if img.mode != "RGBA":
+                img = img.convert("RGBA")
             img_w, img_h = img.size
             if img_w > 8192 or img_h > 8192:
                 img.thumbnail((8192, 8192))
                 img_w, img_h = img.size
             raw_data = img.tobytes()
             # Normalize to 0.0-1.0 float array expected by DPG
-            float_data = array.array('f', (b / 255.0 for b in raw_data))
+            float_data = array.array("f", (b / 255.0 for b in raw_data))
             return img_w, img_h, float_data
 
     def render(self, entry: FileEntry, ctx: PreviewContext) -> None:
@@ -74,6 +89,7 @@ class ImageRenderer(BaseRenderer):
                         tmp_path = tmp.name
                     try:
                         import shutil
+
                         shutil.copy2(entry.full_path, tmp_path)
                         img_w, img_h, _, data = dpg.load_image(tmp_path)
                     finally:
@@ -90,13 +106,8 @@ class ImageRenderer(BaseRenderer):
             dpg.delete_item(tex_tag)
 
         with dpg.texture_registry():
-            dpg.add_static_texture(
-                width=img_w,
-                height=img_h,
-                default_value=data,
-                tag=tex_tag
-            )
-            
+            dpg.add_static_texture(width=img_w, height=img_h, default_value=data, tag=tex_tag)
+
         ctx.image_cache = (img_w, img_h, tex_tag)
         dpg.add_image(tex_tag, parent=ctx.panel_id)
 

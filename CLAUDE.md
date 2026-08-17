@@ -11,7 +11,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 pip install -e ".[dev]"          # dev install (pulls in the [all] preview extras)
 
-python -m ruff check .           # lint (correctness rules only: E9,F63,F7,F82; target py38)
+python -m ruff check .           # lint (E9,F,W,I,B,UP,SIM; target py38)
+python -m ruff format --check .  # format gate (same as CI)
 python -m pytest -q              # run the unit test suite
 pytest dpg_navigator/tests/test_filesystem.py::test_name   # single test
 

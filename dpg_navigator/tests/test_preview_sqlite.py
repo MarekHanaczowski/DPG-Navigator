@@ -39,7 +39,8 @@ class TestLoadSQLiteTable:
         with sqlite3.connect(database_path) as connection:
             connection.execute('CREATE TABLE "t" ("v")')
             connection.executemany(
-                'INSERT INTO "t" VALUES (?)', [(i,) for i in range(5)],
+                'INSERT INTO "t" VALUES (?)',
+                [(i,) for i in range(5)],
             )
 
         with patch("dpg_navigator._preview_sqlite.MAX_COUNT_SCAN", 3):

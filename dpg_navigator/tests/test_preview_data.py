@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from dpg_navigator._types import FileEntry
 from dpg_navigator.renderers.data import DataRenderer
@@ -12,10 +12,7 @@ class TestXmlPreview:
     def test_external_entities_are_not_expanded(self, tmp_path):
         secret_path = tmp_path / "secret.txt"
         secret_path.write_text("do-not-read")
-        raw_xml = (
-            f'<!DOCTYPE data [<!ENTITY secret SYSTEM "{secret_path.as_uri()}">]>'
-            "<data>&secret;</data>"
-        )
+        raw_xml = f'<!DOCTYPE data [<!ENTITY secret SYSTEM "{secret_path.as_uri()}">]><data>&secret;</data>'
         renderer = DataRenderer(lambda path, offset: (raw_xml, False))
         renderer._panel_id = "panel"
         renderer._config_tag = "xml-test"

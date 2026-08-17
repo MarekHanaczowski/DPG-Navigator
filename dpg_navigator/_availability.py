@@ -21,6 +21,7 @@ try:
 except Exception:
     _PILImage = cast(Any, None)
 
+
 def pdf_available() -> bool:
     """Return True if all PDF preview dependencies are installed."""
     return _pdfium is not None and _np is not None and _PILImage is not None
@@ -32,11 +33,14 @@ def pdf_available() -> bool:
 def html_available() -> bool:
     """Return True if html2image, numpy, and Pillow are installed."""
     from ._html import html_available as _html_available
+
     return _html_available()
+
 
 def chrome_available() -> bool:
     """Return True if HTML packages are present and a Chrome binary is found."""
     from ._html import chrome_available as _chrome_available
+
     return _chrome_available()
 
 
@@ -50,9 +54,11 @@ try:
 except Exception:
     _mammoth = cast(Any, None)
 
+
 def word_available() -> bool:
     """Return True if Word text-extraction dependencies are installed."""
     return _DocxDocument is not None
+
 
 def mammoth_available() -> bool:
     """Return True if mammoth + html2image Word preview is available."""
@@ -65,6 +71,7 @@ try:
 except Exception:
     _Presentation = cast(Any, None)
 
+
 def pptx_available() -> bool:
     """Return True if PowerPoint preview dependencies are installed."""
     return _Presentation is not None
@@ -75,6 +82,7 @@ try:
     from openpyxl import load_workbook as _load_workbook  # type: ignore[import-untyped]
 except Exception:
     _load_workbook = cast(Any, None)
+
 
 def excel_available() -> bool:
     """Return True if Excel (.xlsx) preview dependencies are installed."""
@@ -87,6 +95,7 @@ try:
 except Exception:
     _markdown = cast(Any, None)
 
+
 def markdown_available() -> bool:
     """Return True if rendered Markdown preview is available."""
     return _markdown is not None and html_available()
@@ -97,6 +106,7 @@ try:
     import pygments as _pygments  # type: ignore[import-untyped]
 except Exception:
     _pygments = cast(Any, None)
+
 
 def pygments_available() -> bool:
     """Return True if Pygments is installed."""
@@ -109,9 +119,11 @@ try:
 except Exception:
     _py7zr = cast(Any, None)
 
+
 def seven_zip_available() -> bool:
     """Return True if py7zr dependencies are installed for .7z support."""
     return _py7zr is not None
+
 
 def py7zr_available() -> bool:
     """Return True if py7zr dependencies are installed for .7z support."""

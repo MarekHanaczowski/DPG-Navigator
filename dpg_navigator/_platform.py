@@ -6,8 +6,8 @@ Works on Windows, Linux, and macOS.
 """
 
 from __future__ import annotations
-# MIT licensed
 
+# MIT licensed
 import os
 import platform
 from typing import Any
@@ -118,10 +118,7 @@ def _get_xdg_dir(name: str) -> str | None:
     """Get XDG user directory path on Linux (handles non-English locales)."""
     xdg_key = _XDG_NAME_MAP.get(name, name.upper())
     try:
-        result = subprocess.run(
-            ["xdg-user-dir", xdg_key],
-            capture_output=True, text=True, timeout=2
-        )
+        result = subprocess.run(["xdg-user-dir", xdg_key], capture_output=True, text=True, timeout=2)
         if result.returncode == 0:
             path = result.stdout.strip()
             if path and os.path.isdir(path):

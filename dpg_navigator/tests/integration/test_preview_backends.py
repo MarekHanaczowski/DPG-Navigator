@@ -9,9 +9,8 @@ from __future__ import annotations
 import zipfile
 from unittest.mock import patch
 
-import pytest
-
 import dearpygui.dearpygui as dpg
+import pytest
 
 from dpg_navigator._html import chrome_available
 from dpg_navigator._preview_registry import PreviewKind

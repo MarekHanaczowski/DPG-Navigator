@@ -1,4 +1,4 @@
-﻿"""Font preview renderer — live glyph sample via DPG with Unicode ranges.
+"""Font preview renderer — live glyph sample via DPG with Unicode ranges.
 
 Loads .ttf/.otf into DearPyGui with Latin + Latin Extended-A (Polish diacritics)
 and common punctuation so pangrams render with real glyphs, not tofu boxes.
@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
-from ._base import BaseRenderer, PreviewContext
 from .._types import FileEntry
+from ._base import BaseRenderer, PreviewContext
 
 # Built with \u escapes so the file encoding cannot corrupt Polish samples.
 _PANGRAMS = (
@@ -34,9 +34,33 @@ _LATIN_1_SUPPLEMENT = (0x00A0, 0x00FF)
 
 # Explicit Polish letters + punctuation (DPG 1.x needs these in the atlas).
 _POLISH_AND_PUNCT_CHARS: tuple[int, ...] = (
-    0x00F3, 0x0105, 0x0107, 0x0119, 0x0142, 0x0144, 0x015B, 0x017A, 0x017C,
-    0x00D3, 0x0104, 0x0106, 0x0118, 0x0141, 0x0143, 0x015A, 0x0179, 0x017B,
-    0x20AC, 0x2013, 0x2014, 0x2018, 0x2019, 0x201C, 0x201D, 0x2026, 0x2022,
+    0x00F3,
+    0x0105,
+    0x0107,
+    0x0119,
+    0x0142,
+    0x0144,
+    0x015B,
+    0x017A,
+    0x017C,
+    0x00D3,
+    0x0104,
+    0x0106,
+    0x0118,
+    0x0141,
+    0x0143,
+    0x015A,
+    0x0179,
+    0x017B,
+    0x20AC,
+    0x2013,
+    0x2014,
+    0x2018,
+    0x2019,
+    0x201C,
+    0x201D,
+    0x2026,
+    0x2022,
 )
 # Back-compat alias for tests that imported _EXTRA_CHARS.
 _EXTRA_CHARS = _POLISH_AND_PUNCT_CHARS
@@ -113,9 +137,7 @@ class FontRenderer(BaseRenderer):
         try:
             with dpg.font_registry():
                 for size in _FONT_SIZES:
-                    self._font_ids.append(
-                        load_font_with_unicode(entry.full_path, size)
-                    )
+                    self._font_ids.append(load_font_with_unicode(entry.full_path, size))
         except Exception as exc:
             ctx.show_error("Font preview failed", str(exc))
             self.clear()
@@ -137,7 +159,7 @@ class FontRenderer(BaseRenderer):
                 # Bind the whole block so every line uses the preview face
                 # (per-item bind is flaky when the default atlas lacks glyphs).
                 with dpg.group() as block:
-                    dpg.add_text("-- %spx --" % size, color=[128, 128, 128])
+                    dpg.add_text(f"-- {size}px --", color=[128, 128, 128])
                     for line in _PANGRAMS:
                         dpg.add_text(line, wrap=0)
                     dpg.add_spacer(height=8)

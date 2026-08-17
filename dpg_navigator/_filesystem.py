@@ -8,8 +8,8 @@ recursive file search across directory trees.
 """
 
 from __future__ import annotations
-# MIT licensed
 
+# MIT licensed
 import fnmatch
 import hashlib
 import logging
@@ -22,8 +22,8 @@ from collections.abc import Callable, Collection
 
 _log = logging.getLogger(__name__)
 
-from ._types import FileEntry
 from . import _platform
+from ._types import FileEntry
 from .vfs import VFSRegistry
 
 MAX_SCAN_DEPTH = 3
@@ -128,7 +128,13 @@ class DirectoryLister:
         """Format file size for display."""
         if size_bytes is None:
             return "-"
-        for unit, limit, fmt in [("TB", 2**40, ".1f"), ("GB", 2**30, ".1f"), ("MB", 2**20, ".0f"), ("KB", 2**10, ".0f"), ("B", 1, ".0f")]:
+        for unit, limit, fmt in [
+            ("TB", 2**40, ".1f"),
+            ("GB", 2**30, ".1f"),
+            ("MB", 2**20, ".0f"),
+            ("KB", 2**10, ".0f"),
+            ("B", 1, ".0f"),
+        ]:
             if size_bytes >= limit:
                 return f"{size_bytes / limit:{fmt}} {unit}"
         return "0 B"
@@ -171,11 +177,7 @@ def validate_folder_name(name: str, current_dir: str) -> str | None:
         return "Folder name cannot be empty."
     if name in (".", ".."):
         return f"Invalid folder name: '{name}'."
-    if (
-        ".." in name
-        or os.sep in name
-        or (os.altsep and os.altsep in name)
-    ):
+    if ".." in name or os.sep in name or (os.altsep and os.altsep in name):
         return f"Invalid folder name: '{name}'."
 
     new_path = os.path.join(current_dir, name)
@@ -206,11 +208,7 @@ def build_selection_list(
         if os.path.isabs(typed_name):
             return [typed_name]
         # Same rejection policy as validate_folder_name for relative names.
-        if (
-            ".." in typed_name
-            or os.sep in typed_name
-            or (os.altsep and os.altsep in typed_name)
-        ):
+        if ".." in typed_name or os.sep in typed_name or (os.altsep and os.altsep in typed_name):
             return []
         candidate = os.path.join(current_dir, typed_name)
         real_dir = os.path.realpath(current_dir)
@@ -239,7 +237,8 @@ def resolve_archive_selection(
             resolved.append(path)
             continue
         extracted = DirectoryLister.extract_from_archive(
-            path, max_size=max_size,
+            path,
+            max_size=max_size,
         )
         if not extracted:
             inner = path.rsplit("|", 1)[-1].replace("\\", "/").strip("/")
@@ -318,9 +317,11 @@ class DirectoryIndex:
                     continue
                 if not entry.is_dir and dirs_only:
                     continue
-                if (not entry.is_dir
-                        and file_filter != ".*"
-                        and not fnmatch.fnmatch(entry.name.lower(), f"*{file_filter.lower()}")):
+                if (
+                    not entry.is_dir
+                    and file_filter != ".*"
+                    and not fnmatch.fnmatch(entry.name.lower(), f"*{file_filter.lower()}")
+                ):
                     continue
                 results.append(entry)
                 if len(results) >= max_results:
@@ -351,8 +352,14 @@ class DirectoryIndex:
 
         try:
             self._walk(
-                root, root, entries, 0, max_depth,
-                generation, get_generation, show_hidden,
+                root,
+                root,
+                entries,
+                0,
+                max_depth,
+                generation,
+                get_generation,
+                show_hidden,
             )
         except _Cancelled:
             return
@@ -360,7 +367,8 @@ class DirectoryIndex:
             # Keep the partial index — it is still usable for search.
             _log.warning(
                 "Directory index truncated at %d entries under %s",
-                INDEX_MAX_ENTRIES, root,
+                INDEX_MAX_ENTRIES,
+                root,
             )
 
         with self._lock:
@@ -429,32 +437,36 @@ class DirectoryIndex:
                             except OSError:
                                 size = None
 
-                        out.append(FileEntry(
-                            name=item.name,
-                            full_path=item.path,
-                            is_dir=is_dir,
-                            size_bytes=size,
-                            modified_time=mtime,
-                            is_hidden=hidden,
-                        ))
+                        out.append(
+                            FileEntry(
+                                name=item.name,
+                                full_path=item.path,
+                                is_dir=is_dir,
+                                size_bytes=size,
+                                modified_time=mtime,
+                                is_hidden=hidden,
+                            )
+                        )
 
                     # Recurse into real subdirectories only. Symlinked dirs are
                     # skipped so the index cannot escape the selected tree or
                     # loop on cycles; hidden dirs are descended only when the
                     # caller opted into show_hidden.
-                    if (
-                        is_dir
-                        and not item.is_symlink()
-                        and (show_hidden or not hidden)
-                    ):
+                    if is_dir and not item.is_symlink() and (show_hidden or not hidden):
                         subdirs.append(item.path)
                 except (OSError, PermissionError):
                     continue
 
         for subdir in subdirs:
             self._walk(
-                root, subdir, out, depth + 1, max_depth,
-                generation, get_generation, show_hidden,
+                root,
+                subdir,
+                out,
+                depth + 1,
+                max_depth,
+                generation,
+                get_generation,
+                show_hidden,
             )
 
 

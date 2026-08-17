@@ -12,8 +12,8 @@ import logging
 import queue
 import threading
 import time
-from typing import Any
 from concurrent.futures import Future
+from typing import Any
 
 _log = logging.getLogger(__name__)
 
@@ -22,6 +22,7 @@ _MAX_WORKERS = 8
 
 class TimerTask:
     """Represents a scheduled timer task."""
+
     def __init__(self, execute_at: float, fn, args: tuple, kwargs: dict):
         self.execute_at = execute_at
         self.fn = fn
@@ -136,7 +137,9 @@ class JobManager:
             if cls._timer_thread is None or not cls._timer_thread.is_alive():
                 cls._shutdown_flag = False
                 cls._timer_thread = threading.Thread(
-                    target=cls._timer_worker, name="dpg_nav_timer", daemon=True,
+                    target=cls._timer_worker,
+                    name="dpg_nav_timer",
+                    daemon=True,
                 )
                 cls._timer_thread.start()
 

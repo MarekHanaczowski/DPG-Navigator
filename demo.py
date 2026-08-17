@@ -1,38 +1,46 @@
-import sys
 import os
+import sys
 
 if sys.platform == "win32":
     try:
         import ctypes
+
         ctypes.windll.shcore.SetProcessDpiAwareness(2)
     except Exception:
         pass
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
-from dpg_navigator import FileDialog, DialogConfig
+
+from dpg_navigator import DialogConfig, FileDialog
 
 
 def _bind_ui_font() -> None:
     candidates = []
     if sys.platform == "win32":
         windir = os.environ.get("WINDIR", r"C:\Windows")
-        candidates.extend([
-            os.path.join(windir, "Fonts", "segoeui.ttf"),
-            os.path.join(windir, "Fonts", "arial.ttf"),
-            os.path.join(windir, "Fonts", "tahoma.ttf"),
-        ])
+        candidates.extend(
+            [
+                os.path.join(windir, "Fonts", "segoeui.ttf"),
+                os.path.join(windir, "Fonts", "arial.ttf"),
+                os.path.join(windir, "Fonts", "tahoma.ttf"),
+            ]
+        )
     elif sys.platform == "darwin":
-        candidates.extend([
-            "/System/Library/Fonts/SFNS.ttf",
-            "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
-            "/Library/Fonts/Arial.ttf",
-        ])
+        candidates.extend(
+            [
+                "/System/Library/Fonts/SFNS.ttf",
+                "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+                "/Library/Fonts/Arial.ttf",
+            ]
+        )
     else:
-        candidates.extend([
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-            "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-        ])
+        candidates.extend(
+            [
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+                "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+            ]
+        )
     font_path = next((path for path in candidates if os.path.isfile(path)), None)
     if font_path is None:
         return

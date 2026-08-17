@@ -1,18 +1,25 @@
 """Text and code preview renderers."""
+
 from __future__ import annotations
+
+from typing import Callable
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
-from ._base import BaseRenderer, PreviewContext
 from .._types import FileEntry
-from typing import Callable, Tuple, Optional
+from ._base import BaseRenderer, PreviewContext
+
 
 class TextRenderer(BaseRenderer):
     """Render text and source-code previews."""
 
     _TEXT_PREVIEW_MAX_SIZE = 100 * 1024  # 100 KB chunks
 
-    def __init__(self, load_text_content_cb: Callable[[str, int], Tuple[Optional[str], bool]], request_update_cb: Callable[[FileEntry], None]):
+    def __init__(
+        self,
+        load_text_content_cb: Callable[[str, int], tuple[str | None, bool]],
+        request_update_cb: Callable[[FileEntry], None],
+    ):
         self._load_text_content = load_text_content_cb
         self._request_update = request_update_cb
         self._text_offset = 0
@@ -87,29 +94,25 @@ class TextRenderer(BaseRenderer):
             size_bytes / mb,
         )
         total_mb = size_bytes / mb
-        
+
         info = f"{start_mb:.2f}-{end_mb:.2f} of {total_mb:.2f} MB"
-        
+
         with dpg.group(horizontal=True, parent=ctx.panel_id):
             dpg.add_text(entry.name, color=[180, 180, 255])
             dpg.add_spacer(width=4)
-            
+
             dpg.add_button(
-                label="<", 
-                width=24, 
-                callback=self._on_text_page_change, 
-                user_data=-1,
-                enabled=(self._text_offset > 0)
+                label="<", width=24, callback=self._on_text_page_change, user_data=-1, enabled=(self._text_offset > 0)
             )
-            
+
             dpg.add_text(info, color=[200, 200, 200])
-            
+
             dpg.add_button(
-                label=">", 
-                width=24, 
-                callback=self._on_text_page_change, 
+                label=">",
+                width=24,
+                callback=self._on_text_page_change,
                 user_data=1,
-                enabled=(self._text_offset + self._TEXT_PREVIEW_MAX_SIZE < size_bytes)
+                enabled=(self._text_offset + self._TEXT_PREVIEW_MAX_SIZE < size_bytes),
             )
 
     def _on_text_page_change(self, sender, app_data, user_data: int) -> None:

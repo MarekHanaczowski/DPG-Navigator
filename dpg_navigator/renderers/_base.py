@@ -1,29 +1,35 @@
 """Base interfaces for modular preview renderers."""
 
 from __future__ import annotations
-from typing import Protocol, Any, Callable
+
+from typing import Callable, Protocol
+
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
-from .._types import FileEntry
 from .._preview_registry import PreviewCapabilities
+from .._types import FileEntry
+
 
 class PreviewContext:
     """Context passed to renderers, encapsulating the DPG panel and common utilities."""
-    def __init__(self, panel_id: int | str, table_wrapper: int | str, config_tag: str, capabilities: PreviewCapabilities):
+
+    def __init__(
+        self, panel_id: int | str, table_wrapper: int | str, config_tag: str, capabilities: PreviewCapabilities
+    ):
         self.panel_id = panel_id
         self.table_wrapper = table_wrapper
         self.config_tag = config_tag
         self.capabilities = capabilities
-        
+
         # Callbacks injected by the panel
         self.on_clear: Callable[[], None] = lambda: None
         self.on_show_error: Callable[[str, str], None] = lambda m, d: None
-        
+
         # State shared across renderers, e.g. text pagination or images
         self.image_cache: tuple[int, int, int | str] | None = None
         self.temp_font: int | str | None = None
         self.pptx_texture_tags: list[str] = []
-        
+
     def clear(self) -> None:
         """Clear the preview panel using the injected callback."""
         self.on_clear()
@@ -31,6 +37,7 @@ class PreviewContext:
     def show_error(self, message: str, detail: str) -> None:
         """Show an error message in the preview panel."""
         self.on_show_error(message, detail)
+
 
 class BaseRenderer(Protocol):
     """Protocol for all preview renderers."""
@@ -99,53 +106,52 @@ class TableRenderMixin:
             parent=self._ctx.panel_id,
             height=-bottom_margin,
             width=-1,
+        ), dpg.table(
+            header_row=False,
+            borders_innerH=True,
+            borders_innerV=True,
+            borders_outerH=True,
+            borders_outerV=True,
+            scrollX=True,
+            scrollY=True,
+            freeze_rows=1,
+            resizable=True,
+            policy=dpg.mvTable_SizingFixedFit,
         ):
-            with dpg.table(
-                header_row=False,
-                borders_innerH=True,
-                borders_innerV=True,
-                borders_outerH=True,
-                borders_outerV=True,
-                scrollX=True,
-                scrollY=True,
-                freeze_rows=1,
-                resizable=True,
-                policy=dpg.mvTable_SizingFixedFit,
-            ):
-                # Pre-calculate column widths to prevent vertical text wrapping
-                # (DPG calculates FixedFit based on first visible row)
-                col_widths = []
-                for i in range(len(headers)):
-                    max_len = len(str(headers[i]))
-                    for row_data in rows:
-                        if i < len(row_data) and row_data[i] is not None:
-                            max_len = max(max_len, len(str(row_data[i])))
-                    # Avg character width is ~8 pixels, +20 for padding
-                    col_widths.append(min(400, max_len * 8 + 20))
+            # Pre-calculate column widths to prevent vertical text wrapping
+            # (DPG calculates FixedFit based on first visible row)
+            col_widths = []
+            for i in range(len(headers)):
+                max_len = len(str(headers[i]))
+                for row_data in rows:
+                    if i < len(row_data) and row_data[i] is not None:
+                        max_len = max(max_len, len(str(row_data[i])))
+                # Avg character width is ~8 pixels, +20 for padding
+                col_widths.append(min(400, max_len * 8 + 20))
 
-                for w in col_widths:
-                    dpg.add_table_column(init_width_or_weight=w)
+            for w in col_widths:
+                dpg.add_table_column(init_width_or_weight=w)
 
-                # Header row (manually colored)
+            # Header row (manually colored)
+            with dpg.table_row():
+                for col_name in headers:
+                    dpg.add_text(col_name, wrap=0, color=header_color)
+
+            # Data rows
+            for r_idx, row_data in enumerate(rows):
                 with dpg.table_row():
-                    for col_name in headers:
-                        dpg.add_text(col_name, wrap=0, color=header_color)
-
-                # Data rows
-                for r_idx, row_data in enumerate(rows):
-                    with dpg.table_row():
-                        for c_idx, cell_val in enumerate(row_data):
-                            if c_idx == 0 and row_click_callback is not None:
-                                dpg.add_selectable(
-                                    label=cell_val,
-                                    callback=row_click_callback,
-                                    user_data=r_idx,
-                                    span_columns=False,
-                                )
-                            else:
-                                dpg.add_text(cell_val, wrap=0, color=cell_color)
-                        for _ in range(len(headers) - len(row_data)):
-                            dpg.add_text("", color=cell_color)
+                    for c_idx, cell_val in enumerate(row_data):
+                        if c_idx == 0 and row_click_callback is not None:
+                            dpg.add_selectable(
+                                label=cell_val,
+                                callback=row_click_callback,
+                                user_data=r_idx,
+                                span_columns=False,
+                            )
+                        else:
+                            dpg.add_text(cell_val, wrap=0, color=cell_color)
+                    for _ in range(len(headers) - len(row_data)):
+                        dpg.add_text("", color=cell_color)
 
         dpg.add_spacer(height=2, parent=self._ctx.panel_id)
 

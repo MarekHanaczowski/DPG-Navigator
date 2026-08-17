@@ -7,19 +7,18 @@ from __future__ import annotations
 
 import os
 import platform
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from dpg_navigator._platform import (
-    is_hidden,
+    _INVALID_FILE_ATTRIBUTES,
+    get_drives,
     get_file_time,
     get_special_dirs,
-    get_drives,
+    is_hidden,
     is_mod_key_down,
-    _INVALID_FILE_ATTRIBUTES,
 )
-
 
 # ── is_hidden ───────────────────────────────────────────────────
 
@@ -70,6 +69,7 @@ class TestIsHidden:
     def test_windows_hidden_attribute(self, tmp_path):
         """On Windows, test the NTFS hidden attribute detection."""
         import ctypes
+
         f = tmp_path / "win_hidden.txt"
         f.write_text("x")
 
@@ -103,6 +103,7 @@ class TestGetFileTime:
     def test_recent_file_time(self, tmp_path):
         """Newly created file should have a recent modification time."""
         import time
+
         f = tmp_path / "new.txt"
         f.write_text("data")
         result = get_file_time(str(f))
@@ -175,9 +176,9 @@ class TestGetSpecialDirsMocked:
         for name in ("Desktop", "Downloads", "Pictures", "Documents", "Music", "Videos"):
             os.makedirs(os.path.join(home, name))
 
-        with patch("dpg_navigator._platform._SYSTEM", "Linux"), \
-             patch("dpg_navigator._platform.os.path.expanduser", return_value=home), \
-             patch("dpg_navigator._platform._get_xdg_dir", return_value=None) as mock_xdg:
+        with patch("dpg_navigator._platform._SYSTEM", "Linux"), patch(
+            "dpg_navigator._platform.os.path.expanduser", return_value=home
+        ), patch("dpg_navigator._platform._get_xdg_dir", return_value=None) as mock_xdg:
             result = get_special_dirs()
 
         # _get_xdg_dir should have been called for each of the 6 directory names
@@ -198,9 +199,9 @@ class TestGetSpecialDirsMocked:
                 return custom_docs
             return None
 
-        with patch("dpg_navigator._platform._SYSTEM", "Linux"), \
-             patch("dpg_navigator._platform.os.path.expanduser", return_value=home), \
-             patch("dpg_navigator._platform._get_xdg_dir", side_effect=mock_xdg_side_effect):
+        with patch("dpg_navigator._platform._SYSTEM", "Linux"), patch(
+            "dpg_navigator._platform.os.path.expanduser", return_value=home
+        ), patch("dpg_navigator._platform._get_xdg_dir", side_effect=mock_xdg_side_effect):
             result = get_special_dirs()
 
         assert result["Documents"] == custom_docs
@@ -213,8 +214,9 @@ class TestGetSpecialDirsMocked:
         for name in ("Desktop", "Downloads", "Pictures", "Documents", "Music", "Movies"):
             os.makedirs(os.path.join(home, name))
 
-        with patch("dpg_navigator._platform._SYSTEM", "Darwin"), \
-             patch("dpg_navigator._platform.os.path.expanduser", return_value=home):
+        with patch("dpg_navigator._platform._SYSTEM", "Darwin"), patch(
+            "dpg_navigator._platform.os.path.expanduser", return_value=home
+        ):
             result = get_special_dirs()
 
         # "Videos" key should point to the "Movies" directory
@@ -234,9 +236,9 @@ class TestGetSpecialDirsMocked:
         mock_winreg.OpenKey.return_value = MagicMock(__enter__=MagicMock(), __exit__=MagicMock())
         mock_winreg.QueryValueEx.side_effect = fake_query
 
-        with patch("dpg_navigator._platform._SYSTEM", "Windows"), \
-             patch("dpg_navigator._platform.os.path.expanduser", return_value=home), \
-             patch("dpg_navigator._platform.winreg", mock_winreg, create=True):
+        with patch("dpg_navigator._platform._SYSTEM", "Windows"), patch(
+            "dpg_navigator._platform.os.path.expanduser", return_value=home
+        ), patch("dpg_navigator._platform.winreg", mock_winreg, create=True):
             result = get_special_dirs()
 
         assert "Home" in result
@@ -281,16 +283,18 @@ class TestGetDrives:
 
     def test_psutil_failure_returns_empty_list(self):
         """If psutil fails on non-Darwin, result should be an empty list."""
-        with patch("dpg_navigator._platform.psutil") as mock_psutil, \
-             patch("dpg_navigator._platform._SYSTEM", "Windows"):
+        with patch("dpg_navigator._platform.psutil") as mock_psutil, patch(
+            "dpg_navigator._platform._SYSTEM", "Windows"
+        ):
             mock_psutil.disk_partitions.side_effect = OSError("simulated failure")
             result = get_drives()
             assert result == []
 
     def test_psutil_permission_error_returns_empty(self):
         """PermissionError is also handled gracefully."""
-        with patch("dpg_navigator._platform.psutil") as mock_psutil, \
-             patch("dpg_navigator._platform._SYSTEM", "Windows"):
+        with patch("dpg_navigator._platform.psutil") as mock_psutil, patch(
+            "dpg_navigator._platform._SYSTEM", "Windows"
+        ):
             mock_psutil.disk_partitions.side_effect = PermissionError("access denied")
             result = get_drives()
             assert result == []
@@ -351,8 +355,7 @@ class TestIsModKeyDown:
 
     def test_darwin_left_super(self):
         """On macOS, left Command key should return True."""
-        with patch("dpg_navigator._platform._SYSTEM", "Darwin"), \
-             patch("dpg_navigator._platform.dpg") as mock_dpg:
+        with patch("dpg_navigator._platform._SYSTEM", "Darwin"), patch("dpg_navigator._platform.dpg") as mock_dpg:
             mock_dpg.mvKey_LSuper = 343
             mock_dpg.mvKey_RSuper = 347
             mock_dpg.is_key_down.side_effect = lambda k: k == 343
@@ -360,8 +363,7 @@ class TestIsModKeyDown:
 
     def test_darwin_right_super(self):
         """On macOS, right Command key should return True."""
-        with patch("dpg_navigator._platform._SYSTEM", "Darwin"), \
-             patch("dpg_navigator._platform.dpg") as mock_dpg:
+        with patch("dpg_navigator._platform._SYSTEM", "Darwin"), patch("dpg_navigator._platform.dpg") as mock_dpg:
             mock_dpg.mvKey_LSuper = 343
             mock_dpg.mvKey_RSuper = 347
             mock_dpg.is_key_down.side_effect = lambda k: k == 347
@@ -369,8 +371,7 @@ class TestIsModKeyDown:
 
     def test_darwin_no_key_pressed(self):
         """On macOS, no modifier key pressed should return False."""
-        with patch("dpg_navigator._platform._SYSTEM", "Darwin"), \
-             patch("dpg_navigator._platform.dpg") as mock_dpg:
+        with patch("dpg_navigator._platform._SYSTEM", "Darwin"), patch("dpg_navigator._platform.dpg") as mock_dpg:
             mock_dpg.mvKey_LSuper = 343
             mock_dpg.mvKey_RSuper = 347
             mock_dpg.is_key_down.return_value = False
@@ -378,8 +379,7 @@ class TestIsModKeyDown:
 
     def test_windows_left_ctrl(self):
         """On Windows/Linux, left Ctrl key should return True."""
-        with patch("dpg_navigator._platform._SYSTEM", "Windows"), \
-             patch("dpg_navigator._platform.dpg") as mock_dpg:
+        with patch("dpg_navigator._platform._SYSTEM", "Windows"), patch("dpg_navigator._platform.dpg") as mock_dpg:
             mock_dpg.mvKey_LControl = 341
             mock_dpg.mvKey_RControl = 345
             mock_dpg.is_key_down.side_effect = lambda k: k == 341
@@ -387,8 +387,7 @@ class TestIsModKeyDown:
 
     def test_windows_right_ctrl(self):
         """On Windows/Linux, right Ctrl key should return True."""
-        with patch("dpg_navigator._platform._SYSTEM", "Windows"), \
-             patch("dpg_navigator._platform.dpg") as mock_dpg:
+        with patch("dpg_navigator._platform._SYSTEM", "Windows"), patch("dpg_navigator._platform.dpg") as mock_dpg:
             mock_dpg.mvKey_LControl = 341
             mock_dpg.mvKey_RControl = 345
             mock_dpg.is_key_down.side_effect = lambda k: k == 345
@@ -396,8 +395,7 @@ class TestIsModKeyDown:
 
     def test_windows_no_key_pressed(self):
         """On Windows/Linux, no modifier key should return False."""
-        with patch("dpg_navigator._platform._SYSTEM", "Windows"), \
-             patch("dpg_navigator._platform.dpg") as mock_dpg:
+        with patch("dpg_navigator._platform._SYSTEM", "Windows"), patch("dpg_navigator._platform.dpg") as mock_dpg:
             mock_dpg.mvKey_LControl = 341
             mock_dpg.mvKey_RControl = 345
             mock_dpg.is_key_down.return_value = False
@@ -405,8 +403,7 @@ class TestIsModKeyDown:
 
     def test_linux_uses_ctrl_not_super(self):
         """On Linux, Ctrl (not Super) should be the modifier."""
-        with patch("dpg_navigator._platform._SYSTEM", "Linux"), \
-             patch("dpg_navigator._platform.dpg") as mock_dpg:
+        with patch("dpg_navigator._platform._SYSTEM", "Linux"), patch("dpg_navigator._platform.dpg") as mock_dpg:
             mock_dpg.mvKey_LControl = 341
             mock_dpg.mvKey_RControl = 345
             mock_dpg.is_key_down.side_effect = lambda k: k == 341
@@ -424,19 +421,17 @@ class TestGetXdgDir:
 
     def test_valid_dir_returned(self, tmp_path):
         from dpg_navigator._platform import _get_xdg_dir
+
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0, stdout=str(tmp_path) + "\n"
-            )
+            mock_run.return_value = MagicMock(returncode=0, stdout=str(tmp_path) + "\n")
             result = _get_xdg_dir("DOCUMENTS")
         assert result == str(tmp_path)
 
     def test_downloads_uses_xdg_download_key(self, tmp_path):
         from dpg_navigator._platform import _get_xdg_dir
+
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0, stdout=str(tmp_path) + "\n"
-            )
+            mock_run.return_value = MagicMock(returncode=0, stdout=str(tmp_path) + "\n")
             result = _get_xdg_dir("Downloads")
 
         assert result == str(tmp_path)
@@ -449,6 +444,7 @@ class TestGetXdgDir:
 
     def test_decode_error_returns_none(self):
         from dpg_navigator._platform import _get_xdg_dir
+
         with patch(
             "subprocess.run",
             side_effect=UnicodeDecodeError("utf-8", b"", 0, 1, "invalid byte"),
@@ -457,16 +453,17 @@ class TestGetXdgDir:
 
     def test_nonexistent_dir_returns_none(self):
         from dpg_navigator._platform import _get_xdg_dir
+
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0, stdout="/nonexistent/path\n"
-            )
+            mock_run.return_value = MagicMock(returncode=0, stdout="/nonexistent/path\n")
             result = _get_xdg_dir("DOCUMENTS")
         assert result is None
 
     def test_timeout_returns_none(self):
         import subprocess
+
         from dpg_navigator._platform import _get_xdg_dir
+
         with patch("subprocess.run") as mock_run:
             mock_run.side_effect = subprocess.TimeoutExpired(cmd="xdg-user-dir", timeout=2)
             result = _get_xdg_dir("DOCUMENTS")
@@ -474,6 +471,7 @@ class TestGetXdgDir:
 
     def test_command_not_found_returns_none(self):
         from dpg_navigator._platform import _get_xdg_dir
+
         with patch("subprocess.run") as mock_run:
             mock_run.side_effect = FileNotFoundError("xdg-user-dir not found")
             result = _get_xdg_dir("DOCUMENTS")
@@ -481,6 +479,7 @@ class TestGetXdgDir:
 
     def test_nonzero_return_code_returns_none(self):
         from dpg_navigator._platform import _get_xdg_dir
+
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=1, stdout="")
             result = _get_xdg_dir("DOCUMENTS")
@@ -498,10 +497,12 @@ class TestGetDrivesDarwin:
 
         # Use posixpath.join to get correct / separators regardless of host OS
         import posixpath
-        with patch("dpg_navigator._platform._SYSTEM", "Darwin"), \
-             patch("dpg_navigator._platform.psutil") as mock_psutil, \
-             patch("dpg_navigator._platform.os.listdir", return_value=["Macintosh HD", "USB"]), \
-             patch("dpg_navigator._platform.os.path.join", side_effect=posixpath.join):
+
+        with patch("dpg_navigator._platform._SYSTEM", "Darwin"), patch(
+            "dpg_navigator._platform.psutil"
+        ) as mock_psutil, patch("dpg_navigator._platform.os.listdir", return_value=["Macintosh HD", "USB"]), patch(
+            "dpg_navigator._platform.os.path.join", side_effect=posixpath.join
+        ):
             mock_psutil.disk_partitions.return_value = [mock_partition]
             result = get_drives()
 
@@ -515,10 +516,12 @@ class TestGetDrivesDarwin:
         mock_p2 = MagicMock(mountpoint="/Volumes/USB")
 
         import posixpath
-        with patch("dpg_navigator._platform._SYSTEM", "Darwin"), \
-             patch("dpg_navigator._platform.psutil") as mock_psutil, \
-             patch("dpg_navigator._platform.os.listdir", return_value=["USB"]), \
-             patch("dpg_navigator._platform.os.path.join", side_effect=posixpath.join):
+
+        with patch("dpg_navigator._platform._SYSTEM", "Darwin"), patch(
+            "dpg_navigator._platform.psutil"
+        ) as mock_psutil, patch("dpg_navigator._platform.os.listdir", return_value=["USB"]), patch(
+            "dpg_navigator._platform.os.path.join", side_effect=posixpath.join
+        ):
             mock_psutil.disk_partitions.return_value = [mock_p1, mock_p2]
             result = get_drives()
 
@@ -528,9 +531,9 @@ class TestGetDrivesDarwin:
         """If os.listdir('/Volumes') raises OSError, drives from psutil still returned."""
         mock_partition = MagicMock(mountpoint="/")
 
-        with patch("dpg_navigator._platform._SYSTEM", "Darwin"), \
-             patch("dpg_navigator._platform.psutil") as mock_psutil, \
-             patch("dpg_navigator._platform.os.listdir", side_effect=OSError("permission denied")):
+        with patch("dpg_navigator._platform._SYSTEM", "Darwin"), patch(
+            "dpg_navigator._platform.psutil"
+        ) as mock_psutil, patch("dpg_navigator._platform.os.listdir", side_effect=OSError("permission denied")):
             mock_psutil.disk_partitions.return_value = [mock_partition]
             result = get_drives()
 

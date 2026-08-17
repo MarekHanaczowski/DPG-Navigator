@@ -5,16 +5,18 @@ multiple folders.  Selected folder paths are displayed in the main
 window.
 """
 
-import sys
 import os
+import sys
 
 # Windows HiDPI fix — must be called before dpg.create_context()
 if sys.platform == "win32":
     import ctypes
+
     ctypes.windll.shcore.SetProcessDpiAwareness(2)
 
 import dearpygui.dearpygui as dpg
-from dpg_navigator import FileDialog, DialogMode
+
+from dpg_navigator import DialogMode, FileDialog
 
 if __name__ == "__main__":
     dpg.create_context()

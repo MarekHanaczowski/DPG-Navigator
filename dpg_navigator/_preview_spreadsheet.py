@@ -4,8 +4,8 @@ Parses workbook sheets into table-ready rows without depending on DearPyGui.
 """
 
 from __future__ import annotations
-# MIT licensed
 
+# MIT licensed
 from dataclasses import dataclass
 from typing import Any, Callable, cast
 
@@ -72,10 +72,7 @@ def load_excel_table(
 
         for row in worksheet.iter_rows(max_row=scan_limit, values_only=True):
             widest_row = max(widest_row, len(row))
-            fetched.append([
-                str(cell) if cell is not None else ""
-                for cell in row[:max_cols]
-            ])
+            fetched.append([str(cell) if cell is not None else "" for cell in row[:max_cols]])
     except Exception as exc:
         raise ExcelPreviewError(str(exc)) from exc
     finally:

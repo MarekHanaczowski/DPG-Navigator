@@ -5,8 +5,8 @@ file extension filter list used by FileDialog.
 """
 
 from __future__ import annotations
-# MIT licensed
 
+# MIT licensed
 import os
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -15,14 +15,16 @@ from typing import Protocol
 
 class DialogMode(Enum):
     """Mode of file dialog operation."""
+
     OPEN_FILES = auto()
     OPEN_DIRS = auto()
 
 
 class StyleVariant(Enum):
     """Visual style for the sidebar."""
-    LABELED = auto()   # Icon + text label, sidebar ~200px
-    COMPACT = auto()   # Icon-only buttons, sidebar ~40px
+
+    LABELED = auto()  # Icon + text label, sidebar ~200px
+    COMPACT = auto()  # Icon-only buttons, sidebar ~40px
 
 
 class SelectionCallback(Protocol):
@@ -44,6 +46,7 @@ def _require_extension(name: str, value: str) -> None:
 @dataclass(frozen=True)
 class FileEntry:
     """Represents a file or directory for display."""
+
     name: str
     full_path: str
     is_dir: bool
@@ -96,6 +99,7 @@ class DialogConfig:
             List of (label, path) tuples, e.g.
             ``[("Projects", "D:/Projects")]``.
     """
+
     title: str = "File Dialog"
     tag: str = "dpg_navigator"
     width: int = 950
@@ -126,10 +130,7 @@ class DialogConfig:
         _require_positive_int("width", self.width)
         _require_positive_int("height", self.height)
         _require_positive_int("preview_width", self.preview_width)
-        if (
-            not isinstance(self.min_size, tuple)
-            or len(self.min_size) != 2
-        ):
+        if not isinstance(self.min_size, tuple) or len(self.min_size) != 2:
             raise ValueError("min_size must be a pair of positive ints")
         _require_positive_int("min_size[0]", self.min_size[0])
         _require_positive_int("min_size[1]", self.min_size[1])
@@ -137,13 +138,10 @@ class DialogConfig:
             raise TypeError("mode must be a DialogMode")
         if not isinstance(self.style, StyleVariant):
             raise TypeError("style must be a StyleVariant")
-        if self.default_path is not None:
-            if not isinstance(self.default_path, str) or "\0" in self.default_path:
-                raise ValueError("default_path must be a string without NUL")
+        if self.default_path is not None and (not isinstance(self.default_path, str) or "\0" in self.default_path):
+            raise ValueError("default_path must be a string without NUL")
         if self.filter_list is not None:
-            if not isinstance(self.filter_list, list) or not all(
-                isinstance(item, str) for item in self.filter_list
-            ):
+            if not isinstance(self.filter_list, list) or not all(isinstance(item, str) for item in self.filter_list):
                 raise TypeError("filter_list must be a list of strings or None")
             for ext in self.filter_list:
                 _require_extension("filter_list item", ext)
@@ -151,14 +149,10 @@ class DialogConfig:
             raise TypeError("file_filter must be a string")
         _require_extension("file_filter", self.file_filter)
         if self.filter_list and self.file_filter not in self.filter_list:
-            raise ValueError(
-                f"file_filter {self.file_filter!r} is not in filter_list"
-            )
+            raise ValueError(f"file_filter {self.file_filter!r} is not in filter_list")
         if self.custom_dirs is not None:
             if not isinstance(self.custom_dirs, list):
-                raise TypeError(
-                    "custom_dirs must be a list of (label, path) tuples"
-                )
+                raise TypeError("custom_dirs must be a list of (label, path) tuples")
             for item in self.custom_dirs:
                 if (
                     not isinstance(item, tuple)
@@ -169,53 +163,206 @@ class DialogConfig:
                     or not item[1].strip()
                     or "\0" in item[1]
                 ):
-                    raise ValueError(
-                        "custom_dirs entries must be "
-                        "(non-empty label, non-empty path)"
-                    )
+                    raise ValueError("custom_dirs entries must be (non-empty label, non-empty path)")
 
 
 # Deduplicated default filter list
 DEFAULT_FILTER_LIST = (
     ".*",
-    ".3ds", ".3gp",
+    ".3ds",
+    ".3gp",
     ".7z",
-    ".aac", ".accdb", ".adoc", ".ai", ".aiff", ".ape", ".apk",
-    ".arj", ".asm", ".avi", ".azw", ".azw3",
-    ".bak", ".bat", ".bin", ".blend", ".bmp", ".bz2",
-    ".c", ".cab", ".clj", ".cmd", ".com", ".config", ".cpp",
-    ".cr2", ".cs", ".css", ".csv",
-    ".dae", ".dart", ".db", ".dbf", ".deb", ".diff", ".doc",
-    ".dockerfile", ".docx", ".drv", ".dwg", ".dxf",
-    ".elf", ".env", ".eps", ".epub", ".erl", ".ex", ".exe", ".exs",
-    ".f90", ".f95", ".fbx", ".flac", ".flv",
-    ".gif", ".glb", ".gltf", ".go", ".groovy", ".gz",
-    ".h", ".heic", ".hpp", ".htm", ".html",
-    ".ico", ".ics", ".iges", ".ini", ".iso",
-    ".jar", ".java", ".jl", ".jpeg", ".jpg", ".js", ".json",
+    ".aac",
+    ".accdb",
+    ".adoc",
+    ".ai",
+    ".aiff",
+    ".ape",
+    ".apk",
+    ".arj",
+    ".asm",
+    ".avi",
+    ".azw",
+    ".azw3",
+    ".bak",
+    ".bat",
+    ".bin",
+    ".blend",
+    ".bmp",
+    ".bz2",
+    ".c",
+    ".cab",
+    ".clj",
+    ".cmd",
+    ".com",
+    ".config",
+    ".cpp",
+    ".cr2",
+    ".cs",
+    ".css",
+    ".csv",
+    ".dae",
+    ".dart",
+    ".db",
+    ".dbf",
+    ".deb",
+    ".diff",
+    ".doc",
+    ".dockerfile",
+    ".docx",
+    ".drv",
+    ".dwg",
+    ".dxf",
+    ".elf",
+    ".env",
+    ".eps",
+    ".epub",
+    ".erl",
+    ".ex",
+    ".exe",
+    ".exs",
+    ".f90",
+    ".f95",
+    ".fbx",
+    ".flac",
+    ".flv",
+    ".gif",
+    ".glb",
+    ".gltf",
+    ".go",
+    ".groovy",
+    ".gz",
+    ".h",
+    ".heic",
+    ".hpp",
+    ".htm",
+    ".html",
+    ".ico",
+    ".ics",
+    ".iges",
+    ".ini",
+    ".iso",
+    ".jar",
+    ".java",
+    ".jl",
+    ".jpeg",
+    ".jpg",
+    ".js",
+    ".json",
     ".jsx",
-    ".key", ".ko", ".kt", ".kts",
-    ".lnk", ".lock", ".log", ".lua", ".lz", ".lz4", ".lzo",
-    ".m2ts", ".m4a", ".m4v", ".md", ".mdb", ".mid", ".midi",
-    ".mkv", ".mlt", ".mobi", ".mov", ".mp3", ".mp4", ".mpeg",
-    ".mpg", ".msi", ".mts",
-    ".nef", ".nim", ".numbers",
-    ".o", ".obj", ".odp", ".ods", ".odt", ".ogg", ".opus",
-    ".out", ".ova", ".ovf",
-    ".patch", ".pdf", ".php", ".pl", ".ply", ".png", ".pot",
-    ".potx", ".ppack", ".pps", ".ppt", ".pptx", ".ps1",
-    ".psd", ".py", ".pyl",
+    ".key",
+    ".ko",
+    ".kt",
+    ".kts",
+    ".lnk",
+    ".lock",
+    ".log",
+    ".lua",
+    ".lz",
+    ".lz4",
+    ".lzo",
+    ".m2ts",
+    ".m4a",
+    ".m4v",
+    ".md",
+    ".mdb",
+    ".mid",
+    ".midi",
+    ".mkv",
+    ".mlt",
+    ".mobi",
+    ".mov",
+    ".mp3",
+    ".mp4",
+    ".mpeg",
+    ".mpg",
+    ".msi",
+    ".mts",
+    ".nef",
+    ".nim",
+    ".numbers",
+    ".o",
+    ".obj",
+    ".odp",
+    ".ods",
+    ".odt",
+    ".ogg",
+    ".opus",
+    ".out",
+    ".ova",
+    ".ovf",
+    ".patch",
+    ".pdf",
+    ".php",
+    ".pl",
+    ".ply",
+    ".png",
+    ".pot",
+    ".potx",
+    ".ppack",
+    ".pps",
+    ".ppt",
+    ".pptx",
+    ".ps1",
+    ".psd",
+    ".py",
+    ".pyl",
     ".qcow2",
-    ".r", ".rar", ".raw", ".rb", ".rpm", ".rs", ".rst", ".rtf",
-    ".sav", ".scala", ".sh", ".so", ".sql", ".sqlite",
-    ".step", ".stl", ".svelte", ".svg", ".swift", ".sys",
-    ".tar", ".tex", ".tga", ".tgz", ".tiff", ".tmp",
-    ".toml", ".torrent", ".ts", ".tsx", ".txt",
+    ".r",
+    ".rar",
+    ".raw",
+    ".rb",
+    ".rpm",
+    ".rs",
+    ".rst",
+    ".rtf",
+    ".sav",
+    ".scala",
+    ".sh",
+    ".so",
+    ".sql",
+    ".sqlite",
+    ".step",
+    ".stl",
+    ".svelte",
+    ".svg",
+    ".swift",
+    ".sys",
+    ".tar",
+    ".tex",
+    ".tga",
+    ".tgz",
+    ".tiff",
+    ".tmp",
+    ".toml",
+    ".torrent",
+    ".ts",
+    ".tsx",
+    ".txt",
     ".url",
-    ".vbs", ".vdi", ".vhd", ".vhdx", ".vmdk", ".vob",
+    ".vbs",
+    ".vdi",
+    ".vhd",
+    ".vhdx",
+    ".vmdk",
+    ".vob",
     ".vue",
-    ".wasm", ".wav", ".webm", ".webp", ".wma", ".wmv", ".wv",
-    ".xls", ".xlsm", ".xlsx", ".xlt", ".xltx", ".xml", ".xz",
-    ".yaml", ".yml",
-    ".zip", ".zst",
+    ".wasm",
+    ".wav",
+    ".webm",
+    ".webp",
+    ".wma",
+    ".wmv",
+    ".wv",
+    ".xls",
+    ".xlsm",
+    ".xlsx",
+    ".xlt",
+    ".xltx",
+    ".xml",
+    ".xz",
+    ".yaml",
+    ".yml",
+    ".zip",
+    ".zst",
 )

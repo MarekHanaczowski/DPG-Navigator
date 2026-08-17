@@ -12,22 +12,21 @@ from __future__ import annotations
 import os
 import time
 import zipfile
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from dpg_navigator._dialog import FileDialog
 from dpg_navigator._filesystem import (
-    validate_folder_name,
-    build_selection_list,
     DirectoryIndex,
     DirectoryLister,
+    build_selection_list,
+    validate_folder_name,
 )
 from dpg_navigator._types import DialogConfig, FileEntry
 from dpg_navigator.dialog._state import DialogState
 from dpg_navigator.dialog._ui import DialogUIBuilder
 from dpg_navigator.vfs import VFSRegistry
-from dpg_navigator._dialog import FileDialog
-from dpg_navigator._preview import PreviewPanel
 
 
 class TestSidebarDriveLoading:
@@ -42,10 +41,11 @@ class TestSidebarDriveLoading:
             custom_dirs=[],
         )
 
-        with patch("dpg_navigator.dialog._ui.dpg") as mock_dpg, \
-             patch("dpg_navigator.dialog._ui.get_special_dirs", return_value={}), \
-             patch("dpg_navigator.dialog._ui.get_drives") as get_drives, \
-             patch("dpg_navigator.dialog._ui.JobManager.submit") as submit:
+        with patch("dpg_navigator.dialog._ui.dpg") as mock_dpg, patch(
+            "dpg_navigator.dialog._ui.get_special_dirs", return_value={}
+        ), patch("dpg_navigator.dialog._ui.get_drives") as get_drives, patch(
+            "dpg_navigator.dialog._ui.JobManager.submit"
+        ) as submit:
             mock_dpg.child_window.return_value = MagicMock()
             builder._build_sidebar("dialog", 56)
 
@@ -75,9 +75,7 @@ class TestSidebarDriveLoading:
             mock_dpg.mutex.return_value = MagicMock()
             builder._load_sidebar_drives("dialog_shortcut_menu")
 
-        builder.dialog._sidebar.update_drives.assert_called_once_with(
-            ["/slow-network-mount"]
-        )
+        builder.dialog._sidebar.update_drives.assert_called_once_with(["/slow-network-mount"])
 
 
 # ── Path traversal validation ───────────────────────────────────
@@ -289,13 +287,10 @@ class TestDoubleClickLogic:
         threshold: float = 0.5,
     ) -> bool:
         """Reproduce the double-click detection logic."""
-        return (
-            current_time - last_click_time < threshold
-            and last_sender == current_sender
-        )
+        return current_time - last_click_time < threshold and last_sender == current_sender
 
     def test_fast_same_element_is_double(self):
-        assert self._is_double_click(1.2, 1.0, sender_id := 42, 42) is True
+        assert self._is_double_click(1.2, 1.0, 42, 42) is True
 
     def test_slow_same_element_not_double(self):
         assert self._is_double_click(2.0, 1.0, 42, 42) is False
@@ -515,12 +510,8 @@ class TestSizeCacheLogic:
             "/tmp/small": (10, time.time()),
         }
 
-        entry_big = MagicMock(
-            is_dir=True, size_bytes=None, full_path="/tmp/big", name="big"
-        )
-        entry_small = MagicMock(
-            is_dir=True, size_bytes=None, full_path="/tmp/small", name="small"
-        )
+        entry_big = MagicMock(is_dir=True, size_bytes=None, full_path="/tmp/big", name="big")
+        entry_small = MagicMock(is_dir=True, size_bytes=None, full_path="/tmp/small", name="small")
 
         def get_sort_size(entry):
             size = entry.size_bytes
@@ -640,18 +631,21 @@ class TestCsvParsing:
 
     def test_sniffer_detects_semicolon(self):
         import csv as csv_mod
+
         sample = "a;b;c\n1;2;3\n"
         dialect = csv_mod.Sniffer().sniff(sample)
         assert dialect.delimiter == ";"
 
     def test_sniffer_detects_comma(self):
         import csv as csv_mod
+
         sample = "a,b,c\n1,2,3\n"
         dialect = csv_mod.Sniffer().sniff(sample)
         assert dialect.delimiter == ","
 
     def test_sniffer_detects_tab(self):
         import csv as csv_mod
+
         sample = "a\tb\tc\n1\t2\t3\n"
         dialect = csv_mod.Sniffer().sniff(sample)
         assert dialect.delimiter == "\t"
@@ -659,6 +653,7 @@ class TestCsvParsing:
     def test_sniffer_fallback_on_single_column(self):
         """Sniffer may fail on single-column data; code falls back to comma."""
         import csv as csv_mod
+
         sample = "value\n1\n2\n"
         try:
             csv_mod.Sniffer().sniff(sample)

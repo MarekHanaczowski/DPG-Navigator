@@ -71,8 +71,8 @@ class TestHtmlActiveExtensions:
             PreviewCapabilities(markdown=True, pygments=True, mammoth=True),
         )
 
-        assert MD_EXTS <= extensions
-        assert WORD_EXTS <= extensions
+        assert extensions >= MD_EXTS
+        assert extensions >= WORD_EXTS
         assert not CODE_EXTS.issubset(extensions)
 
 

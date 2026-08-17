@@ -13,9 +13,8 @@ from __future__ import annotations
 import threading
 import time
 
-import pytest
-
 import dearpygui.dearpygui as dpg
+import pytest
 
 from dpg_navigator import FileDialog
 

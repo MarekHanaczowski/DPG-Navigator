@@ -5,12 +5,11 @@ depending on DearPyGui.
 """
 
 from __future__ import annotations
-# MIT licensed
 
+# MIT licensed
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
-
 
 MAX_COUNT_SCAN = 100_000
 """Row-count scan cap.
@@ -76,10 +75,7 @@ def load_sqlite_table(
             f'SELECT * FROM "{safe_table_name}" LIMIT ?;',  # nosec B608
             (max_rows,),
         )
-        rows = [
-            [str(cell) for cell in row[:max_cols]]
-            for row in cursor.fetchall()
-        ]
+        rows = [[str(cell) for cell in row[:max_cols]] for row in cursor.fetchall()]
 
         # Bounded count: scan at most MAX_COUNT_SCAN+1 rows instead of the whole
         # table, so a huge table cannot stall the preview on COUNT(*).

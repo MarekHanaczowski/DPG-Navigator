@@ -1,10 +1,11 @@
 """Modular Preview Panel component for the file dialog."""
+
 from __future__ import annotations  # PEP 604/585 in signatures need this on py3.8/3.9
 
-import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
-from typing import Optional, Callable
+from typing import Callable
 
-from ._types import FileEntry, DialogConfig
+import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
+
 from ._preview_registry import (
     PILLOW_EXTRA_EXTS,
     STB_IMAGE_EXTS,
@@ -12,13 +13,14 @@ from ._preview_registry import (
     PreviewKind,
     resolve_preview_kind,
 )
-from .renderers._base import PreviewContext, BaseRenderer
-from .renderers.image import ImageRenderer
-from .renderers.text import TextRenderer
-from .renderers.data import DataRenderer
+from ._types import DialogConfig, FileEntry
+from .renderers._base import BaseRenderer, PreviewContext
 from .renderers.archive import ArchiveRenderer
+from .renderers.data import DataRenderer
 from .renderers.document import DocumentRenderer
 from .renderers.font import FontRenderer
+from .renderers.image import ImageRenderer
+from .renderers.text import TextRenderer
 
 _UTF16_LE_BOM = b"\xff\xfe"
 _UTF16_BE_BOM = b"\xfe\xff"
@@ -84,26 +86,23 @@ class PreviewPanel:
     def preview_image_exts() -> frozenset[str]:
         """Return image extensions supported by the image preview path."""
         return STB_IMAGE_EXTS | PILLOW_EXTRA_EXTS
-    
+
     def __init__(self, config: DialogConfig, preview_width: int, show: bool):
         self._config = config
         self._config_tag = config.tag
         self._saved_width = preview_width
         self._show = show
-        
+
         self._panel_id: int | None = None
         self._table_wrapper: int | None = None
         self._current_entry: FileEntry | None = None
-        
+
         self._text_encoding: str | None = None
-        
+
         self.ctx = PreviewContext(
-            panel_id=0,
-            table_wrapper=0,
-            config_tag=self._config_tag,
-            capabilities=self._preview_capabilities()
+            panel_id=0, table_wrapper=0, config_tag=self._config_tag, capabilities=self._preview_capabilities()
         )
-        
+
         self._renderers: dict[PreviewKind, BaseRenderer] = {
             PreviewKind.IMAGE: ImageRenderer(),
             PreviewKind.FONT: FontRenderer(),
@@ -120,14 +119,11 @@ class PreviewPanel:
             PreviewKind.WORD: DocumentRenderer(self._load_text_content),
             PreviewKind.PPTX: DocumentRenderer(self._load_text_content),
         }
-        
+
         self._active_renderer: BaseRenderer | None = None
 
     def _preview_capabilities(self) -> PreviewCapabilities:
         """Probe optional preview backends available in the current environment."""
-        from ._pdf import pdf_available
-        from ._preview_archive import seven_zip_available
-        from ._preview_word import word_available
         from ._availability import (
             excel_available,
             mammoth_available,
@@ -135,6 +131,9 @@ class PreviewPanel:
             pptx_available,
             pygments_available,
         )
+        from ._pdf import pdf_available
+        from ._preview_archive import seven_zip_available
+        from ._preview_word import word_available
 
         # PreviewCapabilities fields (see _preview_registry): pdf, word, mammoth,
         # pptx, markdown, excel, pygments, seven_z. It has no html/chrome fields
@@ -159,7 +158,7 @@ class PreviewPanel:
             self.ctx.panel_id = self._panel_id
         if self._table_wrapper:
             self.ctx.table_wrapper = self._table_wrapper
-            
+
     def toggle(self, explorer_table: int) -> None:
         """Show or hide the preview child window."""
         if not self._panel_id:
@@ -202,7 +201,7 @@ class PreviewPanel:
         """Route a selected file to its active preview renderer."""
         if not self._panel_id or not self._show:
             return
-            
+
         if entry is None or entry.is_dir:
             self._current_entry = None
             self.clear()
@@ -214,16 +213,16 @@ class PreviewPanel:
         self._current_entry = entry
         self.ctx.on_clear = self.clear
         self.ctx.on_show_error = self._show_preview_error
-        
+
         # Clear previous state
         self.clear()
-        
+
         kind = resolve_preview_kind(
             entry.name,
             capabilities=self.ctx.capabilities,
             image_extensions=self.preview_image_exts(),
         )
-        
+
         renderer = self._renderers.get(kind)
         if renderer:
             self._active_renderer = renderer
@@ -241,7 +240,8 @@ class PreviewPanel:
 
             known = self._text_encoding if seek_offset > 0 else None
             text, is_bin, encoding = decode_preview_bytes(
-                raw_bytes, known_encoding=known,
+                raw_bytes,
+                known_encoding=known,
             )
             if encoding is not None:
                 self._text_encoding = encoding

@@ -81,6 +81,5 @@ class TestArchiveRenderer:
 
 class TestLoad7zTable:
     def test_missing_backend_raises_preview_error(self):
-        with patch("dpg_navigator._preview_archive._py7zr", None):
-            with pytest.raises(ArchivePreviewError):
-                load_7z_table("archive.7z", max_rows=10)
+        with patch("dpg_navigator._preview_archive._py7zr", None), pytest.raises(ArchivePreviewError):
+            load_7z_table("archive.7z", max_rows=10)

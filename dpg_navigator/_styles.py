@@ -6,17 +6,17 @@ Provides SidebarRenderer ABC and two implementations:
 """
 
 from __future__ import annotations
-# MIT licensed
 
+# MIT licensed
 import os
 from abc import ABC, abstractmethod
 from typing import Callable
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
-from ._types import StyleVariant
-from ._icons import IconRegistry
 from . import _platform
+from ._icons import IconRegistry
+from ._types import StyleVariant
 
 # Mapping: shortcut display name -> icon name
 _SHORTCUT_ICON_MAP = {
@@ -56,6 +56,7 @@ class SidebarRenderer(ABC):
         """Build the sidebar widgets inside the given parent container."""
         ...
 
+    @abstractmethod
     def update_drives(self, drives: list[str]) -> None:
         """Update mounted drives after background enumeration."""
         ...
@@ -158,18 +159,17 @@ class LabeledSidebar(SidebarRenderer):
         arrow_char = "v " if is_expanded else "> "
         indent = "  " * depth
 
-        with dpg.table_row():
-            with dpg.group(horizontal=True):
-                dpg.add_text(indent + arrow_char)
-                icon_tag = self._icons.get(icon_name)
-                if icon_tag:
-                    dpg.add_image(icon_tag)
-                dpg.add_selectable(
-                    label=label,
-                    span_columns=True,
-                    callback=lambda s, ad, ud: self._on_row_click(ud),
-                    user_data=dir_path,
-                )
+        with dpg.table_row(), dpg.group(horizontal=True):
+            dpg.add_text(indent + arrow_char)
+            icon_tag = self._icons.get(icon_name)
+            if icon_tag:
+                dpg.add_image(icon_tag)
+            dpg.add_selectable(
+                label=label,
+                span_columns=True,
+                callback=lambda s, ad, ud: self._on_row_click(ud),
+                user_data=dir_path,
+            )
 
         if is_expanded:
             try:

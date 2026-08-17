@@ -6,7 +6,6 @@ process ownership without launching a real Chrome/Chromium browser.
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from unittest.mock import MagicMock, patch
@@ -15,12 +14,11 @@ import pytest
 
 import dpg_navigator._html as htmlmod
 from dpg_navigator._html import (
+    _CHROME_TIMEOUT,
     HTMLRenderer,
+    _inject_helpers,
     chrome_available,
     html_available,
-    _CHROME_TIMEOUT,
-    _inject_helpers,
-    _read_overflow_marker,
 )
 
 
@@ -28,38 +26,39 @@ class TestChromeAvailable:
     """chrome_available() resolves the browser binary and caches the result."""
 
     def test_false_when_html_deps_missing(self):
-        with patch.object(htmlmod, "_chrome_available_cache", None), \
-             patch.object(htmlmod, "html_available", return_value=False):
+        with patch.object(htmlmod, "_chrome_available_cache", None), patch.object(
+            htmlmod, "html_available", return_value=False
+        ):
             assert chrome_available() is False
 
     def test_true_when_executable_resolves(self):
         fake_hti = MagicMock()
         fake_hti.browser.executable = r"C:\chrome.exe"
-        with patch.object(htmlmod, "_chrome_available_cache", None), \
-             patch.object(htmlmod, "html_available", return_value=True), \
-             patch.object(HTMLRenderer, "_get_hti", return_value=fake_hti):
+        with patch.object(htmlmod, "_chrome_available_cache", None), patch.object(
+            htmlmod, "html_available", return_value=True
+        ), patch.object(HTMLRenderer, "_get_hti", return_value=fake_hti):
             assert chrome_available() is True
 
     def test_false_when_executable_missing(self):
         fake_hti = MagicMock()
         fake_hti.browser.executable = None
-        with patch.object(htmlmod, "_chrome_available_cache", None), \
-             patch.object(htmlmod, "html_available", return_value=True), \
-             patch.object(HTMLRenderer, "_get_hti", return_value=fake_hti):
+        with patch.object(htmlmod, "_chrome_available_cache", None), patch.object(
+            htmlmod, "html_available", return_value=True
+        ), patch.object(HTMLRenderer, "_get_hti", return_value=fake_hti):
             assert chrome_available() is False
 
     def test_false_when_resolution_raises(self):
-        with patch.object(htmlmod, "_chrome_available_cache", None), \
-             patch.object(htmlmod, "html_available", return_value=True), \
-             patch.object(HTMLRenderer, "_get_hti", side_effect=RuntimeError):
+        with patch.object(htmlmod, "_chrome_available_cache", None), patch.object(
+            htmlmod, "html_available", return_value=True
+        ), patch.object(HTMLRenderer, "_get_hti", side_effect=RuntimeError):
             assert chrome_available() is False
 
     def test_result_is_cached(self):
         fake_hti = MagicMock()
         fake_hti.browser.executable = "/usr/bin/chromium"
-        with patch.object(htmlmod, "_chrome_available_cache", None), \
-             patch.object(htmlmod, "html_available", return_value=True), \
-             patch.object(HTMLRenderer, "_get_hti", return_value=fake_hti) as get_hti:
+        with patch.object(htmlmod, "_chrome_available_cache", None), patch.object(
+            htmlmod, "html_available", return_value=True
+        ), patch.object(HTMLRenderer, "_get_hti", return_value=fake_hti) as get_hti:
             assert chrome_available() is True
             assert chrome_available() is True
             get_hti.assert_called_once()
@@ -72,10 +71,9 @@ class TestChromeFlags:
         fake_hti = MagicMock()
         fake_hti.browser._subprocess_run_kwargs = {}
         profile = str(tmp_path / "chrome")
-        with patch.object(HTMLRenderer, "_hti", None), \
-             patch.object(HTMLRenderer, "_chrome_profile_dir", None), \
-             patch("dpg_navigator._html.tempfile.mkdtemp", return_value=profile), \
-             patch.object(htmlmod, "_Html2Image", return_value=fake_hti) as ctor:
+        with patch.object(HTMLRenderer, "_hti", None), patch.object(HTMLRenderer, "_chrome_profile_dir", None), patch(
+            "dpg_navigator._html.tempfile.mkdtemp", return_value=profile
+        ), patch.object(htmlmod, "_Html2Image", return_value=fake_hti) as ctor:
             HTMLRenderer._get_hti()
         flags = ctor.call_args.kwargs["custom_flags"]
         assert "--disable-javascript" in flags
@@ -98,7 +96,7 @@ class TestInjectHelpers:
             "<html><head></head><body>"
             '<img src="file:///C:/secret.png">'
             '<a href="file://localhost/etc/passwd">x</a>'
-            "<div style=\"background:url(file:///tmp/x.png)\"></div>"
+            '<div style="background:url(file:///tmp/x.png)"></div>'
             "</body></html>"
         )
         out = _inject_helpers(html)
@@ -113,8 +111,7 @@ class TestChromeTimeout:
         reason="html2image backend not importable in this environment",
     )
     def test_timeout_injected_into_subprocess_kwargs(self):
-        with patch.object(HTMLRenderer, "_hti", None), \
-             patch.object(HTMLRenderer, "_chrome_profile_dir", None):
+        with patch.object(HTMLRenderer, "_hti", None), patch.object(HTMLRenderer, "_chrome_profile_dir", None):
             try:
                 hti = HTMLRenderer._get_hti()
                 assert hti.browser._subprocess_run_kwargs.get("timeout") == _CHROME_TIMEOUT
@@ -131,8 +128,7 @@ class TestHtmlSizeLimit:
         big = "x" * (htmlmod._MAX_HTML_BYTES + 10)
         renderer = HTMLRenderer("test_tag")
         # Avoid real texture/chrome work: close() is fine without open
-        with patch.object(renderer, "_recreate_texture"), \
-             patch.object(renderer, "_start_render") as start:
+        with patch.object(renderer, "_recreate_texture"), patch.object(renderer, "_start_render") as start:
             ok = renderer.open_string(big, 100, 100)
             assert ok is False
             start.assert_not_called()
@@ -196,8 +192,9 @@ class TestScreenshotOutputDir:
             Image.new("RGB", size, (255, 0, 0)).save(profile / save_as)
 
         fake_hti.screenshot.side_effect = screenshot
-        with patch.object(HTMLRenderer, "_get_hti", return_value=fake_hti), \
-             patch.object(HTMLRenderer, "_chrome_profile_dir", str(profile)):
+        with patch.object(HTMLRenderer, "_get_hti", return_value=fake_hti), patch.object(
+            HTMLRenderer, "_chrome_profile_dir", str(profile)
+        ):
             img = renderer._hti_screenshot(10, 10)
         assert img is not None
         assert img.size == (10, 10)
@@ -234,8 +231,7 @@ class TestChromeProcessOwnership:
         proc.poll.return_value = None
         proc.pid = 12345
         HTMLRenderer._register_chrome(proc, renderer)
-        with patch("dpg_navigator._html.dpg") as mock_dpg, \
-             patch("dpg_navigator._html._kill_process_tree") as kill:
+        with patch("dpg_navigator._html.dpg") as mock_dpg, patch("dpg_navigator._html._kill_process_tree") as kill:
             mock_dpg.does_item_exist.return_value = False
             renderer.close()
         kill.assert_called_once_with(proc)
@@ -246,8 +242,7 @@ class TestChromeProcessOwnership:
         proc = MagicMock()
         proc.poll.return_value = None
         HTMLRenderer._register_chrome(proc, other)
-        with patch("dpg_navigator._html.dpg") as mock_dpg, \
-             patch("dpg_navigator._html._kill_process_tree") as kill:
+        with patch("dpg_navigator._html.dpg") as mock_dpg, patch("dpg_navigator._html._kill_process_tree") as kill:
             mock_dpg.does_item_exist.return_value = False
             mine.close()
         kill.assert_not_called()
@@ -271,9 +266,8 @@ class TestChromeProcessOwnership:
         renderer._render_generation = 2
         htmlmod._chrome_owner.renderer = renderer
         htmlmod._chrome_owner.generation = 1
-        with patch("dpg_navigator._html.subprocess.Popen") as popen:
-            with pytest.raises(htmlmod._ChromeCancelled):
-                htmlmod._chrome_popen_run(["chrome"])
+        with patch("dpg_navigator._html.subprocess.Popen") as popen, pytest.raises(htmlmod._ChromeCancelled):
+            htmlmod._chrome_popen_run(["chrome"])
         popen.assert_not_called()
 
     def test_popen_run_kills_if_stale_after_spawn(self):
@@ -291,10 +285,10 @@ class TestChromeProcessOwnership:
 
         htmlmod._chrome_owner.renderer = renderer
         htmlmod._chrome_owner.generation = 1
-        with patch("dpg_navigator._html.subprocess.Popen", side_effect=popen), \
-             patch("dpg_navigator._html._kill_process_tree") as kill:
-            with pytest.raises(htmlmod._ChromeCancelled):
-                htmlmod._chrome_popen_run(["chrome"])
+        with patch("dpg_navigator._html.subprocess.Popen", side_effect=popen), patch(
+            "dpg_navigator._html._kill_process_tree"
+        ) as kill, pytest.raises(htmlmod._ChromeCancelled):
+            htmlmod._chrome_popen_run(["chrome"])
         kill.assert_called_once_with(proc)
         assert HTMLRenderer._chrome_procs == []
 
@@ -307,10 +301,10 @@ class TestChromeProcessOwnership:
             subprocess.TimeoutExpired(cmd="chrome", timeout=0.01),
             (None, None),
         ]
-        with patch("dpg_navigator._html.subprocess.Popen", return_value=proc), \
-             patch("dpg_navigator._html._kill_process_tree") as kill:
-            with pytest.raises(subprocess.TimeoutExpired):
-                htmlmod._chrome_popen_run(["chrome"], timeout=0.01)
+        with patch("dpg_navigator._html.subprocess.Popen", return_value=proc), patch(
+            "dpg_navigator._html._kill_process_tree"
+        ) as kill, pytest.raises(subprocess.TimeoutExpired):
+            htmlmod._chrome_popen_run(["chrome"], timeout=0.01)
         kill.assert_called_once_with(proc)
 
     @pytest.mark.skipif(
@@ -318,11 +312,11 @@ class TestChromeProcessOwnership:
         reason="html2image backend not importable in this environment",
     )
     def test_get_hti_installs_chromium_run_hook(self):
-        with patch.object(HTMLRenderer, "_hti", None), \
-             patch.object(HTMLRenderer, "_chrome_profile_dir", None):
+        with patch.object(HTMLRenderer, "_hti", None), patch.object(HTMLRenderer, "_chrome_profile_dir", None):
             try:
                 HTMLRenderer._get_hti()
                 import html2image.browsers.chromium as chromium_mod
+
                 assert isinstance(chromium_mod.subprocess, htmlmod._ChromiumSubprocessProxy)
             finally:
                 HTMLRenderer.shutdown_shared()

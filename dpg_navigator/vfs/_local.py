@@ -7,9 +7,9 @@ import logging
 import os
 from typing import Collection
 
-from ._base import VFSProvider
-from .._types import FileEntry
 from .. import _platform
+from .._types import FileEntry
+from ._base import VFSProvider
 
 _log = logging.getLogger(__name__)
 
@@ -57,20 +57,26 @@ class LocalVFSProvider(VFSProvider):
                     if search_query and search_query.lower() not in item.name.lower():
                         continue
 
-                    if not is_dir and file_filter != ".*" and not fnmatch.fnmatch(item.name.lower(), f"*{file_filter.lower()}"):
+                    if (
+                        not is_dir
+                        and file_filter != ".*"
+                        and not fnmatch.fnmatch(item.name.lower(), f"*{file_filter.lower()}")
+                    ):
                         continue
 
                     size = self.get_size(item.path, is_dir, show_dir_size)
                     mtime = item.stat(follow_symlinks=True).st_mtime
 
-                    entries.append(FileEntry(
-                        name=item.name,
-                        full_path=item.path,
-                        is_dir=is_dir,
-                        size_bytes=size,
-                        modified_time=mtime,
-                        is_hidden=hidden,
-                    ))
+                    entries.append(
+                        FileEntry(
+                            name=item.name,
+                            full_path=item.path,
+                            is_dir=is_dir,
+                            size_bytes=size,
+                            modified_time=mtime,
+                            is_hidden=hidden,
+                        )
+                    )
                 except (OSError, PermissionError):
                     continue
 

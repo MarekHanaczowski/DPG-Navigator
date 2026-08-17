@@ -5,13 +5,12 @@ from __future__ import annotations
 import pytest
 
 from dpg_navigator._types import (
-    DialogMode,
-    StyleVariant,
-    FileEntry,
-    DialogConfig,
     DEFAULT_FILTER_LIST,
+    DialogConfig,
+    DialogMode,
+    FileEntry,
+    StyleVariant,
 )
-
 
 # ── DialogMode ──────────────────────────────────────────────────
 
@@ -229,10 +228,28 @@ class TestDefaultFilterList:
         rest = list(DEFAULT_FILTER_LIST[1:])
         assert rest == sorted(rest), "Filter list is not sorted alphabetically"
 
-    @pytest.mark.parametrize("ext", [
-        ".py", ".txt", ".md", ".exe", ".zip", ".jpg", ".pdf", ".json", ".html",
-        ".xlsx", ".pptx", ".epub", ".kt", ".vue", ".toml", ".vob", ".heic",
-    ])
+    @pytest.mark.parametrize(
+        "ext",
+        [
+            ".py",
+            ".txt",
+            ".md",
+            ".exe",
+            ".zip",
+            ".jpg",
+            ".pdf",
+            ".json",
+            ".html",
+            ".xlsx",
+            ".pptx",
+            ".epub",
+            ".kt",
+            ".vue",
+            ".toml",
+            ".vob",
+            ".heic",
+        ],
+    )
     def test_common_extensions_present(self, ext):
         assert ext in DEFAULT_FILTER_LIST, f"{ext} missing from DEFAULT_FILTER_LIST"
 

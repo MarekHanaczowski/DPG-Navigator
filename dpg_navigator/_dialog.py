@@ -9,9 +9,10 @@ PowerPoint (.pptx), Markdown, HTML, CSV/TSV, Excel (.xlsx), SQLite
 databases, fonts (.ttf/.otf), ZIP/7z archives, and source code as
 plain text.
 """
-from __future__ import annotations
-# MIT licensed
 
+from __future__ import annotations
+
+# MIT licensed
 import logging
 import os
 import time
@@ -23,27 +24,29 @@ import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
 _log = logging.getLogger(__name__)
 
-from ._types import (
-    DialogConfig, DialogMode, StyleVariant, FileEntry, DEFAULT_FILTER_LIST,
-    SelectionCallback,
-)
-from ._icons import IconRegistry
+from . import _platform
 from ._filesystem import (
-    DirectoryLister,
     DirectoryIndex,
+    DirectoryLister,
     build_selection_list,
     resolve_archive_selection,
 )
-from ._preview_registry import ZIP_EXTS, SEVEN_Z_EXTS
-from ._preview import PreviewPanel
-from ._styles import STYLE_REGISTRY
-from ._keyboard import KeyboardMixin
+from ._icons import IconRegistry
 from ._job_manager import JobManager
-from . import _platform
-
-
-from .dialog._state import DialogState
+from ._keyboard import KeyboardMixin
+from ._preview import PreviewPanel
+from ._preview_registry import SEVEN_Z_EXTS, ZIP_EXTS
+from ._styles import STYLE_REGISTRY
+from ._types import (
+    DEFAULT_FILTER_LIST,
+    DialogConfig,
+    DialogMode,
+    FileEntry,
+    SelectionCallback,
+    StyleVariant,
+)
 from .dialog._logic import DialogLogic
+from .dialog._state import DialogState
 from .dialog._ui import DialogUIBuilder
 
 
@@ -143,9 +146,7 @@ class FileDialog(KeyboardMixin):
         **kwargs: Any,
     ) -> None:
         # First positional may be the host callback (FileDialog(on_select)).
-        if config is not None and (
-            callable(config) or not isinstance(config, DialogConfig)
-        ):
+        if config is not None and (callable(config) or not isinstance(config, DialogConfig)):
             callback = config
             config = None
 
@@ -168,8 +169,7 @@ class FileDialog(KeyboardMixin):
 
         # Resolve default_path at runtime (not at import time)
         self.state.current_dir = (
-            os.path.abspath(self._config.default_path)
-            if self._config.default_path else os.getcwd()
+            os.path.abspath(self._config.default_path) if self._config.default_path else os.getcwd()
         )
         self._home_dir = self.state.current_dir
 
@@ -182,7 +182,7 @@ class FileDialog(KeyboardMixin):
 
         # Modular State & Logic
         self.state.current_filter = self._config.file_filter
-        
+
         self.logic = DialogLogic(
             state=self.state,
             config=self._config,
@@ -357,6 +357,7 @@ class FileDialog(KeyboardMixin):
             DirectoryLister.cleanup_temp_files()
             try:
                 from ._html import HTMLRenderer
+
                 HTMLRenderer.shutdown_shared()
             except Exception:
                 _log.debug("HTMLRenderer shutdown failed", exc_info=True)
@@ -379,12 +380,7 @@ class FileDialog(KeyboardMixin):
         """Exit context manager; calls destroy() to release DPG resources."""
         self.destroy()
 
-
-
     # ── Navigation ──────────────────────────────────────────────
-
-
-
 
     def _on_path_enter(self, sender, app_data, user_data) -> None:
         """Handle Enter key in the path input field."""
@@ -418,7 +414,6 @@ class FileDialog(KeyboardMixin):
         return is_double
 
     # ── File listing ────────────────────────────────────────────
-
 
     def _on_sort(self, sender, sort_specs, user_data) -> None:
         """Sort table rows by clicked column header.
@@ -468,7 +463,7 @@ class FileDialog(KeyboardMixin):
         if sep is not None and sep in data_rows:
             sep_idx = data_rows.index(sep)
             local_rows = data_rows[:sep_idx]
-            deep_rows = data_rows[sep_idx + 1:]
+            deep_rows = data_rows[sep_idx + 1 :]
             local_rows.sort(key=sort_key, reverse=reverse)
             deep_rows.sort(key=sort_key, reverse=reverse)
             ordered = [back_row] + local_rows + [sep] + deep_rows
@@ -511,8 +506,7 @@ class FileDialog(KeyboardMixin):
                 if dpg.does_item_exist(elem):
                     dpg.set_value(elem, False)
             self.state.selected_elements.clear()
-        if (self.state.last_clicked_element is not None
-                and dpg.does_item_exist(self.state.last_clicked_element)):
+        if self.state.last_clicked_element is not None and dpg.does_item_exist(self.state.last_clicked_element):
             dpg.set_value(self.state.last_clicked_element, False)
 
         dpg.set_value(sender, True)
@@ -529,11 +523,11 @@ class FileDialog(KeyboardMixin):
         elif not entry.is_dir:
             ext = os.path.splitext(entry.name)[1].lower()
             is_archive = ext in (ZIP_EXTS | SEVEN_Z_EXTS)
-            
+
             if is_archive and is_double:
                 self.logic.navigate_to(entry.full_path + "|/")
                 return
-            
+
             self.state.selected_files = [entry.full_path]
             dpg.set_value(self._filename_input, entry.name)
             if is_double:
@@ -561,7 +555,9 @@ class FileDialog(KeyboardMixin):
         """
         typed_name = dpg.get_value(self._filename_input)
         selection = build_selection_list(
-            self.state.selected_files, typed_name, self.state.current_dir,
+            self.state.selected_files,
+            typed_name,
+            self.state.current_dir,
         )
 
         needs_extract = any("|" in path for path in selection)
@@ -569,11 +565,13 @@ class FileDialog(KeyboardMixin):
         if needs_extract and dpg.does_item_exist(self._config.tag):
             original_title = dpg.get_item_label(self._config.tag)
             dpg.set_item_label(
-                self._config.tag, f"{original_title} - Extracting...",
+                self._config.tag,
+                f"{original_title} - Extracting...",
             )
         try:
             resolved, failed_name = resolve_archive_selection(
-                selection, max_size=self._MAX_ARCHIVE_EXTRACT_SIZE,
+                selection,
+                max_size=self._MAX_ARCHIVE_EXTRACT_SIZE,
             )
         finally:
             if original_title is not None and dpg.does_item_exist(self._config.tag):

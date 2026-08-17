@@ -14,27 +14,26 @@ Usage::
 
     fd = FileDialog(callback=my_handler, default_path="..")
     fd.show()
+
+MIT licensed.
 """
 
 from __future__ import annotations
-# MIT licensed
-
-from ._types import DialogConfig, DialogMode, StyleVariant, FileEntry, DEFAULT_FILTER_LIST, SelectionCallback
-
-from ._dialog import FileDialog
 
 from ._availability import (
-    word_available,
-    mammoth_available,
-    pptx_available,
-    markdown_available,
+    chrome_available,
     excel_available,
+    html_available,
+    mammoth_available,
+    markdown_available,
+    pdf_available,
+    pptx_available,
     py7zr_available,
     pygments_available,
-    pdf_available,
-    html_available,
-    chrome_available,
+    word_available,
 )
+from ._dialog import FileDialog
+from ._types import DEFAULT_FILTER_LIST, DialogConfig, DialogMode, FileEntry, SelectionCallback, StyleVariant
 
 __version__ = "1.0.0b4"
 

@@ -7,15 +7,15 @@ it accesses ``self._*`` attributes defined by the host :class:`FileDialog`.
 """
 
 from __future__ import annotations
-# MIT licensed
 
-from typing import Any, TYPE_CHECKING
+# MIT licensed
+from typing import TYPE_CHECKING, Any
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
+from . import _platform
 from ._filesystem import DirectoryIndex
 from ._types import DialogConfig, DialogMode, FileEntry
-from . import _platform
 
 if TYPE_CHECKING:
     from ._preview import PreviewPanel
@@ -59,12 +59,13 @@ class KeyboardMixin:
     _search_input: int
     _size_cache: dict[Any, Any]
     _dir_index: DirectoryIndex
-    _preview: "PreviewPanel"
+    _preview: PreviewPanel
     _current_dir: str
     _key_handler: int
-    logic: "DialogLogic"
+    logic: DialogLogic
 
     if TYPE_CHECKING:
+
         def hide(self) -> None: ...
         def _navigate_to(self, path: str) -> None: ...
         def _refresh_listing(self) -> None: ...
@@ -129,8 +130,7 @@ class KeyboardMixin:
         """
         if not self._is_dialog_active() or self._focused_row_index < 0:
             return
-        for inp in (self._path_input, self._filename_input,
-                    self._new_folder_input, self._search_input):
+        for inp in (self._path_input, self._filename_input, self._new_folder_input, self._search_input):
             if dpg.does_item_exist(inp) and dpg.is_item_active(inp):
                 return
         self._activate_focused_row()
@@ -167,8 +167,7 @@ class KeyboardMixin:
                 dpg.set_value(elem, False)
         self._selected_files.clear()
         self._selected_elements.clear()
-        if (self._last_clicked_element is not None
-                and dpg.does_item_exist(self._last_clicked_element)):
+        if self._last_clicked_element is not None and dpg.does_item_exist(self._last_clicked_element):
             dpg.set_value(self._last_clicked_element, False)
 
         self._focused_row_index = index

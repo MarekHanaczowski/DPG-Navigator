@@ -7,19 +7,18 @@ import tempfile
 import time
 import uuid
 import zipfile
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from dpg_navigator._filesystem import (
-    DirectoryLister,
-    DirectoryIndex,
-    MAX_SCAN_DEPTH,
     INDEX_SCAN_DEPTH,
+    MAX_SCAN_DEPTH,
+    DirectoryIndex,
+    DirectoryLister,
     resolve_archive_selection,
 )
 from dpg_navigator._types import FileEntry
-
 
 # ── format_size ─────────────────────────────────────────────────
 
@@ -103,6 +102,7 @@ class TestFormatTime:
         ts = time.time()
         result = DirectoryLister.format_time(ts)
         assert isinstance(result, str)
+
 
 from dpg_navigator.vfs import VFSRegistry
 
@@ -364,7 +364,9 @@ class TestListDirectory:
         (tmp_path / "report.txt").write_text("data")
         (tmp_path / "report.py").write_text("code")
         result = DirectoryLister.list_directory(
-            str(tmp_path), file_filter=".py", search_query="report",
+            str(tmp_path),
+            file_filter=".py",
+            search_query="report",
         )
         files = [e for e in result if not e.is_dir]
         assert len(files) == 1
@@ -374,7 +376,9 @@ class TestListDirectory:
         """Search matches hidden file but show_hidden=False -> excluded."""
         (tmp_path / ".secret.txt").write_text("hidden")
         result = DirectoryLister.list_directory(
-            str(tmp_path), show_hidden=False, search_query="secret",
+            str(tmp_path),
+            show_hidden=False,
+            search_query="secret",
         )
         assert result == []
 
@@ -420,9 +424,9 @@ class TestListDirectory:
         d2 = d1 / "level2"
         d3 = d2 / "level3"
         d3.mkdir(parents=True)
-        (d1 / "a.txt").write_text("12345")       # 5 bytes
-        (d2 / "b.txt").write_text("123456789")    # 9 bytes
-        (d3 / "c.txt").write_text("12")           # 2 bytes
+        (d1 / "a.txt").write_text("12345")  # 5 bytes
+        (d2 / "b.txt").write_text("123456789")  # 9 bytes
+        (d3 / "c.txt").write_text("12")  # 2 bytes
         size = VFSRegistry.get_provider(str(d1)).get_size(str(d1), is_dir=True, show_dir_size=True)
         assert size == 16
 
@@ -448,7 +452,8 @@ class TestListDirectory:
         (tmp_path / "root_file.txt").write_text("abc")
 
         result = DirectoryLister.list_directory(
-            str(tmp_path), show_dir_size=True,
+            str(tmp_path),
+            show_dir_size=True,
         )
         dir_entry = next(e for e in result if e.is_dir)
         assert dir_entry.name == "subdir"
@@ -474,7 +479,7 @@ class TestExtractFromArchive:
             )
             assert extracted is not None
             assert os.path.isfile(extracted)
-            with open(extracted, "r", encoding="utf-8") as handle:
+            with open(extracted, encoding="utf-8") as handle:
                 assert handle.read() == "hello"
         finally:
             DirectoryLister.cleanup_temp_files()
@@ -648,7 +653,7 @@ class TestResolveArchiveSelection:
             assert failed is None
             assert len(resolved) == 1
             assert os.path.isfile(resolved[0])
-            with open(resolved[0], "r", encoding="utf-8") as handle:
+            with open(resolved[0], encoding="utf-8") as handle:
                 assert handle.read() == "hello"
         finally:
             DirectoryLister.cleanup_temp_files()
@@ -682,7 +687,7 @@ class TestResolveArchiveSelection:
             assert failed is None
             assert resolved[0] == local
             assert os.path.isfile(resolved[1])
-            with open(resolved[1], "r", encoding="utf-8") as handle:
+            with open(resolved[1], encoding="utf-8") as handle:
                 assert handle.read() == "zip"
         finally:
             DirectoryLister.cleanup_temp_files()
@@ -714,7 +719,7 @@ class TestPolishCharacters:
         assert entry.name == "łąka.txt"
         assert entry.full_path == os.path.join(str(tmp_path), "łąka.txt")
         assert not entry.is_dir
-        assert entry.size_bytes == len("trawa".encode())
+        assert entry.size_bytes == len(b"trawa")
 
     def test_polish_dir_entry_properties(self, tmp_path):
         """Directory entry preserves Polish characters."""
@@ -739,7 +744,8 @@ class TestPolishCharacters:
         (tmp_path / "zdjęcie_wakacje.jpg").write_bytes(b"\xff\xd8")
         (tmp_path / "notatka.txt").write_text("abc")
         result = DirectoryLister.list_directory(
-            str(tmp_path), search_query="zdjęcie",
+            str(tmp_path),
+            search_query="zdjęcie",
         )
         assert len(result) == 1
         assert result[0].name == "zdjęcie_wakacje.jpg"
@@ -748,7 +754,8 @@ class TestPolishCharacters:
         """Search with Polish chars is case-insensitive."""
         (tmp_path / "Łódź.txt").write_text("city")
         result = DirectoryLister.list_directory(
-            str(tmp_path), search_query="łódź",
+            str(tmp_path),
+            search_query="łódź",
         )
         assert len(result) == 1
         assert result[0].name == "Łódź.txt"
@@ -792,7 +799,8 @@ class TestPolishCharacters:
         (tmp_path / "pióro.py").write_text("code")
         (tmp_path / "książka.txt").write_text("text")
         result = DirectoryLister.list_directory(
-            str(tmp_path), file_filter=".py",
+            str(tmp_path),
+            file_filter=".py",
         )
         files = [e for e in result if not e.is_dir]
         assert len(files) == 1
@@ -994,9 +1002,11 @@ class TestDirectoryIndex:
         idx = DirectoryIndex()
         # Build with generation mismatch after start
         gen[0] = 0
+
         def changing_gen():
             gen[0] += 1  # increment every check — cancels immediately
             return gen[0]
+
         idx.build(str(nested_tree), 0, changing_gen)
         # Index should NOT be ready (cancelled)
         assert not idx.ready
