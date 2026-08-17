@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
+from unittest.mock import patch
 
 
 class TestPublicAPI:
@@ -66,6 +66,20 @@ class TestPublicAPI:
     def test_default_filter_list_importable(self):
         from dpg_navigator import DEFAULT_FILTER_LIST
         assert DEFAULT_FILTER_LIST is not None
+
+    def test_html_and_chrome_probes_delegate_to_html_module(self):
+        """Public availability probes must use _html.py, not a second copy."""
+        from dpg_navigator._availability import chrome_available, html_available
+        import dpg_navigator._html as htmlmod
+
+        with patch.object(htmlmod, "html_available", return_value=True):
+            assert html_available() is True
+        with patch.object(htmlmod, "html_available", return_value=False):
+            assert html_available() is False
+        with patch.object(htmlmod, "chrome_available", return_value=True):
+            assert chrome_available() is True
+        with patch.object(htmlmod, "chrome_available", return_value=False):
+            assert chrome_available() is False
 
     def test_version_defined(self):
         import dpg_navigator

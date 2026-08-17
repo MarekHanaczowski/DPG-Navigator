@@ -128,26 +128,13 @@ class PreviewPanel:
         from ._pdf import pdf_available
         from ._preview_archive import seven_zip_available
         from ._preview_word import word_available
-        from ._availability import mammoth_available, pptx_available
-        
-        # Determine markdown availability
-        try:
-            import markdown  # type: ignore[import-untyped]
-            markdown_available = True
-        except ImportError:
-            markdown_available = False
-            
-        try:
-            from pygments import highlight  # type: ignore[import-untyped]
-            pygments_available = True
-        except ImportError:
-            pygments_available = False
-            
-        try:
-            import openpyxl  # type: ignore[import-untyped]
-            excel_available = True
-        except ImportError:
-            excel_available = False
+        from ._availability import (
+            excel_available,
+            mammoth_available,
+            markdown_available,
+            pptx_available,
+            pygments_available,
+        )
 
         # PreviewCapabilities fields (see _preview_registry): pdf, word, mammoth,
         # pptx, markdown, excel, pygments, seven_z. It has no html/chrome fields
@@ -155,8 +142,12 @@ class PreviewPanel:
         # chrome_available() are not part of the capability set.
         return PreviewCapabilities(
             pdf=pdf_available(),
-            word=word_available(), mammoth=mammoth_available(), pptx=pptx_available(),
-            markdown=markdown_available, excel=excel_available, pygments=pygments_available,
+            word=word_available(),
+            mammoth=mammoth_available(),
+            pptx=pptx_available(),
+            markdown=markdown_available(),
+            excel=excel_available(),
+            pygments=pygments_available(),
             seven_z=seven_zip_available(),
         )
 

@@ -1,6 +1,6 @@
 # dpg-navigator
 
-File dialog with rich preview panel for [DearPyGui](https://github.com/hoffstadt/DearPyGui) — images, PDF, Word, Excel, code highlighting, archives, and more.
+File dialog with rich preview panel for [DearPyGui](https://github.com/hoffstadt/DearPyGui) — images, PDF, Word, Excel, archives, and more.
 
 Inspired by [file_dialog](https://github.com/totallynotdrait/file_dialog) by Dr. AIT. Rebuilt from scratch as a modular, fully typed, cross-platform library.
 
@@ -90,13 +90,13 @@ The integrated preview panel renders files directly inside the dialog:
 - **Word (.docx)** — pixel-perfect HTML render via mammoth + Chrome Headless, or python-docx styled text extraction as fallback.
 - **PowerPoint (.pptx)** — slide text, tables, speaker notes, and inline image extraction via python-pptx.
 - **Markdown** — rendered preview using the `markdown` library piped through Chrome Headless with a dark theme.
-- **HTML** — Chrome Headless rendering with a scrollable viewport, overflow detection, auto-trim, and responsive resize.
+- **HTML** — Chrome Headless rendering with a scrollable viewport, auto-trim, and responsive resize.
 - **CSV / TSV** — native DPG table with automatic delimiter detection via `csv.Sniffer`.
 - **Excel (.xlsx)** — read-only table display via openpyxl with sheet switching.
 - **SQLite (.db)** — read-only table browsing with table switching.
 - **Fonts (.ttf / .otf)** — live glyph preview with pangrams.
 - **Archives (.zip / .7z)** — file list with compression ratios; click a row to extract and preview.
-- **Source code** — syntax highlighting for 500+ languages via Pygments, rendered through Chrome Headless.
+- **Source code** — monospace text preview (same encoding detection as other text files).
 - **XML** — pretty-printed via minidom.
 
 Optional preview backends are detected at import time. When a preview-specific dependency or browser is unavailable, the dialog falls back to a text view or an explanatory message instead of failing during import.
@@ -115,16 +115,17 @@ Preview features are organized into installable extras:
 | `markdown` | `pip install dpg-navigator[markdown]` | Markdown rendered preview |
 | `excel` | `pip install dpg-navigator[excel]` | Excel spreadsheet preview |
 | `archive` | `pip install dpg-navigator[archive]` | 7z archive browsing |
-| `code` | `pip install dpg-navigator[code]` | Syntax-highlighted source code |
+| `code` | `pip install dpg-navigator[code]` | Source-code files as text (`pygments_available()` / routing) |
 | `all` | `pip install dpg-navigator[all]` | All of the above |
 
 > **Chrome/Chromium required for some previews.** The `html`, `markdown`,
-> `code`, and the pixel-perfect `word` previews render through **Chrome
+> and the pixel-perfect `word` previews render through **Chrome
 > Headless** (driven by `html2image`). Installing the extra pulls in the Python
 > packages but **not** a browser — a Chrome or Chromium binary must be present
 > on the system `PATH`. If none is found (or a preview extra is not installed),
-> HTML files fall back to raw-text rendering, and Markdown/code/Word degrade to
-> their text extractors, so the dialog stays usable.
+> HTML files fall back to raw-text rendering, and Markdown/Word degrade to
+> their text extractors, so the dialog stays usable. Chrome is launched with
+> JavaScript disabled and network access blocked through a dead proxy.
 
 ## Configuration
 
@@ -167,10 +168,12 @@ fd = FileDialog(callback=on_select, config=config)
 - **ZipSlip protection** — safe extraction of archive entries with path validation.
 - **Graceful degradation** — missing optional libraries are logged, never crash the dialog.
 - **Memory efficiency** — LRU texture caching and background indexing for deep searches.
-- **Untrusted HTML** — HTML, Markdown, Word, and code previews are rendered by a
-  headless Chrome subprocess, which executes the document's JavaScript and may
-  issue network requests. Preview only content you trust, or run in a sandboxed
-  environment when browsing untrusted files.
+- **Untrusted HTML** — HTML, Markdown, and Word HTML previews are rendered by a
+  headless Chrome subprocess. JavaScript is disabled (`--disable-javascript`)
+  and outbound network access is blocked (`--proxy-server` to a dead endpoint,
+  `--block-new-web-contents`). Width overflow detection still injects a JS
+  marker, which does not run while JS is off, so very wide documents may not
+  trigger a second screenshot. Preview only content you trust.
 
 ## HiDPI / 4K Displays (Windows)
 

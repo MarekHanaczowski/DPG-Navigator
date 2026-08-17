@@ -17,6 +17,12 @@ All notable changes to this project will be documented in this file.
 
 - GitHub Actions third-party steps are pinned to commit SHAs (not floating tags)
   in `ci.yml` and `publish.yml`.
+- Tests cover ZipSlip extraction (ZIP/7z) and DialogLogic archive navigation
+  (`navigate_to`, `go_up`, `go_back`).
+- Source-code preview is documented as monospace text; the `[code]` extra no
+  longer claims Pygments/Chrome highlighting or pulls html2image.
+- HTML preview docs match Chrome flags: JavaScript is disabled and network
+  access is blocked; the overflow marker does not run while JS is off.
 
 ### Fixed
 
@@ -30,6 +36,11 @@ All notable changes to this project will be documented in this file.
   extracts the member before invoking the host callback.
 - The Subfolders checkbox now updates `search_subfolders` and drops deep-search
   rows when unchecked.
+- `html_available()` / `chrome_available()` are implemented once in `_html.py`
+  (`html2image` + numpy + Pillow, cached Chrome binary). `_availability`
+  delegates instead of probing html2image alone.
+- Excel preview stops after the display bound instead of scanning the whole
+  sheet, and reports `N+` when more rows remain.
 
 ## [1.0.0b3] - 2026-07-10
 

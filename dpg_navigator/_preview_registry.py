@@ -96,14 +96,15 @@ class PreviewCapabilities:
 
 
 def html_active_extensions(capabilities: PreviewCapabilities) -> frozenset[str]:
-    """Return extensions that keep an active HTML renderer open."""
+    """Return extensions that keep an active HTML renderer open.
+
+    Source-code files are not included: they use the text preview, not Chrome.
+    """
     extensions = HTML_EXTS
     if capabilities.mammoth:
         extensions |= WORD_EXTS
     if capabilities.markdown:
         extensions |= MD_EXTS
-    if capabilities.pygments:
-        extensions |= CODE_EXTS
     return extensions
 
 

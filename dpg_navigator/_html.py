@@ -88,6 +88,9 @@ _CSS_RESET = (
     "</style>"
 )
 
+# Encodes DOM scrollWidth into pixel (3,3). Inert while Chrome is launched
+# with --disable-javascript (production flags). Kept so a wider re-render
+# can still run if that flag is ever dropped.
 _OVERFLOW_MARKER = (
     '<script>window.addEventListener("load",function(){'
     'var m=document.createElement("div");'
@@ -120,7 +123,10 @@ def _get_bg_f32() -> "_np.ndarray":
 # ── Pure helper functions ──────────────────────────────────────
 
 def _inject_helpers(html: str) -> str:
-    """Inject CSS reset and JS overflow marker into raw HTML."""
+    """Inject CSS reset and JS overflow marker into raw HTML.
+
+    The marker does not run under the default ``--disable-javascript`` flag.
+    """
     if "</head>" in html:
         html = html.replace("</head>", _CSS_RESET + "</head>", 1)
     else:
@@ -300,6 +306,8 @@ class HTMLRenderer:
                             '--force-device-scale-factor=1',
                             '--disable-gpu',
                             '--log-level=3',
+                            # JS off: untrusted HTML must not run. The injected
+                            # overflow marker is therefore a no-op (see A06).
                             '--disable-javascript',
                             '--proxy-server="http://127.0.0.1:0"',
                             '--block-new-web-contents',

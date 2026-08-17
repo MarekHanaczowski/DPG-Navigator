@@ -6,8 +6,8 @@ recursive subfolder index, extension filtering, column sorting,
 multi-selection, new folder creation, archive browsing (ZIP/7z), and an
 optional preview panel supporting images, text, PDF, Word (.docx),
 PowerPoint (.pptx), Markdown, HTML, CSV/TSV, Excel (.xlsx), SQLite
-databases, fonts (.ttf/.otf), ZIP/7z archives, and syntax-highlighted
-source code (via Pygments).
+databases, fonts (.ttf/.otf), ZIP/7z archives, and source code as
+plain text.
 """
 from __future__ import annotations
 # MIT licensed
@@ -67,7 +67,7 @@ class FileDialog(KeyboardMixin):
     - SQLite databases (read-only table browsing)
     - Fonts .ttf/.otf (live glyph preview)
     - ZIP/7z archives (file list with compression ratios)
-    - Source code (Pygments syntax highlighting)
+    - Source code (monospace text preview)
 
     Args:
         callback: Function called with list of selected file paths on OK.

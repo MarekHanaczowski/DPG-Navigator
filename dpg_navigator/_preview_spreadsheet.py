@@ -64,24 +64,24 @@ def load_excel_table(
             return SpreadsheetTable([], [], "No sheets found", sheetnames, "")
 
         selected_sheet = worksheet.title
-        all_rows: list[list[str]] = []
-        total_rows = 0
+        # Header + displayed rows + one sentinel to detect truncation. Do not
+        # walk the rest of the sheet (wide/tall workbooks stall the preview).
+        scan_limit = max_rows + 2
+        fetched: list[list[str]] = []
         widest_row = 0
 
-        for row in worksheet.iter_rows(values_only=True):
-            total_rows += 1
-            if len(all_rows) < max_rows + 1:
-                all_rows.append([
-                    str(cell) if cell is not None else ""
-                    for cell in row[:max_cols]
-                ])
+        for row in worksheet.iter_rows(max_row=scan_limit, values_only=True):
             widest_row = max(widest_row, len(row))
+            fetched.append([
+                str(cell) if cell is not None else ""
+                for cell in row[:max_cols]
+            ])
     except Exception as exc:
         raise ExcelPreviewError(str(exc)) from exc
     finally:
         workbook.close()
 
-    if not all_rows:
+    if not fetched:
         return SpreadsheetTable(
             [],
             [],
@@ -90,9 +90,14 @@ def load_excel_table(
             selected_sheet,
         )
 
-    headers = all_rows[0]
-    rows = all_rows[1:]
-    total_data_rows = total_rows - 1
+    headers = fetched[0]
+    rows = fetched[1:]
+    row_capped = len(fetched) >= scan_limit
+    if row_capped:
+        rows = rows[:max_rows]
+        total_label = f"{max_rows}+"
+    else:
+        total_label = str(len(rows))
     display_cols = min(widest_row, max_cols)
 
     while len(headers) < display_cols:
@@ -100,10 +105,10 @@ def load_excel_table(
 
     parts = [
         f"Sheet: {selected_sheet}",
-        f"{total_data_rows} rows \u00d7 {widest_row} cols",
+        f"{total_label} rows \u00d7 {widest_row} cols",
     ]
     truncated = []
-    if len(rows) < total_data_rows:
+    if row_capped:
         truncated.append(f"first {len(rows)} rows")
     if display_cols < widest_row:
         truncated.append(f"first {display_cols} cols")

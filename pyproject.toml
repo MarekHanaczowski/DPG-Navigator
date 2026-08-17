@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "dpg-navigator"
 dynamic = ["version"]
-description = "File dialog with rich preview panel for DearPyGui — images, PDF, Word, Excel, code highlighting, archives, and more"
+description = "File dialog with rich preview panel for DearPyGui — images, PDF, Word, Excel, archives, and more"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.8"
@@ -40,7 +40,7 @@ html = ["html2image>=2.0", "numpy>=1.24", "Pillow>=9.0"]
 markdown = ["markdown>=3.4", "html2image>=2.0", "numpy>=1.24", "Pillow>=9.0"]
 excel = ["openpyxl>=3.0"]
 archive = ["py7zr>=0.20.0"]
-code = ["Pygments>=2.15.0", "html2image>=2.0", "numpy>=1.24", "Pillow>=9.0"]
+code = ["Pygments>=2.15.0"]
 all = [
     "Pillow>=9.0",
     "pypdfium2>=4.0",

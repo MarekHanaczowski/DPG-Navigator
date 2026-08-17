@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
+import tempfile
 import time
+import uuid
 import zipfile
 from unittest.mock import patch, MagicMock
 
@@ -504,6 +506,125 @@ class TestExtractFromArchive:
             )
             assert extracted is not None
             assert os.path.isfile(extracted)
+        finally:
+            DirectoryLister.cleanup_temp_files()
+
+
+class TestZipSlipExtraction:
+    """Traversal members must not be written outside the session extract root."""
+
+    def _probe_name(self) -> str:
+        return f"dpg_zipslip_{uuid.uuid4().hex}.txt"
+
+    def _escaped_locations(self, probe: str) -> list[str]:
+        session = DirectoryLister._session_temp_dir
+        locations = [
+            os.path.join(tempfile.gettempdir(), probe),
+        ]
+        if session:
+            locations.append(os.path.join(session, probe))
+            parent = os.path.dirname(session)
+            locations.append(os.path.join(parent, probe))
+        return locations
+
+    def _assert_blocked(self, extracted: str | None, probe: str) -> None:
+        assert extracted is None
+        for path in self._escaped_locations(probe):
+            assert not os.path.isfile(path), f"ZipSlip wrote {path}"
+
+    def test_zip_dotdot_member_is_blocked(self, tmp_path):
+        probe = self._probe_name()
+        archive_path = tmp_path / "evil.zip"
+        with zipfile.ZipFile(archive_path, "w") as zf:
+            zf.writestr(zipfile.ZipInfo(f"../{probe}"), b"pwned")
+
+        try:
+            extracted = DirectoryLister.extract_from_archive(
+                f"{archive_path}|/../{probe}",
+            )
+            self._assert_blocked(extracted, probe)
+        finally:
+            DirectoryLister.cleanup_temp_files()
+
+    def test_zip_nested_dotdot_member_is_blocked(self, tmp_path):
+        probe = self._probe_name()
+        archive_path = tmp_path / "evil.zip"
+        with zipfile.ZipFile(archive_path, "w") as zf:
+            zf.writestr(zipfile.ZipInfo(f"foo/../../{probe}"), b"pwned")
+
+        try:
+            extracted = DirectoryLister.extract_from_archive(
+                f"{archive_path}|/foo/../../{probe}",
+            )
+            self._assert_blocked(extracted, probe)
+        finally:
+            DirectoryLister.cleanup_temp_files()
+
+    def test_zip_backslash_dotdot_member_is_blocked(self, tmp_path):
+        probe = self._probe_name()
+        member = f"..\\{probe}"
+        archive_path = tmp_path / "evil.zip"
+        with zipfile.ZipFile(archive_path, "w") as zf:
+            zf.writestr(zipfile.ZipInfo(member), b"pwned")
+
+        try:
+            extracted = DirectoryLister.extract_from_archive(
+                f"{archive_path}|/{member}",
+            )
+            self._assert_blocked(extracted, probe)
+            assert not (tmp_path / probe).is_file()
+        finally:
+            DirectoryLister.cleanup_temp_files()
+
+    def test_resolve_archive_selection_reports_zipslip(self, tmp_path):
+        probe = self._probe_name()
+        archive_path = tmp_path / "evil.zip"
+        with zipfile.ZipFile(archive_path, "w") as zf:
+            zf.writestr(zipfile.ZipInfo(f"../{probe}"), b"pwned")
+
+        try:
+            resolved, failed = resolve_archive_selection(
+                [f"{archive_path}|/../{probe}"],
+            )
+            assert resolved == []
+            assert failed == probe
+            self._assert_blocked(None, probe)
+        finally:
+            DirectoryLister.cleanup_temp_files()
+
+    def test_7z_dotdot_member_is_blocked(self, tmp_path):
+        py7zr = pytest.importorskip("py7zr")
+        probe = self._probe_name()
+        payload = tmp_path / "payload.txt"
+        payload.write_bytes(b"pwned")
+        archive_path = tmp_path / "evil.7z"
+        with py7zr.SevenZipFile(archive_path, "w") as archive:
+            archive.write(str(payload), f"../{probe}")
+
+        try:
+            extracted = DirectoryLister.extract_from_archive(
+                f"{archive_path}|/../{probe}",
+            )
+            self._assert_blocked(extracted, probe)
+        finally:
+            DirectoryLister.cleanup_temp_files()
+
+    def test_7z_backslash_dotdot_member_is_blocked(self, tmp_path):
+        py7zr = pytest.importorskip("py7zr")
+        probe = self._probe_name()
+        payload = tmp_path / "payload.txt"
+        payload.write_bytes(b"pwned")
+        archive_path = tmp_path / "evil.7z"
+        member = f"..\\{probe}"
+        with py7zr.SevenZipFile(archive_path, "w") as archive:
+            archive.write(str(payload), member)
+
+        try:
+            extracted = DirectoryLister.extract_from_archive(
+                f"{archive_path}|/{member}",
+            )
+            self._assert_blocked(extracted, probe)
+            assert not (tmp_path / probe).is_file()
         finally:
             DirectoryLister.cleanup_temp_files()
 

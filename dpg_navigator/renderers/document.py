@@ -16,7 +16,7 @@ from ._base import BaseRenderer, PreviewContext
 from .._types import FileEntry
 from .._filesystem import DirectoryLister
 from .._pdf import PDFRenderer
-from .._html import HTMLRenderer
+from .._html import HTMLRenderer, chrome_available
 from .._preview_word import load_word_document, WordTable, WordPreviewError
 from .._preview_presentation import load_presentation, PresentationPreviewError
 from .._availability import (
@@ -26,7 +26,6 @@ from .._availability import (
     _markdown,
     _DocxDocument,
     _Presentation,
-    chrome_available,
 )
 
 _log = logging.getLogger(__name__)

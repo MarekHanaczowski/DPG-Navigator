@@ -24,25 +24,18 @@ def pdf_available() -> bool:
     return _pdfium is not None and _np is not None and _PILImage is not None
 
 
-# HTML & Chrome
-try:
-    from html2image import Html2Image as _Html2Image
-except Exception:
-    _Html2Image = cast(Any, None)
-
+# HTML & Chrome — canonical probes live in _html.py (html2image + numpy +
+# Pillow, and a cached Chrome binary lookup). Imported lazily so this module
+# stays GUI-free at import time.
 def html_available() -> bool:
-    """Return True if html2image is installed."""
-    return _Html2Image is not None
+    """Return True if html2image, numpy, and Pillow are installed."""
+    from ._html import html_available as _html_available
+    return _html_available()
 
 def chrome_available() -> bool:
-    """Return True if html_available and Chrome is found."""
-    if not html_available():
-        return False
-    try:
-        _h2i = _Html2Image()
-        return bool(_h2i.browser.executable)
-    except Exception:
-        return False
+    """Return True if HTML packages are present and a Chrome binary is found."""
+    from ._html import chrome_available as _chrome_available
+    return _chrome_available()
 
 
 # Word
@@ -97,21 +90,15 @@ def markdown_available() -> bool:
     return _markdown is not None and html_available()
 
 
-# Pygments
+# Pygments — installed for PreviewKind.CODE routing; highlighting is not rendered.
 try:
-    from pygments import highlight as _highlight
-    from pygments.lexers import get_lexer_for_filename as _get_lexer
-    from pygments.formatters import HtmlFormatter as _HtmlFormatter
-    from pygments.util import ClassNotFound as _ClassNotFound
+    import pygments as _pygments
 except Exception:
-    _highlight = cast(Any, None)
-    _get_lexer = cast(Any, None)
-    _HtmlFormatter = cast(Any, None)
-    _ClassNotFound = cast(Any, None)
+    _pygments = cast(Any, None)
 
 def pygments_available() -> bool:
-    """Return True if Pygments code highlighting dependencies are installed."""
-    return _highlight is not None and html_available()
+    """Return True if Pygments is installed."""
+    return _pygments is not None
 
 
 # 7z

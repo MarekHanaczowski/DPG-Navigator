@@ -63,6 +63,31 @@ class TestChromeAvailable:
             get_hti.assert_called_once()
 
 
+class TestChromeFlags:
+    """Production Chrome flags disable JS and block network."""
+
+    def test_disable_javascript_and_dead_proxy(self):
+        fake_hti = MagicMock()
+        fake_hti.browser._subprocess_run_kwargs = {}
+        with patch.object(HTMLRenderer, "_hti", None), \
+             patch.object(htmlmod, "_Html2Image", return_value=fake_hti) as ctor:
+            HTMLRenderer._get_hti()
+        flags = ctor.call_args.kwargs["custom_flags"]
+        assert "--disable-javascript" in flags
+        assert any(item.startswith("--proxy-server=") for item in flags)
+        assert "--block-new-web-contents" in flags
+
+
+class TestInjectHelpers:
+    def test_injects_css_reset_and_overflow_script(self):
+        html = "<html><head></head><body><p>hi</p></body></html>"
+        out = _inject_helpers(html)
+        assert "<style>" in out
+        assert out.index("<style>") < out.index("</head>")
+        assert "<script>" in out
+        assert "scrollWidth" in out
+
+
 class TestChromeTimeout:
     """_get_hti() injects a subprocess timeout so a hung Chrome cannot block."""
 

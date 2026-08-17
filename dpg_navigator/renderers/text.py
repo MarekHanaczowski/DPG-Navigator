@@ -7,7 +7,7 @@ from .._types import FileEntry
 from typing import Callable, Tuple, Optional
 
 class TextRenderer(BaseRenderer):
-    """Render text and syntax-highlighted source previews."""
+    """Render text and source-code previews."""
 
     _TEXT_PREVIEW_MAX_SIZE = 100 * 1024  # 100 KB chunks
 

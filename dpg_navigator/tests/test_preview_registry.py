@@ -72,8 +72,8 @@ class TestHtmlActiveExtensions:
         )
 
         assert MD_EXTS <= extensions
-        assert CODE_EXTS <= extensions
         assert WORD_EXTS <= extensions
+        assert not CODE_EXTS.issubset(extensions)
 
 
 class TestExtensionlessFilenames:

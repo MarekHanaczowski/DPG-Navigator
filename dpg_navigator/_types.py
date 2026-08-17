@@ -69,7 +69,7 @@ class DialogConfig:
         show_hidden: Display hidden files (Windows attribute / dot-prefix).
         show_preview: Show the right-side preview panel (images, text, PDF,
             HTML, Word, PPTX, Markdown, CSV, Excel, SQLite, fonts, archives,
-            code with Pygments highlighting).
+            source code as text).
         preview_width: Initial preview panel width in pixels (user-resizable).
         search_subfolders: Enable "Subfolders" checkbox for recursive search
             via background DirectoryIndex.

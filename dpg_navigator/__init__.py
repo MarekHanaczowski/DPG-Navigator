@@ -6,8 +6,7 @@ recursive subfolder search via background index), extension filtering,
 multi-selection, drag-and-drop support, and an optional preview panel
 supporting images, text, PDF, Word (.docx), PowerPoint (.pptx),
 Markdown, HTML, CSV/TSV, Excel (.xlsx), SQLite databases, fonts
-(.ttf/.otf), ZIP/7z archives, and syntax-highlighted source code
-(via Pygments).
+(.ttf/.otf), ZIP/7z archives, and source code as text.
 
 Usage::
 
