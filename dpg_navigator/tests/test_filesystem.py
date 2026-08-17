@@ -9,7 +9,13 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from dpg_navigator._filesystem import DirectoryLister, DirectoryIndex, MAX_SCAN_DEPTH, INDEX_SCAN_DEPTH
+from dpg_navigator._filesystem import (
+    DirectoryLister,
+    DirectoryIndex,
+    MAX_SCAN_DEPTH,
+    INDEX_SCAN_DEPTH,
+    resolve_archive_selection,
+)
 from dpg_navigator._types import FileEntry
 
 
@@ -498,6 +504,65 @@ class TestExtractFromArchive:
             )
             assert extracted is not None
             assert os.path.isfile(extracted)
+        finally:
+            DirectoryLister.cleanup_temp_files()
+
+
+class TestResolveArchiveSelection:
+    def test_keeps_plain_paths(self, tmp_path):
+        local = str(tmp_path / "a.txt")
+        resolved, failed = resolve_archive_selection([local, str(tmp_path / "b.txt")])
+        assert failed is None
+        assert resolved == [local, str(tmp_path / "b.txt")]
+
+    def test_extracts_virtual_zip_member(self, tmp_path):
+        archive_path = tmp_path / "sample.zip"
+        with zipfile.ZipFile(archive_path, "w") as zf:
+            zf.writestr("docs/readme.txt", "hello")
+
+        try:
+            resolved, failed = resolve_archive_selection(
+                [f"{archive_path}|/docs/readme.txt"],
+            )
+            assert failed is None
+            assert len(resolved) == 1
+            assert os.path.isfile(resolved[0])
+            with open(resolved[0], "r", encoding="utf-8") as handle:
+                assert handle.read() == "hello"
+        finally:
+            DirectoryLister.cleanup_temp_files()
+
+    def test_returns_failed_name_when_oversized(self, tmp_path):
+        archive_path = tmp_path / "large.zip"
+        with zipfile.ZipFile(archive_path, "w") as zf:
+            zf.writestr("docs/large.txt", "x" * 32)
+
+        try:
+            resolved, failed = resolve_archive_selection(
+                [f"{archive_path}|/docs/large.txt"],
+                max_size=8,
+            )
+            assert failed == "large.txt"
+            assert resolved == []
+        finally:
+            DirectoryLister.cleanup_temp_files()
+
+    def test_mixed_local_and_virtual(self, tmp_path):
+        local = str(tmp_path / "local.txt")
+        (tmp_path / "local.txt").write_text("ok")
+        archive_path = tmp_path / "sample.zip"
+        with zipfile.ZipFile(archive_path, "w") as zf:
+            zf.writestr("inner.txt", "zip")
+
+        try:
+            resolved, failed = resolve_archive_selection(
+                [local, f"{archive_path}|/inner.txt"],
+            )
+            assert failed is None
+            assert resolved[0] == local
+            assert os.path.isfile(resolved[1])
+            with open(resolved[1], "r", encoding="utf-8") as handle:
+                assert handle.read() == "zip"
         finally:
             DirectoryLister.cleanup_temp_files()
 

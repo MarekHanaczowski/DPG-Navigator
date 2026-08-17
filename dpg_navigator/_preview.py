@@ -20,6 +20,60 @@ from .renderers.archive import ArchiveRenderer
 from .renderers.document import DocumentRenderer
 from .renderers.font import FontRenderer
 
+_UTF16_LE_BOM = b"\xff\xfe"
+_UTF16_BE_BOM = b"\xfe\xff"
+_NUL = b"\x00"
+
+
+def decode_preview_bytes(
+    raw_bytes: bytes,
+    *,
+    known_encoding: str | None = None,
+) -> tuple[str | None, bool, str | None]:
+    """Decode a file fragment for the text preview.
+
+    Returns ``(text, is_binary, encoding)``. Binary fragments return
+    ``(None, True, None)``. Empty input returns ``("", False, None)``.
+    """
+    if not raw_bytes:
+        return "", False, None
+
+    if known_encoding:
+        return (
+            raw_bytes.decode(known_encoding, errors="replace"),
+            False,
+            known_encoding,
+        )
+
+    try:
+        return raw_bytes.decode("utf-8-sig"), False, "utf-8-sig"
+    except UnicodeDecodeError:
+        pass
+
+    has_bom = raw_bytes.startswith((_UTF16_LE_BOM, _UTF16_BE_BOM))
+    is_utf16_likely = has_bom
+    if not is_utf16_likely and len(raw_bytes) >= 4:
+        sample = raw_bytes[:1024]
+        nulls_even = sample[0::2].count(_NUL)
+        nulls_odd = sample[1::2].count(_NUL)
+        if nulls_even > len(sample) // 4 or nulls_odd > len(sample) // 4:
+            is_utf16_likely = True
+
+    if is_utf16_likely:
+        try:
+            return raw_bytes.decode("utf-16"), False, "utf-16"
+        except UnicodeDecodeError:
+            pass
+
+    check_size = min(len(raw_bytes), 8192)
+    if _NUL in raw_bytes[:check_size]:
+        return None, True, None
+
+    try:
+        return raw_bytes.decode("cp1250"), False, "cp1250"
+    except UnicodeDecodeError:
+        return raw_bytes.decode("cp1250", errors="replace"), False, "cp1250"
+
 
 class PreviewPanel:
     """Route selected files to the appropriate DearPyGui preview renderer."""
@@ -193,49 +247,14 @@ class PreviewPanel:
                 if seek_offset > 0:
                     f.seek(seek_offset)
                 raw_bytes = f.read(self._TEXT_PREVIEW_MAX_SIZE)
-            
-            if not raw_bytes:
-                return "", False
 
-            if seek_offset > 0 and self._text_encoding:
-                return raw_bytes.decode(self._text_encoding, errors="replace"), False
-                
-            try:
-                text = raw_bytes.decode("utf-8-sig")
-                self._text_encoding = "utf-8-sig"
-                return text, False
-            except UnicodeDecodeError:
-                pass
-
-            has_bom = raw_bytes.startswith((b'\\xff\\xfe', b'\\xfe\\xff'))
-            is_utf16_likely = has_bom
-            if not is_utf16_likely and len(raw_bytes) >= 4:
-                sample = raw_bytes[:1024]
-                nulls_even = sample[0::2].count(b'\\x00')
-                nulls_odd = sample[1::2].count(b'\\x00')
-                if (nulls_even > len(sample)//4 or nulls_odd > len(sample)//4):
-                    is_utf16_likely = True
-
-            if is_utf16_likely:
-                try:
-                    text = raw_bytes.decode("utf-16")
-                    self._text_encoding = "utf-16"
-                    return text, False
-                except UnicodeDecodeError:
-                    pass
-            
-            check_size = min(len(raw_bytes), 8192)
-            if b"\\x00" in raw_bytes[:check_size]:
-                return None, True
-                
-            try:
-                text = raw_bytes.decode("cp1250")
-                self._text_encoding = "cp1250"
-                return text, False
-            except UnicodeDecodeError:
-                self._text_encoding = "cp1250"
-                return raw_bytes.decode("cp1250", errors="replace"), False
-                
+            known = self._text_encoding if seek_offset > 0 else None
+            text, is_bin, encoding = decode_preview_bytes(
+                raw_bytes, known_encoding=known,
+            )
+            if encoding is not None:
+                self._text_encoding = encoding
+            return text, is_bin
         except (OSError, PermissionError):
             return None, False
 

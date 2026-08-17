@@ -18,6 +18,19 @@ All notable changes to this project will be documented in this file.
 - GitHub Actions third-party steps are pinned to commit SHAs (not floating tags)
   in `ci.yml` and `publish.yml`.
 
+### Fixed
+
+- Text preview binary/UTF-16 detection now inspects real BOM and NUL bytes
+  instead of escaped ASCII lookalikes, so UTF-16 files decode and binary files
+  are no longer shown as cp1250 garbage.
+- Background listing and directory-size updates marshal through `FileDialog`'s
+  `_safe_*` helpers (destroyed check + `dpg.mutex()`), instead of calling DPG
+  directly from worker threads.
+- Confirming a selection inside an archive (Enter or OK, not only double-click)
+  extracts the member before invoking the host callback.
+- The Subfolders checkbox now updates `search_subfolders` and drops deep-search
+  rows when unchecked.
+
 ## [1.0.0b3] - 2026-07-10
 
 ### Fixed

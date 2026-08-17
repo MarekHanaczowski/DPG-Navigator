@@ -397,49 +397,49 @@ class DialogUIBuilder:
                     with dpg.tooltip(btn_cancel):
                         dpg.add_text("Close dialog (Esc)")
     def _render_entries_list(self, entries: list[FileEntry]) -> None:
-            with dpg.mutex():
-                status_label = getattr(self.dialog, "_status_label", None)
-                if status_label is not None and dpg.does_item_exist(status_label):
-                    dpg.hide_item(status_label)
-    
-                dpg.configure_item(self.dialog._path_input, default_value=self.state.current_dir)
-    
-                for child in dpg.get_item_children(self.dialog._explorer_table, 1):
-                    dpg.delete_item(child)
-    
-                with dpg.table_row(parent=self.dialog._explorer_table):
-                    dpg.add_selectable(
-                        label="..",
-                        callback=self.dialog._on_back,
-                        span_columns=True,
-                        height=self.dialog._selec_height,
+            """Rebuild explorer rows. Caller must hold ``dpg.mutex()``."""
+            status_label = getattr(self.dialog, "_status_label", None)
+            if status_label is not None and dpg.does_item_exist(status_label):
+                dpg.hide_item(status_label)
+
+            dpg.configure_item(self.dialog._path_input, default_value=self.state.current_dir)
+
+            for child in dpg.get_item_children(self.dialog._explorer_table, 1):
+                dpg.delete_item(child)
+
+            with dpg.table_row(parent=self.dialog._explorer_table):
+                dpg.add_selectable(
+                    label="..",
+                    callback=self.dialog._on_back,
+                    span_columns=True,
+                    height=self.dialog._selec_height,
+                )
+
+            self.state.deep_separator_row = None
+            for entry in entries:
+                try:
+                    if entry.name == "\0deep_sep":
+                        with dpg.table_row(parent=self.dialog._explorer_table) as separator_row:
+                            dpg.add_selectable(
+                                label="-- Subfolders --",
+                                enabled=False,
+                                span_columns=True,
+                                height=self.dialog._selec_height,
+                            )
+                        self.state.deep_separator_row = separator_row
+                        continue
+                    parent = (
+                        os.path.dirname(entry.full_path) if entry.full_path else ""
                     )
-    
-                self.state.deep_separator_row = None
-                for entry in entries:
-                    try:
-                        if entry.name == "\0deep_sep":
-                            with dpg.table_row(parent=self.dialog._explorer_table) as separator_row:
-                                dpg.add_selectable(
-                                    label="-- Subfolders --",
-                                    enabled=False,
-                                    span_columns=True,
-                                    height=self.dialog._selec_height,
-                                )
-                            self.state.deep_separator_row = separator_row
-                            continue
-                        parent = (
-                            os.path.dirname(entry.full_path) if entry.full_path else ""
-                        )
-                        relative = bool(
-                            self.state.search_query
-                            and parent
-                            and os.path.normpath(parent)
-                            != os.path.normpath(self.state.current_dir)
-                        )
-                        self._render_entry(entry, relative_label=relative)
-                    except Exception:
-                        _log.exception(
-                            "Failed to render entry: %s",
-                            getattr(entry, "full_path", "?"),
-                        )
+                    relative = bool(
+                        self.state.search_query
+                        and parent
+                        and os.path.normpath(parent)
+                        != os.path.normpath(self.state.current_dir)
+                    )
+                    self._render_entry(entry, relative_label=relative)
+                except Exception:
+                    _log.exception(
+                        "Failed to render entry: %s",
+                        getattr(entry, "full_path", "?"),
+                    )

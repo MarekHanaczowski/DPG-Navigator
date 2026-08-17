@@ -231,6 +231,34 @@ def build_selection_list(
     return list(selected_files)
 
 
+def resolve_archive_selection(
+    paths: list[str],
+    *,
+    max_size: int | None = None,
+) -> tuple[list[str], str | None]:
+    """Extract archive virtual paths in *paths* to session temp files.
+
+    Paths without ``|`` are kept as-is. Returns ``(resolved, failed_name)``
+    where *failed_name* is the basename of the first member that could not
+    be extracted (encrypted, oversized, ZipSlip, missing). On failure
+    *resolved* may be partial and must be discarded by the caller.
+    """
+    resolved: list[str] = []
+    for path in paths:
+        if "|" not in path:
+            resolved.append(path)
+            continue
+        extracted = DirectoryLister.extract_from_archive(
+            path, max_size=max_size,
+        )
+        if not extracted:
+            inner = path.rsplit("|", 1)[-1].replace("\\", "/").strip("/")
+            name = inner.rsplit("/", 1)[-1] if inner else path
+            return resolved, name
+        resolved.append(extracted)
+    return resolved, None
+
+
 class DirectoryIndex:
     """Background-built in-memory index for fast recursive file search.
 

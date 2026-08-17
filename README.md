@@ -51,6 +51,12 @@ dpg.destroy_context()
 
 The callback can be changed at any time via `fd.change_callback(new_handler)`.
 
+Selecting a file **inside** an archive (Enter, OK, or double-click) extracts it
+to a session temp directory and passes that real filesystem path to the
+callback. Those temp files are deleted when the **last** `FileDialog` in the
+process is `destroy()`ed — copy or open them before tearing down the dialog if
+the host still needs the bytes.
+
 ## Features
 
 - Modal or non-modal file and directory picker

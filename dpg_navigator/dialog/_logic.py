@@ -275,3 +275,26 @@ class DialogLogic:
                 self.update_size_cell(path, DirectoryLister.format_size(size))
 
         JobManager.submit(_compute)
+
+    def set_search_subfolders(self, enabled: bool) -> None:
+        """Enable or disable recursive subfolder search.
+
+        When turning the option off, the background index is invalidated and
+        the current listing is refreshed immediately so deep-search rows
+        disappear. When turning it on, a cancellable index build is started
+        if one is not already ready.
+        """
+        self.config.search_subfolders = enabled
+        if enabled:
+            if not self._dir_index.ready:
+                self.start_index_build()
+            if self.state.search_query:
+                self.trigger_search(self.state.search_query)
+            return
+
+        self.state.index_generation += 1
+        self._dir_index.invalidate()
+        if self.state.search_debounce_timer:
+            JobManager.cancel_timer(self.state.search_debounce_timer)
+            self.state.search_debounce_timer = None
+        self.refresh_listing(self.state.search_query)

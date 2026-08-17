@@ -25,7 +25,12 @@ _log = logging.getLogger(__name__)
 
 from ._types import DialogConfig, DialogMode, StyleVariant, FileEntry, DEFAULT_FILTER_LIST
 from ._icons import IconRegistry
-from ._filesystem import DirectoryLister, DirectoryIndex, build_selection_list
+from ._filesystem import (
+    DirectoryLister,
+    DirectoryIndex,
+    build_selection_list,
+    resolve_archive_selection,
+)
 from ._preview_registry import ZIP_EXTS, SEVEN_Z_EXTS
 from ._preview import PreviewPanel
 from ._styles import STYLE_REGISTRY
@@ -163,10 +168,10 @@ class FileDialog(KeyboardMixin):
         self.logic = DialogLogic(
             state=self.state,
             config=self._config,
-            refresh_ui_cb=lambda entries: self.ui._render_entries_list(entries),
+            refresh_ui_cb=self._safe_refresh_ui,
             show_error_cb=self._show_message,
-            update_path_input_cb=lambda path: dpg.configure_item(self._path_input, default_value=path) if hasattr(self, '_path_input') else None,
-            update_size_cell_cb=lambda path, txt: dpg.configure_item(self.state.pending_size_cells[path], label=txt) if path in self.state.pending_size_cells else None
+            update_path_input_cb=self._safe_update_path_input,
+            update_size_cell_cb=self._safe_update_size_cell,
         )
 
         self._preview = PreviewPanel(
@@ -287,13 +292,16 @@ class FileDialog(KeyboardMixin):
         if self._destroyed or not hasattr(self, "_path_input"):
             return
         with dpg.mutex():
-            if dpg.does_item_exist(self._path_input):
-                dpg.configure_item(self._path_input, default_value=path)
+            if self._destroyed or not dpg.does_item_exist(self._path_input):
+                return
+            dpg.configure_item(self._path_input, default_value=path)
 
     def _safe_update_size_cell(self, path: str, txt: str) -> None:
         if self._destroyed:
             return
         with dpg.mutex():
+            if self._destroyed:
+                return
             cell = self.state.pending_size_cells.get(path)
             if cell is not None and dpg.does_item_exist(cell):
                 dpg.configure_item(cell, label=txt)
@@ -522,31 +530,6 @@ class FileDialog(KeyboardMixin):
             self.state.selected_files = [entry.full_path]
             dpg.set_value(self._filename_input, entry.name)
             if is_double:
-                # If it's a virtual path (inside archive), extract it first
-                if "|" in entry.full_path:
-                    # Visual feedback that we are working
-                    original_title = dpg.get_item_label(self._config.tag)
-                    dpg.set_item_label(self._config.tag, f"{original_title} - Extracting...")
-                    try:
-                        temp_path = DirectoryLister.extract_from_archive(
-                            entry.full_path,
-                            max_size=self._MAX_ARCHIVE_EXTRACT_SIZE,
-                        )
-                    finally:
-                        if dpg.does_item_exist(self._config.tag):
-                            dpg.set_item_label(self._config.tag, original_title)
-
-                    if temp_path:
-                        self.state.selected_files = [temp_path]
-                    else:
-                        self._show_message(
-                            "Extraction Error",
-                            f"Could not extract '{entry.name}' from archive.\n"
-                            "It might be encrypted, corrupted, or larger than the "
-                            "extraction limit."
-                        )
-                        return
-                
                 self._return_selection()
                 return
 
@@ -564,15 +547,43 @@ class FileDialog(KeyboardMixin):
     # ── Selection & return ──────────────────────────────────────
 
     def _return_selection(self) -> None:
-        """Invoke callback with selected files and hide the dialog."""
+        """Invoke callback with selected files and hide the dialog.
+
+        Archive virtual paths (``archive|/inner``) are extracted to the
+        session temp dir first. Extraction failure leaves the dialog open.
+        """
         typed_name = dpg.get_value(self._filename_input)
         selection = build_selection_list(
             self.state.selected_files, typed_name, self.state.current_dir,
         )
 
+        needs_extract = any("|" in path for path in selection)
+        original_title = None
+        if needs_extract and dpg.does_item_exist(self._config.tag):
+            original_title = dpg.get_item_label(self._config.tag)
+            dpg.set_item_label(
+                self._config.tag, f"{original_title} - Extracting...",
+            )
+        try:
+            resolved, failed_name = resolve_archive_selection(
+                selection, max_size=self._MAX_ARCHIVE_EXTRACT_SIZE,
+            )
+        finally:
+            if original_title is not None and dpg.does_item_exist(self._config.tag):
+                dpg.set_item_label(self._config.tag, original_title)
+
+        if failed_name is not None:
+            self._show_message(
+                "Extraction Error",
+                f"Could not extract '{failed_name}' from archive.\n"
+                "It might be encrypted, corrupted, or larger than the "
+                "extraction limit.",
+            )
+            return
+
         self.hide()
         if self._callback is not None:
-            self._callback(selection)
+            self._callback(resolved)
         self.state.selected_files.clear()
         self.state.selected_elements.clear()
 
@@ -597,9 +608,7 @@ class FileDialog(KeyboardMixin):
 
     def _on_subfolder_toggle(self, sender, app_data, user_data) -> None:
         """Handle subfolder search checkbox toggle."""
-        enabled = dpg.get_value(sender)
-        if enabled and not self._dir_index.ready:
-            self.logic.start_index_build()
+        self.logic.set_search_subfolders(bool(dpg.get_value(sender)))
 
     def _on_filter_change(self, sender, app_data, user_data) -> None:
         """Handle file type filter combo selection change."""
