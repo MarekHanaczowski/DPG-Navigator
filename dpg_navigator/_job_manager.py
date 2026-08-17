@@ -1,19 +1,21 @@
 """JobManager for handling background threads and timers.
 
-Provides a centralized manager for background tasks, using short-lived
-daemon threads that terminate after a single task. This avoids long-lived
-worker threads that outlive the work they perform, while still giving a
-convenient `submit`/`Future` API.
-
-Also provides a dedicated Timer loop that avoids spawning OS threads for
-every scheduled timer, heavily reducing thread-churn during debouncing.
+Worker tasks run on a bounded pool of daemon threads so a burst of
+index/size/preview jobs cannot spawn one OS thread per task. Timers share
+one min-heap loop and dispatch into the same pool.
 """
 
 from __future__ import annotations
+
+import heapq
+import queue
 import threading
 import time
-import heapq
+from typing import Any
 from concurrent.futures import Future
+
+_MAX_WORKERS = 8
+
 
 class TimerTask:
     """Represents a scheduled timer task."""
@@ -32,11 +34,21 @@ class TimerTask:
         # For heapq sorting based on execution time
         return self.execute_at < other.execute_at
 
+
+class _Stop:
+    """Sentinel that tells one worker of a given pool generation to exit."""
+
+    def __init__(self, generation: int) -> None:
+        self.generation = generation
+
+
 class JobManager:
     """Centralized manager for background threads and timers."""
 
-    _threads: set[threading.Thread] = set()
     _lock: threading.Lock = threading.Lock()
+    _work_queue: queue.Queue[Any] = queue.Queue()
+    _workers: list[threading.Thread] = []
+    _pool_generation: int = 0
 
     # Timer Loop state
     _timer_queue: list[TimerTask] = []
@@ -45,27 +57,45 @@ class JobManager:
     _shutdown_flag: bool = False
 
     @classmethod
-    def submit(cls, fn, *args, **kwargs):
-        """Submit a task to run in a background daemon thread."""
-        future = Future()
-
-        def _run():
-            # If the future was cancelled before the thread started, bail out.
-            if not future.set_running_or_notify_cancel():
+    def _ensure_pool(cls) -> None:
+        """Start idle daemon workers if the pool is empty."""
+        with cls._lock:
+            cls._workers = [t for t in cls._workers if t.is_alive()]
+            if cls._workers:
                 return
+            generation = cls._pool_generation
+            for index in range(_MAX_WORKERS):
+                worker = threading.Thread(
+                    target=cls._worker,
+                    args=(generation,),
+                    name=f"dpg_nav_worker-{index}",
+                    daemon=True,
+                )
+                cls._workers.append(worker)
+                worker.start()
+
+    @classmethod
+    def _worker(cls, generation: int) -> None:
+        while True:
+            item = cls._work_queue.get()
+            if isinstance(item, _Stop):
+                if item.generation == generation:
+                    return
+                continue
+            future, fn, args, kwargs = item
+            if not future.set_running_or_notify_cancel():
+                continue
             try:
-                result = fn(*args, **kwargs)
-                future.set_result(result)
+                future.set_result(fn(*args, **kwargs))
             except Exception as exc:
                 future.set_exception(exc)
-            finally:
-                with cls._lock:
-                    cls._threads.discard(t)
 
-        t = threading.Thread(target=_run, name="dpg_nav_worker", daemon=True)
-        with cls._lock:
-            cls._threads.add(t)
-        t.start()
+    @classmethod
+    def submit(cls, fn, *args, **kwargs):
+        """Submit a task to the bounded worker pool."""
+        future: Future[Any] = Future()
+        cls._ensure_pool()
+        cls._work_queue.put((future, fn, args, kwargs))
         return future
 
     @classmethod
@@ -95,18 +125,20 @@ class JobManager:
     def schedule_timer(cls, interval: float, fn, args=None, kwargs=None) -> TimerTask:
         """Schedule a function to run after a delay, tracking the timer."""
         task = TimerTask(time.time() + interval, fn, args or (), kwargs or {})
-        
+
         with cls._timer_cond:
             heapq.heappush(cls._timer_queue, task)
-            
+
             # Start the loop if not running
             if cls._timer_thread is None or not cls._timer_thread.is_alive():
                 cls._shutdown_flag = False
-                cls._timer_thread = threading.Thread(target=cls._timer_worker, name="dpg_nav_timer", daemon=True)
+                cls._timer_thread = threading.Thread(
+                    target=cls._timer_worker, name="dpg_nav_timer", daemon=True,
+                )
                 cls._timer_thread.start()
-                
+
             cls._timer_cond.notify()
-            
+
         return task
 
     @classmethod
@@ -119,8 +151,7 @@ class JobManager:
 
     @classmethod
     def shutdown(cls, wait: bool = True, timeout: float = 2.0) -> None:
-        """Cancel all pending timers and optionally wait for running threads."""
-        # Stop the timer loop
+        """Cancel pending timers and stop the worker pool."""
         with cls._timer_cond:
             for task in cls._timer_queue:
                 task.cancel()
@@ -129,17 +160,21 @@ class JobManager:
             cls._timer_cond.notify_all()
 
         if cls._timer_thread is not None and cls._timer_thread.is_alive():
-            # Wait a tiny bit for timer thread to die
             cls._timer_thread.join(timeout=0.2)
 
-        # Handle active worker threads
         with cls._lock:
-            threads = list(cls._threads)
+            generation = cls._pool_generation
+            cls._pool_generation += 1
+            workers = list(cls._workers)
+            cls._workers = []
+
+        for _ in workers:
+            cls._work_queue.put(_Stop(generation))
 
         if wait:
             deadline = time.time() + timeout
-            for t in threads:
+            for worker in workers:
                 remaining = deadline - time.time()
                 if remaining <= 0:
                     break
-                t.join(remaining)
+                worker.join(remaining)

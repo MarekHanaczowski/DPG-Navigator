@@ -382,18 +382,7 @@ class FileDialog(KeyboardMixin):
 
         dpg.set_value(sender, False)
         if self._is_double_click(sender):
-            if "|" in self.state.current_dir:
-                parts = self.state.current_dir.split("|", 1)
-                archive = parts[0]
-                inner = parts[1].strip("/")
-                if not inner:
-                    # We are at the root of the archive, fallback to host folder
-                    self.logic.navigate_to(os.path.dirname(archive))
-                else:
-                    parent_inner = os.path.dirname(inner)
-                    self.logic.navigate_to(f"{archive}|/{parent_inner}" if parent_inner else f"{archive}|/")
-            else:
-                self.logic.navigate_to(os.path.dirname(self.state.current_dir))
+            self.logic.go_up()
 
     def _is_double_click(self, sender: int) -> bool:
         """Check if this click constitutes a double-click on the same element."""

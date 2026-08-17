@@ -1,6 +1,6 @@
 """UI Builder for the file dialog."""
 from __future__ import annotations  # PEP 604/585 annotations need this on py3.8/3.9
-import dearpygui.dearpygui as dpg
+import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 import logging
 import os
 import time
@@ -164,7 +164,7 @@ class DialogUIBuilder:
                         )
             self.dialog._selec_theme = self.dialog._shared_selec_theme
             self.dialog._size_theme = self.dialog._shared_size_theme
-            self.dialog._preview_btn: int | None = None
+            self.dialog._preview_btn = None
             self.dialog._instance_count += 1
     def _build_sidebar(self, tag: str, info_px: int) -> None:
             """Build the sidebar with shortcuts and drives."""

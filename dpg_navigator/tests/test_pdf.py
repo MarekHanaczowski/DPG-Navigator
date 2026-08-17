@@ -104,6 +104,15 @@ class TestPDFRendererInit:
         r.close()  # should not raise
         assert r.is_open is False
 
+    def test_open_rejects_oversized_file(self, make_renderer):
+        from dpg_navigator._pdf import _MAX_PDF_BYTES
+
+        r = make_renderer
+        with patch("dpg_navigator._pdf.os.path.getsize", return_value=_MAX_PDF_BYTES + 1), \
+             patch("dpg_navigator._pdf._pdfium") as pdfium:
+            assert r.open("huge.pdf", 100, 100) is False
+            pdfium.PdfDocument.assert_not_called()
+
 
 class TestLRUCache:
     """Test the LRU cache logic using _get_page with mocked rendering."""

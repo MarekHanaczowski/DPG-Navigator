@@ -10,7 +10,6 @@ recursive file search across directory trees.
 from __future__ import annotations
 # MIT licensed
 
-import datetime
 import fnmatch
 import hashlib
 import logging
@@ -19,20 +18,11 @@ import shutil
 import tempfile
 import threading
 import time
-import zipfile
 from collections.abc import Callable, Collection
-from typing import Any
 
 _log = logging.getLogger(__name__)
 
-_py7zr: Any
-try:
-    import py7zr as _py7zr
-except Exception:  # optional backend absent or incompatible (e.g. old Python)
-    _py7zr = None
-
 from ._types import FileEntry
-from ._preview_registry import ZIP_EXTS, SEVEN_Z_EXTS
 from . import _platform
 from .vfs import VFSRegistry
 

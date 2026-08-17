@@ -10,11 +10,13 @@ can trail the first stable release.
 
 ## P1 — before stable 1.0.0
 
-### 1. Worker / process lifecycle (`JobManager`)
-- **Why:** `JobManager` now tracks worker threads and joins them with a bounded
-  timeout, while generation counters invalidate stale results. Remaining work is
-  per-task cancellation for long-running PDF/HTML operations and explicit browser
-  process ownership.
+### 1. Worker / process lifecycle (`JobManager`) — **PARTIAL**
+- **Done:** a bounded pool of 8 daemon workers (`JobManager.submit`) so listing,
+  dir-size, and preview jobs cannot spawn one OS thread per task. Shutdown still
+  joins with a timeout.
+- **Why remaining:** generation counters invalidate stale results, but long-running
+  PDF prefetch and HTML Chrome screenshots still need cooperative cancellation
+  and explicit browser process ownership.
 - **Scope:** add cancellation tokens or futures to the PDF prefetch and HTML
   render paths, and make teardown report work that exceeds its deadline.
 - **First step:** inventory every long-running task in `_html.py` and `_pdf.py`,

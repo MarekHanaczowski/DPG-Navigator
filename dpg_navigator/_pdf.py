@@ -9,6 +9,7 @@ from __future__ import annotations
 # MIT licensed
 
 import ctypes
+import os
 import logging
 import threading
 from collections import OrderedDict
@@ -39,6 +40,10 @@ except Exception:  # optional backend absent or incompatible (e.g. old Python)
 def pdf_available() -> bool:
     """Return True if all PDF preview dependencies are installed."""
     return _pdfium is not None and _np is not None and _PILImage is not None
+
+
+_MAX_PDF_BYTES = 50 * 1024 * 1024
+"""Reject PDF files larger than this before opening them in pypdfium2."""
 
 
 class PDFRenderer:
@@ -102,6 +107,12 @@ class PDFRenderer:
         Returns True on success, False on failure.
         """
         self.close()
+
+        try:
+            if os.path.getsize(path) > _MAX_PDF_BYTES:
+                return False
+        except OSError:
+            return False
 
         try:
             self._doc = _pdfium.PdfDocument(path)

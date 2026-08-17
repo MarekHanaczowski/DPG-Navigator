@@ -23,6 +23,10 @@ All notable changes to this project will be documented in this file.
   longer claims Pygments/Chrome highlighting or pulls html2image.
 - HTML preview docs match Chrome flags: JavaScript is disabled and network
   access is blocked; the overflow marker does not run while JS is off.
+- CI jobs run with `permissions: contents: read`. Dependabot watches GitHub
+  Actions and pip dependencies weekly.
+- Background work runs on a bounded daemon thread pool (8 workers) instead of
+  one OS thread per task.
 
 ### Fixed
 
@@ -41,6 +45,11 @@ All notable changes to this project will be documented in this file.
   delegates instead of probing html2image alone.
 - Excel preview stops after the display bound instead of scanning the whole
   sheet, and reports `N+` when more rows remain.
+- Alt+Up, Enter on the `..` row, and double-click on `..` call `DialogLogic.go_up()`,
+  so archive virtual paths leave the archive instead of mangling the `|` path.
+- PDF and STB/Pillow image previews refuse files above a size cap before decode.
+- HTML preview strips `file:` URLs and keeps Chrome's user-data dir plus PNG
+  output in a per-session temp folder removed on last `FileDialog.destroy()`.
 
 ## [1.0.0b3] - 2026-07-10
 

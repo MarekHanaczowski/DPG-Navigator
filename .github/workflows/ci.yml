@@ -16,6 +16,9 @@ on:
       - 'LICENSE'
   workflow_call:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -67,6 +70,16 @@ jobs:
           dpg_navigator/_dialog.py
           dpg_navigator/_pdf.py
           dpg_navigator/_html.py
+          dpg_navigator/_availability.py
+          dpg_navigator/_job_manager.py
+          dpg_navigator/vfs/_base.py
+          dpg_navigator/vfs/_registry.py
+          dpg_navigator/vfs/_local.py
+          dpg_navigator/vfs/_archive.py
+          dpg_navigator/vfs/__init__.py
+          dpg_navigator/dialog/_state.py
+          dpg_navigator/dialog/_logic.py
+          dpg_navigator/dialog/_ui.py
 
       - name: Test
         run: python -m pytest -q
@@ -123,6 +136,16 @@ jobs:
           dpg_navigator/_dialog.py
           dpg_navigator/_pdf.py
           dpg_navigator/_html.py
+          dpg_navigator/_availability.py
+          dpg_navigator/_job_manager.py
+          dpg_navigator/vfs/_base.py
+          dpg_navigator/vfs/_registry.py
+          dpg_navigator/vfs/_local.py
+          dpg_navigator/vfs/_archive.py
+          dpg_navigator/vfs/__init__.py
+          dpg_navigator/dialog/_state.py
+          dpg_navigator/dialog/_logic.py
+          dpg_navigator/dialog/_ui.py
 
       - name: Test
         run: python -m pytest -q

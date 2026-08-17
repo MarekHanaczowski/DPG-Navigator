@@ -1,4 +1,5 @@
 """Text and code preview renderers."""
+from __future__ import annotations
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 

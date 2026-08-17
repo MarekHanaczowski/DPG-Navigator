@@ -66,16 +66,20 @@ class TestChromeAvailable:
 class TestChromeFlags:
     """Production Chrome flags disable JS and block network."""
 
-    def test_disable_javascript_and_dead_proxy(self):
+    def test_disable_javascript_and_dead_proxy(self, tmp_path):
         fake_hti = MagicMock()
         fake_hti.browser._subprocess_run_kwargs = {}
+        profile = str(tmp_path / "chrome")
         with patch.object(HTMLRenderer, "_hti", None), \
+             patch.object(HTMLRenderer, "_chrome_profile_dir", None), \
+             patch("dpg_navigator._html.tempfile.mkdtemp", return_value=profile), \
              patch.object(htmlmod, "_Html2Image", return_value=fake_hti) as ctor:
             HTMLRenderer._get_hti()
         flags = ctor.call_args.kwargs["custom_flags"]
         assert "--disable-javascript" in flags
         assert any(item.startswith("--proxy-server=") for item in flags)
         assert "--block-new-web-contents" in flags
+        assert ctor.call_args.kwargs["output_path"] == profile
 
 
 class TestInjectHelpers:
@@ -87,6 +91,17 @@ class TestInjectHelpers:
         assert "<script>" in out
         assert "scrollWidth" in out
 
+    def test_strips_file_urls(self):
+        html = (
+            "<html><head></head><body>"
+            '<img src="file:///C:/secret.png">'
+            '<a href="file://localhost/etc/passwd">x</a>'
+            "<div style=\"background:url(file:///tmp/x.png)\"></div>"
+            "</body></html>"
+        )
+        out = _inject_helpers(html)
+        assert "file:" not in out.lower()
+
 
 class TestChromeTimeout:
     """_get_hti() injects a subprocess timeout so a hung Chrome cannot block."""
@@ -96,9 +111,13 @@ class TestChromeTimeout:
         reason="html2image backend not importable in this environment",
     )
     def test_timeout_injected_into_subprocess_kwargs(self):
-        with patch.object(HTMLRenderer, "_hti", None):
-            hti = HTMLRenderer._get_hti()
-            assert hti.browser._subprocess_run_kwargs.get("timeout") == _CHROME_TIMEOUT
+        with patch.object(HTMLRenderer, "_hti", None), \
+             patch.object(HTMLRenderer, "_chrome_profile_dir", None):
+            try:
+                hti = HTMLRenderer._get_hti()
+                assert hti.browser._subprocess_run_kwargs.get("timeout") == _CHROME_TIMEOUT
+            finally:
+                HTMLRenderer.shutdown_shared()
 
 
 class TestHtmlSizeLimit:
@@ -117,10 +136,14 @@ class TestHtmlSizeLimit:
             start.assert_not_called()
             assert "large" in renderer.status_text.lower()
 
-    def test_shutdown_shared_clears_singleton(self):
+    def test_shutdown_shared_clears_singleton(self, tmp_path):
+        profile = tmp_path / "dpg_nav_chrome_test"
+        profile.mkdir()
         HTMLRenderer._hti = object()
-        htmlmod = __import__("dpg_navigator._html", fromlist=["_chrome_available_cache"])
+        HTMLRenderer._chrome_profile_dir = str(profile)
         htmlmod._chrome_available_cache = True
         HTMLRenderer.shutdown_shared()
         assert HTMLRenderer._hti is None
+        assert HTMLRenderer._chrome_profile_dir is None
         assert htmlmod._chrome_available_cache is None
+        assert not profile.exists()

@@ -173,7 +173,8 @@ fd = FileDialog(callback=on_select, config=config)
   and outbound network access is blocked (`--proxy-server` to a dead endpoint,
   `--block-new-web-contents`). Width overflow detection still injects a JS
   marker, which does not run while JS is off, so very wide documents may not
-  trigger a second screenshot. Preview only content you trust.
+  trigger a second screenshot. Local `file:` URLs are stripped from HTML before
+  render. Preview only content you trust.
 
 ## HiDPI / 4K Displays (Windows)
 
@@ -215,7 +216,7 @@ dpg.bind_font(ui_font)
 ```bash
 pip install -e ".[dev]"
 python -m ruff check .
-python -m mypy dpg_navigator/_types.py dpg_navigator/_filesystem.py dpg_navigator/_platform.py dpg_navigator/_icons.py dpg_navigator/_styles.py dpg_navigator/_keyboard.py dpg_navigator/_preview_registry.py dpg_navigator/_preview_table.py dpg_navigator/_preview_archive.py dpg_navigator/_preview_spreadsheet.py dpg_navigator/_preview_sqlite.py dpg_navigator/_preview_word.py dpg_navigator/_preview_presentation.py dpg_navigator/_preview.py dpg_navigator/_dialog.py dpg_navigator/_pdf.py dpg_navigator/_html.py
+python -m mypy dpg_navigator/_types.py dpg_navigator/_filesystem.py dpg_navigator/_platform.py dpg_navigator/_icons.py dpg_navigator/_styles.py dpg_navigator/_keyboard.py dpg_navigator/_preview_registry.py dpg_navigator/_preview_table.py dpg_navigator/_preview_archive.py dpg_navigator/_preview_spreadsheet.py dpg_navigator/_preview_sqlite.py dpg_navigator/_preview_word.py dpg_navigator/_preview_presentation.py dpg_navigator/_preview.py dpg_navigator/_dialog.py dpg_navigator/_pdf.py dpg_navigator/_html.py dpg_navigator/_availability.py dpg_navigator/_job_manager.py dpg_navigator/vfs/_base.py dpg_navigator/vfs/_registry.py dpg_navigator/vfs/_local.py dpg_navigator/vfs/_archive.py dpg_navigator/vfs/__init__.py dpg_navigator/dialog/_state.py dpg_navigator/dialog/_logic.py dpg_navigator/dialog/_ui.py
 pytest
 ```
 

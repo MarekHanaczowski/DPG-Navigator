@@ -9,7 +9,6 @@ it accesses ``self._*`` attributes defined by the host :class:`FileDialog`.
 from __future__ import annotations
 # MIT licensed
 
-import os
 from typing import Any, TYPE_CHECKING
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
@@ -20,6 +19,7 @@ from . import _platform
 
 if TYPE_CHECKING:
     from ._preview import PreviewPanel
+    from .dialog._logic import DialogLogic
 
 
 class KeyboardMixin:
@@ -43,6 +43,7 @@ class KeyboardMixin:
     - ``_preview`` (PreviewPanel)
     - ``hide()``, ``_navigate_to()``, ``_refresh_listing()``,
       ``_return_selection()``, ``_start_index_build()``
+    - ``logic`` (DialogLogic)
     """
 
     _config: DialogConfig
@@ -61,6 +62,7 @@ class KeyboardMixin:
     _preview: "PreviewPanel"
     _current_dir: str
     _key_handler: int
+    logic: "DialogLogic"
 
     if TYPE_CHECKING:
         def hide(self) -> None: ...
@@ -110,7 +112,7 @@ class KeyboardMixin:
         if not self._is_dialog_active():
             return
         if dpg.is_key_down(dpg.mvKey_LAlt) or dpg.is_key_down(dpg.mvKey_RAlt):
-            self._navigate_to(os.path.dirname(self._current_dir))
+            self.logic.go_up()
         else:
             self._move_focus(-1)
 
@@ -221,7 +223,7 @@ class KeyboardMixin:
         entry = self._row_entries.get(row_id)
 
         if entry is None:
-            self._navigate_to(os.path.dirname(self._current_dir))
+            self.logic.go_up()
         elif entry.is_dir:
             self._navigate_to(entry.full_path)
         else:

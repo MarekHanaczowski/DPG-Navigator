@@ -8,6 +8,7 @@ baseline for the JobManager work in docs/ROADMAP.md (P1 #1).
 
 from __future__ import annotations
 
+import time
 from unittest.mock import MagicMock, patch
 
 from dpg_navigator._dialog import FileDialog
@@ -124,3 +125,58 @@ class TestSafeUiCallbacks:
         with patch("dpg_navigator._dialog.dpg") as mock_dpg:
             dialog._safe_update_path_input("/tmp")
         mock_dpg.configure_item.assert_not_called()
+
+
+class TestGoUpShortcuts:
+    """Alt+Up and the '..' row must use DialogLogic.go_up (archive-aware)."""
+
+    def _dialog(self):
+        dialog = FileDialog.__new__(FileDialog)
+        dialog._config = DialogConfig(tag="nav_test")
+        dialog.logic = MagicMock()
+        dialog.state = DialogState()
+        dialog._explorer_table = 1
+        return dialog
+
+    def test_alt_up_calls_logic_go_up(self):
+        dialog = self._dialog()
+        with patch("dpg_navigator._keyboard.dpg") as mock_dpg:
+            mock_dpg.does_item_exist.return_value = True
+            mock_dpg.is_item_shown.return_value = True
+            mock_dpg.mvKey_LAlt = "LAlt"
+            mock_dpg.mvKey_RAlt = "RAlt"
+            mock_dpg.is_key_down.side_effect = lambda key: key == "LAlt"
+            dialog._on_key_up(None, None, None)
+        dialog.logic.go_up.assert_called_once()
+
+    def test_plain_up_does_not_go_up(self):
+        dialog = self._dialog()
+        dialog.state.focused_row_index = 0
+        with patch("dpg_navigator._keyboard.dpg") as mock_dpg:
+            mock_dpg.does_item_exist.return_value = True
+            mock_dpg.is_item_shown.return_value = True
+            mock_dpg.is_key_down.return_value = False
+            mock_dpg.get_item_children.return_value = []
+            dialog._on_key_up(None, None, None)
+        dialog.logic.go_up.assert_not_called()
+
+    def test_activate_dotdot_row_calls_go_up(self):
+        dialog = self._dialog()
+        dialog.state.focused_row_index = 0
+        dialog.state.row_entries = {}
+        with patch("dpg_navigator._keyboard.dpg") as mock_dpg:
+            mock_dpg.get_item_children.return_value = [99]
+            dialog._activate_focused_row()
+        dialog.logic.go_up.assert_called_once()
+
+    def test_back_double_click_calls_go_up(self):
+        dialog = self._dialog()
+        sender = 7
+        dialog.state.last_click_time = time.time()
+        dialog.state.last_clicked_element = sender
+        with patch("dpg_navigator._dialog.dpg") as mock_dpg, \
+             patch("dpg_navigator._dialog._platform") as plat:
+            plat.is_mod_key_down.return_value = False
+            dialog._on_back(sender, None, None)
+        dialog.logic.go_up.assert_called_once()
+        mock_dpg.set_value.assert_called()

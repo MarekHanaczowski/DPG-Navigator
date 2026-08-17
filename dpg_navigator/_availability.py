@@ -3,11 +3,13 @@
 Provides functions to check if optional dependencies are installed.
 """
 
+from __future__ import annotations
+
 from typing import Any, cast
 
 # PDF
 try:
-    import pypdfium2 as _pdfium
+    import pypdfium2 as _pdfium  # type: ignore[import-untyped]
 except Exception:
     _pdfium = cast(Any, None)
 try:
@@ -44,7 +46,7 @@ try:
 except Exception:
     _DocxDocument = cast(Any, None)
 try:
-    import mammoth as _mammoth
+    import mammoth as _mammoth  # type: ignore[import-untyped]
 except Exception:
     _mammoth = cast(Any, None)
 
@@ -70,7 +72,7 @@ def pptx_available() -> bool:
 
 # Excel
 try:
-    from openpyxl import load_workbook as _load_workbook
+    from openpyxl import load_workbook as _load_workbook  # type: ignore[import-untyped]
 except Exception:
     _load_workbook = cast(Any, None)
 
@@ -81,7 +83,7 @@ def excel_available() -> bool:
 
 # Markdown
 try:
-    import markdown as _markdown
+    import markdown as _markdown  # type: ignore[import-untyped]
 except Exception:
     _markdown = cast(Any, None)
 
@@ -92,7 +94,7 @@ def markdown_available() -> bool:
 
 # Pygments — installed for PreviewKind.CODE routing; highlighting is not rendered.
 try:
-    import pygments as _pygments
+    import pygments as _pygments  # type: ignore[import-untyped]
 except Exception:
     _pygments = cast(Any, None)
 

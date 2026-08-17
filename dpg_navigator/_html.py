@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import ctypes
 import os
+import re
+import shutil
 import tempfile
 import threading
 import time
@@ -79,7 +81,6 @@ _MAX_HTML_BYTES: int = 2 * 1024 * 1024
 """Reject HTML/Markdown sources larger than this before spawning Chrome."""
 _CHROME_TIMEOUT: float = 30.0
 """Seconds before a hung Chrome screenshot subprocess is killed."""
-_CHROME_PROFILE_DIRNAME: str = "dpg_nav_chrome_profile"
 
 _CSS_RESET = (
     "<style>"
@@ -105,6 +106,20 @@ _OVERFLOW_MARKER = (
     '});</script>'
 )
 
+_FILE_ATTR_RE = re.compile(
+    r"""(?ix)
+    (\s(?:src|href|poster|data)\s*=\s*)
+    (["'])file:.*?\2
+    """
+)
+_FILE_CSS_RE = re.compile(r"""(?i)url\(\s*(["']?)file:[^)]*\)""")
+
+
+def _strip_file_urls(html: str) -> str:
+    """Drop file: URLs so Chrome cannot be pointed at local paths."""
+    html = _FILE_ATTR_RE.sub(r"\1\2\2", html)
+    return _FILE_CSS_RE.sub("url()", html)
+
 # Lazily computed float32 background color
 _bg_f32_cache: Any = None
 _LANCZOS = getattr(getattr(_PILImage, "Resampling", _PILImage), "LANCZOS", 1)
@@ -126,7 +141,9 @@ def _inject_helpers(html: str) -> str:
     """Inject CSS reset and JS overflow marker into raw HTML.
 
     The marker does not run under the default ``--disable-javascript`` flag.
+    Local ``file:`` URLs are stripped before Chrome sees the document.
     """
+    html = _strip_file_urls(html)
     if "</head>" in html:
         html = html.replace("</head>", _CSS_RESET + "</head>", 1)
     else:
@@ -227,6 +244,7 @@ class HTMLRenderer:
     # Shared Html2Image instance (lazy-initialized, one Chrome config for all)
     _hti: Any = None
     _hti_lock: threading.Lock = threading.Lock()
+    _chrome_profile_dir: str | None = None
 
     def __init__(self, config_tag: str):
         self._config_tag = config_tag
@@ -295,12 +313,10 @@ class HTMLRenderer:
         if cls._hti is None:
             with cls._hti_lock:
                 if cls._hti is None:
-                    profile_dir = os.path.join(
-                        tempfile.gettempdir(), _CHROME_PROFILE_DIRNAME,
-                    )
-                    os.makedirs(profile_dir, exist_ok=True)
+                    profile_dir = tempfile.mkdtemp(prefix="dpg_nav_chrome_")
+                    cls._chrome_profile_dir = profile_dir
                     cls._hti = _Html2Image(
-                        output_path=tempfile.gettempdir(),
+                        output_path=profile_dir,
                         custom_flags=[
                             '--hide-scrollbars',
                             '--force-device-scale-factor=1',
@@ -440,6 +456,10 @@ class HTMLRenderer:
         """
         with cls._hti_lock:
             cls._hti = None
+            profile_dir = cls._chrome_profile_dir
+            cls._chrome_profile_dir = None
+        if profile_dir:
+            shutil.rmtree(profile_dir, ignore_errors=True)
         global _chrome_available_cache
         _chrome_available_cache = None
 

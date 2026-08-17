@@ -18,6 +18,9 @@ except Exception:
 class ImageRenderer(BaseRenderer):
     """Render raster images through DearPyGui or Pillow fallback loading."""
 
+    _MAX_IMAGE_BYTES = 32 * 1024 * 1024
+    """Skip STB/Pillow decode when the file is larger than this."""
+
     _STB_IMAGE_EXTS = frozenset({
         ".png", ".jpg", ".jpeg", ".bmp", ".tga",
         ".gif", ".psd", ".hdr", ".pic", ".pgm", ".ppm", ".pnm",
@@ -43,6 +46,14 @@ class ImageRenderer(BaseRenderer):
     def render(self, entry: FileEntry, ctx: PreviewContext) -> None:
         """Load an image and add its texture to the preview panel."""
         if ctx.panel_id is None:
+            return
+
+        try:
+            if os.path.getsize(entry.full_path) > self._MAX_IMAGE_BYTES:
+                ctx.show_error("Preview unavailable", "File too large for preview")
+                return
+        except OSError as exc:
+            ctx.show_error("Failed to load image", str(exc))
             return
 
         ext = os.path.splitext(entry.name)[1].lower()
