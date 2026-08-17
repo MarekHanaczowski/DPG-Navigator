@@ -9,18 +9,23 @@ from __future__ import annotations
 # MIT licensed
 
 import ctypes
+import logging
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 import threading
 import time
 import uuid
+from concurrent.futures import Future
 from typing import Any, cast
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
 from ._job_manager import JobManager, TimerTask
+
+_log = logging.getLogger(__name__)
 
 try:
     from html2image import Html2Image as _Html2Image  # type: ignore[import-untyped]
@@ -36,6 +41,11 @@ try:
     from PIL import Image as _PILImage
 except Exception:  # optional backend absent or incompatible (e.g. old Python)
     _PILImage = cast(Any, None)
+
+try:
+    import psutil as _psutil  # type: ignore[import-untyped]
+except Exception:  # required dep; still degrade to Popen.kill()
+    _psutil = None
 
 
 def html_available() -> bool:
@@ -81,6 +91,96 @@ _MAX_HTML_BYTES: int = 2 * 1024 * 1024
 """Reject HTML/Markdown sources larger than this before spawning Chrome."""
 _CHROME_TIMEOUT: float = 30.0
 """Seconds before a hung Chrome screenshot subprocess is killed."""
+
+_chrome_owner = threading.local()
+_chromium_run_patched = False
+
+
+class _ChromeCancelled(Exception):
+    """Raised when a screenshot is aborted because the preview closed."""
+
+
+class _ChromiumSubprocessProxy:
+    """Replace html2image's ``chromium.subprocess`` without touching stdlib."""
+
+    def run(self, *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[Any]:
+        return _chrome_popen_run(*args, **kwargs)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(subprocess, name)
+
+
+def _ensure_chromium_run_hook() -> None:
+    """Route html2image Chrome launches through ``_chrome_popen_run``."""
+    global _chromium_run_patched
+    if _chromium_run_patched:
+        return
+    try:
+        import html2image.browsers.chromium as chromium_mod  # type: ignore[import-untyped]
+    except Exception:
+        return
+    chromium_mod.subprocess = _ChromiumSubprocessProxy()
+    _chromium_run_patched = True
+
+
+def _kill_process_tree(proc: Any) -> None:
+    """Kill *proc* and its children (headless Chrome is multi-process)."""
+    poll = getattr(proc, "poll", None)
+    if callable(poll) and poll() is not None:
+        return
+    pid = getattr(proc, "pid", None)
+    if _psutil is not None and pid is not None:
+        try:
+            parent = _psutil.Process(pid)
+            victims = parent.children(recursive=True)
+            victims.append(parent)
+            for victim in victims:
+                try:
+                    victim.kill()
+                except Exception:
+                    pass
+            _psutil.wait_procs(victims, timeout=1.0)
+        except Exception:
+            _log.debug("psutil Chrome process-tree kill failed", exc_info=True)
+    try:
+        if not callable(poll) or proc.poll() is None:
+            proc.kill()
+    except OSError:
+        pass
+    try:
+        proc.wait(timeout=1.0)
+    except Exception:
+        pass
+
+
+def _chrome_popen_run(
+    command: Any, *args: Any, **kwargs: Any,
+) -> subprocess.CompletedProcess[Any]:
+    """``subprocess.run`` stand-in that records Popen so close() can kill it."""
+    if args:
+        raise TypeError("chrome run hook does not take extra positional args")
+    timeout = kwargs.pop("timeout", _CHROME_TIMEOUT)
+    kwargs.pop("check", None)
+    owner = getattr(_chrome_owner, "renderer", None)
+    gen = getattr(_chrome_owner, "generation", None)
+    if owner is not None and owner._render_generation != gen:
+        raise _ChromeCancelled()
+    proc = subprocess.Popen(command, **kwargs)
+    if owner is not None:
+        HTMLRenderer._register_chrome(proc, owner)
+    try:
+        if owner is not None and owner._render_generation != gen:
+            _kill_process_tree(proc)
+            raise _ChromeCancelled()
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _kill_process_tree(proc)
+            stdout, stderr = proc.communicate()
+            raise
+        return subprocess.CompletedProcess(command, proc.returncode, stdout, stderr)
+    finally:
+        HTMLRenderer._unregister_chrome(proc)
 
 _CSS_RESET = (
     "<style>"
@@ -245,6 +345,8 @@ class HTMLRenderer:
     _hti: Any = None
     _hti_lock: threading.Lock = threading.Lock()
     _chrome_profile_dir: str | None = None
+    _chrome_proc_lock: threading.Lock = threading.Lock()
+    _chrome_procs: list[tuple[Any, Any]] = []
 
     def __init__(self, config_tag: str):
         self._config_tag = config_tag
@@ -273,6 +375,7 @@ class HTMLRenderer:
 
         # Render state
         self._render_generation: int = 0
+        self._render_future: Future[Any] | None = None
         self._is_rendering: bool = False
         self._min_unclipped_w: int = 0
         self._last_chrome_w: int = 0
@@ -308,8 +411,35 @@ class HTMLRenderer:
     # ── Html2Image singleton ──────────────────────────────────
 
     @classmethod
+    def _register_chrome(cls, proc: Any, owner: Any) -> None:
+        with cls._chrome_proc_lock:
+            cls._chrome_procs.append((proc, owner))
+
+    @classmethod
+    def _unregister_chrome(cls, proc: Any) -> None:
+        with cls._chrome_proc_lock:
+            cls._chrome_procs = [
+                item for item in cls._chrome_procs if item[0] is not proc
+            ]
+
+    @classmethod
+    def _kill_owned_chrome(cls, owner: Any | None) -> None:
+        """Kill tracked Chrome processes. ``owner=None`` kills all."""
+        with cls._chrome_proc_lock:
+            if owner is None:
+                victims = [proc for proc, _owner in cls._chrome_procs]
+            else:
+                victims = [
+                    proc for proc, item_owner in cls._chrome_procs
+                    if item_owner is owner
+                ]
+        for proc in victims:
+            _kill_process_tree(proc)
+
+    @classmethod
     def _get_hti(cls) -> "_Html2Image":
         """Lazily initialize the shared Html2Image instance."""
+        _ensure_chromium_run_hook()
         if cls._hti is None:
             with cls._hti_lock:
                 if cls._hti is None:
@@ -331,11 +461,8 @@ class HTMLRenderer:
                         ],
                         disable_logging=True,
                     )
-                    # html2image runs Chrome via subprocess.run() with no
-                    # timeout, so a hung browser would block the render thread
-                    # forever. Inject a timeout: subprocess.run then kills the
-                    # process and raises TimeoutExpired, which _hti_screenshot
-                    # turns into a clean render failure.
+                    # html2image has no timeout; our Popen hook honors this
+                    # value and close()/shutdown_shared() can kill earlier.
                     try:
                         cls._hti.browser._subprocess_run_kwargs["timeout"] = _CHROME_TIMEOUT
                     except (AttributeError, TypeError):  # pragma: no cover
@@ -413,9 +540,18 @@ class HTMLRenderer:
         self._start_render(content_w)
         return True
 
+    def _cancel_render_future(self) -> None:
+        """Drop a queued Chrome render so a worker never starts it."""
+        fut = self._render_future
+        self._render_future = None
+        if fut is not None:
+            fut.cancel()
+
     def close(self) -> None:
-        """Cancel any background render and release DPG resources."""
+        """Cancel any background render, kill this preview's Chrome, release DPG."""
         self._render_generation += 1
+        self._cancel_render_future()
+        type(self)._kill_owned_chrome(self)
 
         if self._resize_timer is not None:
             JobManager.cancel_timer(self._resize_timer)
@@ -450,10 +586,12 @@ class HTMLRenderer:
     def shutdown_shared(cls) -> None:
         """Drop the shared Html2Image singleton after the last dialog closes.
 
-        Does not force-kill an in-flight Chrome subprocess (subprocess timeout
-        already bounds hang time); clears the handle so the next open creates
-        a fresh browser config.
+        Kills any in-flight Chrome child processes first so the session
+        profile directory can be removed without racing a live browser.
         """
+        cls._kill_owned_chrome(None)
+        with cls._chrome_proc_lock:
+            cls._chrome_procs.clear()
         with cls._hti_lock:
             cls._hti = None
             profile_dir = cls._chrome_profile_dir
@@ -513,7 +651,14 @@ class HTMLRenderer:
         """
         hti = self._get_hti()
         temp_name = f"dpg_html_{uuid.uuid4().hex[:12]}.png"
-        target_path = os.path.join(tempfile.gettempdir(), temp_name)
+        out_dir = (
+            getattr(hti, "output_path", None)
+            or type(self)._chrome_profile_dir
+            or tempfile.gettempdir()
+        )
+        target_path = os.path.join(str(out_dir), temp_name)
+        _chrome_owner.renderer = self
+        _chrome_owner.generation = self._render_generation
         try:
             hti.screenshot(
                 html_str=self._html_content,
@@ -522,6 +667,9 @@ class HTMLRenderer:
             )
         except Exception:
             return None
+        finally:
+            _chrome_owner.renderer = None
+            _chrome_owner.generation = None
         if not os.path.exists(target_path):
             return None
         img_full = _PILImage.open(target_path)
@@ -538,11 +686,13 @@ class HTMLRenderer:
 
     def _start_render(self, content_w: int) -> None:
         """Start a background Chrome render with a new generation counter."""
+        self._cancel_render_future()
         self._render_generation += 1
+        type(self)._kill_owned_chrome(self)
         self._is_rendering = True
         self._status_text = "Rendering..."
         gen = self._render_generation
-        JobManager.submit(
+        self._render_future = JobManager.submit(
             self._render_worker,
             content_w, gen
         )
@@ -558,6 +708,10 @@ class HTMLRenderer:
         """
         t0 = time.perf_counter()
         chrome_w = max(content_w, 100)
+
+        if self._render_generation != gen:
+            self._is_rendering = False
+            return
 
         img = self._hti_screenshot(chrome_w, _RENDER_H)
         if img is None:

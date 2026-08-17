@@ -12,13 +12,18 @@ All notable changes to this project will be documented in this file.
 - CI generates a CycloneDX SBOM (`sbom.cdx.json`, artifact `sbom-cyclonedx`).
 - PDF preview supports mouse-wheel page navigation and updates the page counter.
 - Preview routing now includes the live `.ttf`/`.otf` font renderer.
+- Public `SelectionCallback` protocol types the host OK handler as
+  `list[str] → None`. `FileDialog` constructor overloads distinguish
+  `DialogConfig` from keyword options. `DialogConfig` validates sizes, filters,
+  paths, and `custom_dirs` at construction.
 
 ### Changed
 
 - GitHub Actions third-party steps are pinned to commit SHAs (not floating tags)
   in `ci.yml` and `publish.yml`.
-- Tests cover ZipSlip extraction (ZIP/7z) and DialogLogic archive navigation
-  (`navigate_to`, `go_up`, `go_back`).
+- Tests cover ZipSlip extraction (ZIP/7z), DialogLogic archive navigation
+  (`navigate_to`, `go_up`, `go_back`), Word HTML vs text preview switching, and
+  FileDialog refusal of oversize archive members on OK/Enter.
 - Source-code preview is documented as monospace text; the `[code]` extra no
   longer claims Pygments/Chrome highlighting or pulls html2image.
 - HTML preview docs match Chrome flags: JavaScript is disabled and network
@@ -26,7 +31,17 @@ All notable changes to this project will be documented in this file.
 - CI jobs run with `permissions: contents: read`. Dependabot watches GitHub
   Actions and pip dependencies weekly.
 - Background work runs on a bounded daemon thread pool (8 workers) instead of
-  one OS thread per task.
+  one OS thread per task. Shutdown cancels queued jobs so they never start, and
+  logs a warning if workers are still running after the join timeout.
+- HTML and PDF preview cancel the previous render/prefetch `Future` on close and
+  when a new job is submitted, so a queued Chrome/pypdfium2 task is skipped.
+- HTML preview owns in-flight Chrome child processes: `close()` kills that
+  preview's browser tree, and last `FileDialog.destroy()` kills any leftover
+  before deleting the session profile. The 30s subprocess timeout remains a
+  backstop.
+- CI runs the opt-in DearPyGui smoke tests under xvfb (`continue-on-error`),
+  including Chrome HTML preview (skipped without a browser), Word HTML/text
+  switch, and oversize-archive selection.
 
 ### Fixed
 
@@ -50,6 +65,8 @@ All notable changes to this project will be documented in this file.
 - PDF and STB/Pillow image previews refuse files above a size cap before decode.
 - HTML preview strips `file:` URLs and keeps Chrome's user-data dir plus PNG
   output in a per-session temp folder removed on last `FileDialog.destroy()`.
+- HTML screenshot PNGs are read from Chrome's session output directory, not the
+  process temp root.
 
 ## [1.0.0b3] - 2026-07-10
 

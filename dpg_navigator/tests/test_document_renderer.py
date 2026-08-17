@@ -116,6 +116,62 @@ def test_render_word_mammoth(mock_backends):
     renderer._html.open_string.assert_called_once()
 
 
+def test_render_word_text_when_chrome_unavailable(mock_dpg):
+    """Without a Chrome binary, Word uses the python-docx text path."""
+    load_text_cb = MagicMock()
+    renderer = DocumentRenderer(load_text_cb)
+    entry = FileEntry("doc.docx", "doc.docx", is_dir=False, size_bytes=2000, modified_time=0.0, is_hidden=False)
+    ctx = PreviewContext(
+        panel_id=1,
+        table_wrapper=2,
+        config_tag="test_tag",
+        capabilities=PreviewCapabilities(mammoth=True, word=True),
+    )
+    document = MagicMock()
+    document.blocks = []
+    with patch("dpg_navigator.renderers.document.chrome_available", return_value=False), \
+         patch("dpg_navigator.renderers.document.HTMLRenderer") as mock_html, \
+         patch("dpg_navigator.renderers.document.load_word_document", return_value=document):
+        renderer.render(entry, ctx)
+    mock_html.return_value.open_string.assert_not_called()
+    mock_dpg.add_text.assert_called()
+
+
+def test_render_word_text_when_mammoth_capability_off(mock_dpg):
+    """mammoth off → text preview even if Chrome is present."""
+    load_text_cb = MagicMock()
+    renderer = DocumentRenderer(load_text_cb)
+    entry = FileEntry("doc.docx", "doc.docx", is_dir=False, size_bytes=2000, modified_time=0.0, is_hidden=False)
+    ctx = PreviewContext(
+        panel_id=1,
+        table_wrapper=2,
+        config_tag="test_tag",
+        capabilities=PreviewCapabilities(mammoth=False, word=True),
+    )
+    document = MagicMock()
+    document.blocks = []
+    with patch("dpg_navigator.renderers.document.chrome_available", return_value=True), \
+         patch("dpg_navigator.renderers.document.HTMLRenderer") as mock_html, \
+         patch("dpg_navigator.renderers.document.load_word_document", return_value=document):
+        renderer.render(entry, ctx)
+    mock_html.return_value.open_string.assert_not_called()
+    mock_dpg.add_text.assert_called()
+
+
+def test_render_html_text_when_chrome_unavailable(mock_dpg):
+    """HTML files degrade to raw text when Chrome is missing."""
+    load_text_cb = MagicMock(return_value=("<p>hi</p>", False))
+    renderer = DocumentRenderer(load_text_cb)
+    entry = FileEntry("index.html", "index.html", is_dir=False, size_bytes=100, modified_time=0.0, is_hidden=False)
+    ctx = PreviewContext(panel_id=1, table_wrapper=2, config_tag="test_tag", capabilities=PreviewCapabilities())
+    with patch("dpg_navigator.renderers.document.chrome_available", return_value=False), \
+         patch("dpg_navigator.renderers.document.HTMLRenderer") as mock_html:
+        renderer.render(entry, ctx)
+    mock_html.return_value.open.assert_not_called()
+    load_text_cb.assert_called()
+    mock_dpg.add_text.assert_called()
+
+
 def test_on_resize(mock_backends):
     load_text_cb = MagicMock()
     renderer = DocumentRenderer(load_text_cb)

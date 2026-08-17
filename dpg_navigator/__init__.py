@@ -19,7 +19,7 @@ Usage::
 from __future__ import annotations
 # MIT licensed
 
-from ._types import DialogConfig, DialogMode, StyleVariant, FileEntry, DEFAULT_FILTER_LIST
+from ._types import DialogConfig, DialogMode, StyleVariant, FileEntry, DEFAULT_FILTER_LIST, SelectionCallback
 
 from ._dialog import FileDialog
 
@@ -45,6 +45,7 @@ __all__ = [
     "StyleVariant",
     "FileEntry",
     "DEFAULT_FILTER_LIST",
+    "SelectionCallback",
     "word_available",
     "mammoth_available",
     "pptx_available",

@@ -436,7 +436,6 @@ class TestPrefetchGeneration:
         assert r._prefetch_generation == gen + 1
 
     def test_stale_prefetch_aborts(self, make_renderer):
-        import numpy as np
         r = make_renderer
         r._doc = MagicMock()
         r._total_pages = 5
@@ -448,6 +447,24 @@ class TestPrefetchGeneration:
         with patch.object(r, "_render_to_array") as mock_render:
             r._prefetch_worker(2, stale_gen)
             mock_render.assert_not_called()
+
+    def test_close_cancels_prefetch_future(self, make_renderer):
+        r = make_renderer
+        fut = MagicMock()
+        r._prefetch_future = fut
+        r.close()
+        fut.cancel.assert_called_once()
+        assert r._prefetch_future is None
+
+    def test_start_prefetch_cancels_previous_future(self, make_renderer):
+        r = make_renderer
+        old = MagicMock()
+        new = MagicMock()
+        r._prefetch_future = old
+        with patch("dpg_navigator._pdf.JobManager.submit", return_value=new):
+            r._start_prefetch(1)
+        old.cancel.assert_called_once()
+        assert r._prefetch_future is new
 
 
 class TestTextureLifecycle:

@@ -13,6 +13,7 @@ import os
 import logging
 import threading
 from collections import OrderedDict
+from concurrent.futures import Future
 from typing import Any, cast
 
 _log = logging.getLogger(__name__)
@@ -79,6 +80,7 @@ class PDFRenderer:
         self._doc_lock = threading.Lock()
         self._cache_lock = threading.Lock()
         self._prefetch_generation: int = 0
+        self._prefetch_future: Future[Any] | None = None
 
     # ── Properties ────────────────────────────────────────────
 
@@ -131,6 +133,13 @@ class PDFRenderer:
         self._recreate_texture(w, h)
         return True
 
+    def _cancel_prefetch_future(self) -> None:
+        """Drop a queued prefetch so a worker never starts it."""
+        fut = self._prefetch_future
+        self._prefetch_future = None
+        if fut is not None:
+            fut.cancel()
+
     def close(self) -> None:
         """Close the PDF document and release all resources."""
         # Bump the generation and clear atomically, so a prefetch worker cannot
@@ -138,6 +147,7 @@ class PDFRenderer:
         with self._cache_lock:
             self._prefetch_generation += 1
             self._page_cache.clear()
+        self._cancel_prefetch_future()
 
         if self._tex_exists:
             if self._tex_id is not None and dpg.does_item_exist(self._tex_id):
@@ -196,6 +206,7 @@ class PDFRenderer:
         with self._cache_lock:
             self._prefetch_generation += 1
             self._page_cache.clear()
+        self._cancel_prefetch_future()
 
     # ── Rendering pipeline ────────────────────────────────────
 
@@ -304,8 +315,9 @@ class PDFRenderer:
 
     def _start_prefetch(self, page_num: int) -> None:
         """Prefetch neighboring pages in a background thread."""
+        self._cancel_prefetch_future()
         gen = self._prefetch_generation
-        JobManager.submit(
+        self._prefetch_future = JobManager.submit(
             self._prefetch_worker,
             page_num, gen
         )

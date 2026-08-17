@@ -8,11 +8,14 @@ one min-heap loop and dispatch into the same pool.
 from __future__ import annotations
 
 import heapq
+import logging
 import queue
 import threading
 import time
 from typing import Any
 from concurrent.futures import Future
+
+_log = logging.getLogger(__name__)
 
 _MAX_WORKERS = 8
 
@@ -150,8 +153,34 @@ class JobManager:
             # the loop will discard it when its time comes if cancelled is True.
 
     @classmethod
+    def _cancel_queued_work(cls) -> None:
+        """Cancel jobs still waiting in the queue so workers never start them.
+
+        Stop sentinels are put back: a leftover worker from a timed-out
+        shutdown still needs its matching ``_Stop`` to exit.
+        """
+        orphaned_stops: list[_Stop] = []
+        while True:
+            try:
+                item = cls._work_queue.get_nowait()
+            except queue.Empty:
+                break
+            if isinstance(item, _Stop):
+                orphaned_stops.append(item)
+                continue
+            future = item[0]
+            future.cancel()
+        for stop in orphaned_stops:
+            cls._work_queue.put(stop)
+
+    @classmethod
     def shutdown(cls, wait: bool = True, timeout: float = 2.0) -> None:
-        """Cancel pending timers and stop the worker pool."""
+        """Cancel pending timers and stop the worker pool.
+
+        Queued (not yet started) jobs are cancelled so they never run.
+        In-flight work is left to finish; ``wait`` joins workers up to
+        ``timeout`` and logs a warning if any are still alive.
+        """
         with cls._timer_cond:
             for task in cls._timer_queue:
                 task.cancel()
@@ -168,6 +197,7 @@ class JobManager:
             workers = list(cls._workers)
             cls._workers = []
 
+        cls._cancel_queued_work()
         for _ in workers:
             cls._work_queue.put(_Stop(generation))
 
@@ -178,3 +208,9 @@ class JobManager:
                 if remaining <= 0:
                     break
                 worker.join(remaining)
+            leftover = sum(1 for worker in workers if worker.is_alive())
+            if leftover:
+                _log.warning(
+                    "JobManager.shutdown timed out with %s worker(s) still running",
+                    leftover,
+                )

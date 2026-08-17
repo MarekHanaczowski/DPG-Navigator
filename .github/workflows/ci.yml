@@ -150,6 +150,36 @@ jobs:
       - name: Test
         run: python -m pytest -q
 
+  integration:
+    # Real DearPyGui needs a display. xvfb + software GL is the Linux stand-in;
+    # import can still segfault in a sandboxed runner, so this job is
+    # informational and must not block the unit-test gate.
+    name: DearPyGui smoke (xvfb)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install xvfb and software GL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xvfb libgl1-mesa-dri libgl1 libglib2.0-0 libxkbcommon0 libegl1
+
+      - name: Install development dependencies
+        run: python -m pip install -e ".[dev]"
+
+      - name: Integration smoke
+        run: |
+          xvfb-run -a env DPG_INTEGRATION=1 LIBGL_ALWAYS_SOFTWARE=1 \
+            python -m pytest -m integration -q --tb=short
+
   audit:
     name: Dependency audit
     runs-on: ubuntu-latest

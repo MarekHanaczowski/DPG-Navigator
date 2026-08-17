@@ -10,19 +10,16 @@ can trail the first stable release.
 
 ## P1 — before stable 1.0.0
 
-### 1. Worker / process lifecycle (`JobManager`) — **PARTIAL**
-- **Done:** a bounded pool of 8 daemon workers (`JobManager.submit`) so listing,
-  dir-size, and preview jobs cannot spawn one OS thread per task. Shutdown still
-  joins with a timeout.
-- **Why remaining:** generation counters invalidate stale results, but long-running
-  PDF prefetch and HTML Chrome screenshots still need cooperative cancellation
-  and explicit browser process ownership.
-- **Scope:** add cancellation tokens or futures to the PDF prefetch and HTML
-  render paths, and make teardown report work that exceeds its deadline.
-- **First step:** inventory every long-running task in `_html.py` and `_pdf.py`,
-  then add cancellation checks without blocking the DearPyGui main thread.
-- **Effort:** large. **Risk:** medium — touches concurrency; land with the
-  integration tests below.
+### 1. Worker / process lifecycle (`JobManager`) — **DONE**
+- Bounded pool of 8 daemon workers (`JobManager.submit`); shutdown cancels
+  queued futures, joins with a timeout, and logs leftover workers.
+- HTML/PDF hold render/prefetch `Future`s and `cancel()` them on close or a
+  replacement job; generation checks still drop in-flight results.
+- html2image Chrome launches go through a `Popen` hook: each screenshot is
+  tracked per `HTMLRenderer`, `close()` kills that preview's process tree
+  (psutil, including Chrome children), and `shutdown_shared()` kills leftovers
+  before removing the session profile. The 30s communicate timeout remains a
+  hang backstop.
 
 ### 2. Resource budgets for previews — **DONE** (`3f1cc0d`)
 - Index entry cap (`INDEX_MAX_ENTRIES = 50k`, partial index kept), archive
@@ -32,21 +29,20 @@ can trail the first stable release.
 - **Remaining (optional):** an explicit HTML/Office pixel budget beyond the
   existing `_MAX_RENDER_W`/`_RENDER_H` caps, if a real case needs it.
 
-### 3. Integration smoke tests (real DPG + optional backends) — **IN PROGRESS**
+### 3. Integration smoke tests (real DPG + optional backends) — **PARTIAL**
 - **Done:** verified lifecycle/concurrency tests that drive the real
   `DirectoryIndex` build + `FileDialog` background-index thread against a real
   temp filesystem (generation cancellation, thread settle, no leak) —
-  `tests/test_lifecycle.py`. Plus opt-in scaffolding for real-DPG smoke tests:
+  `tests/test_lifecycle.py`. Opt-in scaffolding for real-DPG smoke tests:
   the `integration` marker, an env-gated `tests/integration/` (not collected
-  unless `DPG_INTEGRATION=1`, so the flaky `import dearpygui` never touches the
-  default run), and a smoke test (construct → render frames → destroy → assert
-  window gone + threads settle).
-- **Remaining:** run the real-DPG smoke under a display. `import dearpygui` is
-  non-deterministic in a headless/sandboxed shell (it can segfault at import),
-  so the smoke test was authored but not executed here — it needs a CI job with
-  a display, e.g. `xvfb-run -a env DPG_INTEGRATION=1 pytest -m integration`
-  (Linux, plus software GL). Extend coverage to real Chrome render, Word
-  HTML/text switch, and oversize-archive selection once that job exists.
+  unless `DPG_INTEGRATION=1`). Coverage:
+  - construct → render frames → destroy (window gone, threads settle)
+  - Chrome HTML preview (skipped when no browser binary)
+  - Word `.docx` HTML path vs python-docx text fallback
+  - oversize archive member on OK: error status, dialog stays open, no callback
+  Unit tests cover the same Word switch and archive-OK glue without DPG.
+  CI runs the suite under xvfb + software GL with `continue-on-error`.
+- **Remaining:** treat the xvfb job as a required gate once it is stable.
 - **Run locally:** `DPG_INTEGRATION=1 pytest -m integration`.
 
 ## P2 — quality / maturity
@@ -73,18 +69,19 @@ can trail the first stable release.
   modules only — do not force a high GUI number.
 
 ### 6. Supply chain & release provenance — **PARTIAL**
-- GitHub Actions are pinned to commit SHAs and CI generates a CycloneDX SBOM.
-- **Remaining:** enable Dependabot/Renovate and generate a
-  `THIRD_PARTY_NOTICES.md` / `pip-licenses` report for bundled icons and
-  transitive dependencies.
+- GitHub Actions are pinned to commit SHAs, CI generates a CycloneDX SBOM, and
+  Dependabot watches GitHub Actions and pip weekly.
+- **Remaining:** generate a `THIRD_PARTY_NOTICES.md` / `pip-licenses` report for
+  bundled icons and transitive dependencies.
 - Make `pyproject.toml` the single source of truth for dependencies (drop or
   auto-generate `requirements.txt`).
 
-### 7. Typed public API
-- Replace the generic `callback: Callable` / `**kwargs` with a `Protocol`
-  (`Callable[[list[str]], None]`) and constructor overloads for
-  `DialogConfig` vs kwargs; add `DialogConfig` validation (sizes, filter,
-  paths, `custom_dirs`).
+### 7. Typed public API — **DONE**
+- Host selection callback is `SelectionCallback` (`Protocol` for
+  `Callable[[list[str]], None]`); `FileDialog.__init__` has overloads for
+  `DialogConfig` vs kwargs; `change_callback` uses the same type.
+- `DialogConfig` validates sizes, `file_filter` membership, paths (no NUL),
+  and `custom_dirs` `(label, path)` pairs in `__post_init__`.
 
 ## Explicitly out of scope (non-issues)
 - **ZipSlip check:** the current `realpath` + `startswith(root + os.sep)` guard

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import time
+import zipfile
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -208,6 +209,62 @@ class TestReturnSelectionLogic:
     def test_typed_name_rejects_dotdot_segment(self, tmp_path):
         result = build_selection_list([], f"..{os.sep}escape.txt", str(tmp_path))
         assert result == []
+
+
+class TestFileDialogArchiveSelection:
+    """FileDialog._return_selection extracts archive members and surfaces failures."""
+
+    def _dialog(self, tmp_path, selected):
+        dialog = FileDialog.__new__(FileDialog)
+        dialog.state = DialogState()
+        dialog.state.selected_files = selected
+        dialog.state.current_dir = str(tmp_path)
+        dialog._callback = MagicMock()
+        dialog._filename_input = 1
+        dialog._status_label = 2
+        dialog._config = DialogConfig(modal=True, tag="sel_archive_test")
+        dialog.hide = MagicMock()
+        return dialog
+
+    def test_oversized_member_shows_error_and_keeps_dialog_open(self, tmp_path):
+        archive_path = tmp_path / "large.zip"
+        with zipfile.ZipFile(archive_path, "w") as zf:
+            zf.writestr("docs/large.txt", "x" * 32)
+        dialog = self._dialog(tmp_path, [f"{archive_path}|/docs/large.txt"])
+        dialog._MAX_ARCHIVE_EXTRACT_SIZE = 8
+        try:
+            with patch("dpg_navigator._dialog.dpg") as mock_dpg:
+                mock_dpg.get_value.return_value = ""
+                mock_dpg.does_item_exist.return_value = True
+                mock_dpg.get_item_label.return_value = "File Dialog"
+                dialog._return_selection()
+                status = mock_dpg.set_value.call_args[0][1]
+            dialog._callback.assert_not_called()
+            dialog.hide.assert_not_called()
+            assert "Extraction Error" in status
+            assert "large.txt" in status
+        finally:
+            DirectoryLister.cleanup_temp_files()
+
+    def test_member_within_limit_invokes_callback(self, tmp_path):
+        archive_path = tmp_path / "ok.zip"
+        with zipfile.ZipFile(archive_path, "w") as zf:
+            zf.writestr("docs/readme.txt", "hello")
+        dialog = self._dialog(tmp_path, [f"{archive_path}|/docs/readme.txt"])
+        dialog._MAX_ARCHIVE_EXTRACT_SIZE = 1024
+        try:
+            with patch("dpg_navigator._dialog.dpg") as mock_dpg:
+                mock_dpg.get_value.return_value = ""
+                mock_dpg.does_item_exist.return_value = True
+                mock_dpg.get_item_label.return_value = "File Dialog"
+                dialog._return_selection()
+            dialog.hide.assert_called_once()
+            dialog._callback.assert_called_once()
+            resolved = dialog._callback.call_args[0][0]
+            assert len(resolved) == 1
+            assert os.path.isfile(resolved[0])
+        finally:
+            DirectoryLister.cleanup_temp_files()
 
 
 # ── Double-click detection logic ────────────────────────────────

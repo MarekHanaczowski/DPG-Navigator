@@ -12,7 +12,7 @@ class TestPublicAPI:
         import dpg_navigator
         expected = {
             "FileDialog", "DialogConfig", "DialogMode", "StyleVariant",
-            "FileEntry", "DEFAULT_FILTER_LIST",
+            "FileEntry", "DEFAULT_FILTER_LIST", "SelectionCallback",
             "word_available", "mammoth_available", "pptx_available",
             "markdown_available", "pdf_available", "html_available",
             "chrome_available",
@@ -22,7 +22,7 @@ class TestPublicAPI:
 
     def test_all_length(self):
         import dpg_navigator
-        assert len(dpg_navigator.__all__) == 16
+        assert len(dpg_navigator.__all__) == 17
 
     def test_dialog_config_importable(self):
         from dpg_navigator import DialogConfig
@@ -46,17 +46,19 @@ class TestPublicAPI:
 
     def test_reexports_match_source(self):
         """Verify re-exports point to the same objects as direct imports."""
-        from dpg_navigator import DialogConfig, DialogMode, StyleVariant, FileEntry
+        from dpg_navigator import DialogConfig, DialogMode, StyleVariant, FileEntry, SelectionCallback
         from dpg_navigator._types import (
             DialogConfig as _DC,
             DialogMode as _DM,
             StyleVariant as _SV,
             FileEntry as _FE,
+            SelectionCallback as _SC,
         )
         assert DialogConfig is _DC
         assert DialogMode is _DM
         assert StyleVariant is _SV
         assert FileEntry is _FE
+        assert SelectionCallback is _SC
 
     def test_default_filter_list_in_all(self):
         """DEFAULT_FILTER_LIST is exported in __all__."""

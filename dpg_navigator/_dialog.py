@@ -17,13 +17,16 @@ import os
 import time
 import uuid
 from copy import copy
-from typing import Callable
+from typing import Any, overload
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
 _log = logging.getLogger(__name__)
 
-from ._types import DialogConfig, DialogMode, StyleVariant, FileEntry, DEFAULT_FILTER_LIST
+from ._types import (
+    DialogConfig, DialogMode, StyleVariant, FileEntry, DEFAULT_FILTER_LIST,
+    SelectionCallback,
+)
 from ._icons import IconRegistry
 from ._filesystem import (
     DirectoryLister,
@@ -43,7 +46,6 @@ from .dialog._state import DialogState
 from .dialog._logic import DialogLogic
 from .dialog._ui import DialogUIBuilder
 
-from ._types import FileEntry
 
 class FileDialog(KeyboardMixin):
     """Customizable file dialog for DearPyGui.
@@ -70,7 +72,7 @@ class FileDialog(KeyboardMixin):
     - Source code (monospace text preview)
 
     Args:
-        callback: Function called with list of selected file paths on OK.
+        callback: Called with a ``list[str]`` of selected paths on OK.
         config: DialogConfig instance for full configuration.
         **kwargs: Individual config options (alternative to passing config).
 
@@ -119,15 +121,31 @@ class FileDialog(KeyboardMixin):
     _shared_preview_active_theme: int | None = None
     _instance_count: int = 0
 
+    @overload
     def __init__(
         self,
-        config: DialogConfig | Callable | None = None,
-        callback: Callable | None = None,
-        **kwargs,
-    ):
-        # Support old signature FileDialog(callback, config) or FileDialog(callback=on_select)
-        # by checking if the first positional argument is callable.
-        if config is not None and (callable(config) or not isinstance(config, DialogConfig)):
+        config: DialogConfig,
+        callback: SelectionCallback | None = None,
+    ) -> None: ...
+
+    @overload
+    def __init__(
+        self,
+        config: SelectionCallback | None = None,
+        callback: SelectionCallback | None = None,
+        **kwargs: Any,
+    ) -> None: ...
+
+    def __init__(
+        self,
+        config: DialogConfig | SelectionCallback | None = None,
+        callback: SelectionCallback | None = None,
+        **kwargs: Any,
+    ) -> None:
+        # First positional may be the host callback (FileDialog(on_select)).
+        if config is not None and (
+            callable(config) or not isinstance(config, DialogConfig)
+        ):
             callback = config
             config = None
 
@@ -349,7 +367,7 @@ class FileDialog(KeyboardMixin):
                 setattr(FileDialog, attr, None)
             FileDialog._instance_count = 0
 
-    def change_callback(self, callback: Callable) -> None:
+    def change_callback(self, callback: SelectionCallback) -> None:
         """Change the callback function. Does NOT modify the OK button directly."""
         self._callback = callback
 

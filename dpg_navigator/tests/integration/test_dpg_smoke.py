@@ -19,25 +19,9 @@ import dearpygui.dearpygui as dpg
 
 from dpg_navigator import FileDialog
 
+from .dpg_harness import pump
+
 pytestmark = pytest.mark.integration
-
-
-@pytest.fixture
-def dpg_viewport():
-    """A minimal headless DPG context + viewport, torn down after the test."""
-    dpg.create_context()
-    dpg.create_viewport(title="dpg-navigator-smoke", width=400, height=300)
-    dpg.setup_dearpygui()
-    dpg.show_viewport()
-    try:
-        yield
-    finally:
-        dpg.destroy_context()
-
-
-def _pump(frames: int = 3) -> None:
-    for _ in range(frames):
-        dpg.render_dearpygui_frame()
 
 
 class TestDialogSmoke:
@@ -49,12 +33,12 @@ class TestDialogSmoke:
 
         dialog = FileDialog(default_path=str(tmp_path))
         dialog.show()
-        _pump()
+        pump()
 
         assert dpg.does_item_exist(dialog._config.tag)
 
         dialog.destroy()
-        _pump()
+        pump()
 
         assert not dpg.does_item_exist(dialog._config.tag)
 
@@ -70,7 +54,7 @@ class TestDialogSmoke:
         first = FileDialog(default_path=str(tmp_path))
         second = FileDialog(default_path=str(tmp_path))
         try:
-            _pump()
+            pump()
             assert first._config.tag != second._config.tag
         finally:
             first.destroy()

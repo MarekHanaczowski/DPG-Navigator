@@ -16,5 +16,26 @@ from __future__ import annotations
 
 import os
 
+import pytest
+
 if os.environ.get("DPG_INTEGRATION") != "1":
     collect_ignore_glob = ["test_*.py"]
+
+
+@pytest.fixture
+def dpg_viewport():
+    """A DPG context + viewport, torn down after the test.
+
+    dearpygui is imported inside the fixture so collecting this module without
+    ``DPG_INTEGRATION=1`` cannot pull in OpenGL.
+    """
+    import dearpygui.dearpygui as dpg
+
+    dpg.create_context()
+    dpg.create_viewport(title="dpg-navigator-integration", width=1000, height=700)
+    dpg.setup_dearpygui()
+    dpg.show_viewport()
+    try:
+        yield
+    finally:
+        dpg.destroy_context()

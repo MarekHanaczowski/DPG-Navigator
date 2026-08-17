@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from unittest.mock import patch
@@ -17,6 +18,16 @@ def _reset_pool():
     JobManager.shutdown(wait=True, timeout=2.0)
     yield
     JobManager.shutdown(wait=True, timeout=2.0)
+
+
+def _join_workers(timeout: float = 2.0) -> None:
+    deadline = time.time() + timeout
+    for thread in list(threading.enumerate()):
+        if thread.name.startswith("dpg_nav_worker") and thread.is_alive():
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
+            thread.join(remaining)
 
 
 class TestJobManagerPool:
@@ -59,3 +70,70 @@ class TestJobManagerPool:
         JobManager.submit(lambda: None).result(timeout=2)
         JobManager.shutdown(wait=True, timeout=2.0)
         assert JobManager.submit(lambda: "ok").result(timeout=2) == "ok"
+
+    def test_cancelled_queued_job_does_not_run(self):
+        started = threading.Event()
+        release = threading.Event()
+        ran_second = threading.Event()
+
+        def blocker() -> None:
+            started.set()
+            release.wait(timeout=2)
+
+        def second() -> None:
+            ran_second.set()
+
+        with patch.object(jobmod, "_MAX_WORKERS", 1):
+            JobManager.shutdown(wait=True, timeout=2.0)
+            JobManager.submit(blocker)
+            assert started.wait(timeout=2)
+            queued = JobManager.submit(second)
+            assert queued.cancel()
+            release.set()
+            deadline = time.time() + 1.0
+            while time.time() < deadline and not ran_second.is_set():
+                time.sleep(0.01)
+            assert queued.cancelled()
+            assert not ran_second.is_set()
+            _join_workers()
+
+    def test_shutdown_cancels_queued_work(self):
+        started = threading.Event()
+        release = threading.Event()
+        ran_second = threading.Event()
+
+        def blocker() -> None:
+            started.set()
+            release.wait(timeout=2)
+
+        def second() -> None:
+            ran_second.set()
+
+        with patch.object(jobmod, "_MAX_WORKERS", 1):
+            JobManager.shutdown(wait=True, timeout=2.0)
+            JobManager.submit(blocker)
+            assert started.wait(timeout=2)
+            queued = JobManager.submit(second)
+            JobManager.shutdown(wait=False)
+            assert queued.cancelled()
+            assert not ran_second.is_set()
+            release.set()
+            _join_workers()
+
+    def test_shutdown_logs_when_join_times_out(self, caplog):
+        started = threading.Event()
+        release = threading.Event()
+
+        def blocker() -> None:
+            started.set()
+            release.wait(timeout=5)
+
+        with patch.object(jobmod, "_MAX_WORKERS", 1):
+            JobManager.shutdown(wait=True, timeout=2.0)
+            JobManager.submit(blocker)
+            assert started.wait(timeout=2)
+            with caplog.at_level(logging.WARNING, logger="dpg_navigator._job_manager"):
+                JobManager.shutdown(wait=True, timeout=0.05)
+            assert any("timed out" in rec.message for rec in caplog.records)
+            release.set()
+            _join_workers()

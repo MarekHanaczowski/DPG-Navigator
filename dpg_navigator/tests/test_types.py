@@ -155,13 +155,53 @@ class TestDialogConfig:
         assert len(cfg.min_size) == 2
 
     def test_custom_filter_list(self):
-        filters = [".py", ".txt"]
-        cfg = DialogConfig(filter_list=filters)
-        assert cfg.filter_list == [".py", ".txt"]
+        filters = [".*", ".py", ".txt"]
+        cfg = DialogConfig(filter_list=filters, file_filter=".*")
+        assert cfg.filter_list == [".*", ".py", ".txt"]
 
     def test_custom_default_path(self):
         cfg = DialogConfig(default_path="/tmp")
         assert cfg.default_path == "/tmp"
+
+    def test_rejects_non_positive_width(self):
+        with pytest.raises(ValueError, match="width"):
+            DialogConfig(width=0)
+
+    def test_rejects_bool_as_size(self):
+        with pytest.raises(ValueError, match="height"):
+            DialogConfig(height=True)  # type: ignore[arg-type]
+
+    def test_rejects_empty_title(self):
+        with pytest.raises(ValueError, match="title"):
+            DialogConfig(title="  ")
+
+    def test_rejects_file_filter_missing_from_list(self):
+        with pytest.raises(ValueError, match="file_filter"):
+            DialogConfig(filter_list=[".py", ".txt"], file_filter=".*")
+
+    def test_rejects_bad_extension(self):
+        with pytest.raises(ValueError, match="file_filter"):
+            DialogConfig(file_filter="py")
+
+    def test_rejects_nul_in_default_path(self):
+        with pytest.raises(ValueError, match="default_path"):
+            DialogConfig(default_path="C:\\tmp\0secret")
+
+    def test_rejects_bad_custom_dirs(self):
+        with pytest.raises(ValueError, match="custom_dirs"):
+            DialogConfig(custom_dirs=[("", "/tmp")])
+
+    def test_accepts_custom_dirs(self):
+        cfg = DialogConfig(custom_dirs=[("Projects", "D:/Projects")])
+        assert cfg.custom_dirs == [("Projects", "D:/Projects")]
+
+    def test_rejects_bad_min_size(self):
+        with pytest.raises(ValueError, match="min_size"):
+            DialogConfig(min_size=(0, 100))
+
+    def test_rejects_non_enum_mode(self):
+        with pytest.raises(TypeError, match="DialogMode"):
+            DialogConfig(mode="open")  # type: ignore[arg-type]
 
 
 # ── DEFAULT_FILTER_LIST ─────────────────────────────────────────
