@@ -60,6 +60,7 @@ class TableRenderMixin:
     """
 
     _STATUS_HEIGHT: int = 42
+    _ctx: PreviewContext | None
 
     def _render_table_widget(
         self,
@@ -71,27 +72,28 @@ class TableRenderMixin:
         row_click_callback=None,
     ) -> None:
         """Render tabular data as a native DPG table in the preview panel."""
-        if self._ctx is None or self._ctx.panel_id is None:
+        ctx = self._ctx
+        if ctx is None or ctx.panel_id is None:
             return
 
-        self._ctx.image_cache = None
-        dpg.delete_item(self._ctx.panel_id, children_only=True)
-        tex_tag = f"_preview_tex_{self._ctx.config_tag}"
+        ctx.image_cache = None
+        dpg.delete_item(ctx.panel_id, children_only=True)
+        tex_tag = f"_preview_tex_{ctx.config_tag}"
         if dpg.does_item_exist(tex_tag):
             dpg.delete_item(tex_tag)
 
         dpg.add_text(
             entry_name,
             color=[180, 180, 255],
-            parent=self._ctx.panel_id,
+            parent=ctx.panel_id,
         )
-        dpg.add_separator(parent=self._ctx.panel_id)
+        dpg.add_separator(parent=ctx.panel_id)
 
         if not headers and not rows:
             dpg.add_text(
                 status_text or "No data",
                 color=[128, 128, 128],
-                parent=self._ctx.panel_id,
+                parent=ctx.panel_id,
             )
             return
 
@@ -103,7 +105,7 @@ class TableRenderMixin:
             bottom_margin += 30
 
         with dpg.child_window(
-            parent=self._ctx.panel_id,
+            parent=ctx.panel_id,
             height=-bottom_margin,
             width=-1,
         ), dpg.table(
@@ -153,7 +155,7 @@ class TableRenderMixin:
                     for _ in range(len(headers) - len(row_data)):
                         dpg.add_text("", color=cell_color)
 
-        dpg.add_spacer(height=2, parent=self._ctx.panel_id)
+        dpg.add_spacer(height=2, parent=ctx.panel_id)
 
         if ui_builder is not None:
             ui_builder()
@@ -161,5 +163,5 @@ class TableRenderMixin:
         dpg.add_text(
             status_text,
             color=[180, 180, 180],
-            parent=self._ctx.panel_id,
+            parent=ctx.panel_id,
         )

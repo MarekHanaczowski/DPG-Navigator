@@ -23,7 +23,7 @@ class TextRenderer(BaseRenderer):
         self._load_text_content = load_text_content_cb
         self._request_update = request_update_cb
         self._text_offset = 0
-        self._current_entry = None
+        self._current_entry: FileEntry | None = None
 
     def render(self, entry: FileEntry, ctx: PreviewContext) -> None:
         """Render the current text fragment and optional paging controls."""

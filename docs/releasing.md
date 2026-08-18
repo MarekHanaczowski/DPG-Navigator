@@ -33,7 +33,7 @@ Install the development dependencies and run the same checks as CI:
 python -m pip install -e ".[dev]"
 python -m ruff check .
 python -m ruff format --check .
-python -m mypy dpg_navigator/_types.py dpg_navigator/_filesystem.py dpg_navigator/_platform.py dpg_navigator/_icons.py dpg_navigator/_styles.py dpg_navigator/_keyboard.py dpg_navigator/_preview_registry.py dpg_navigator/_preview_table.py dpg_navigator/_preview_archive.py dpg_navigator/_preview_spreadsheet.py dpg_navigator/_preview_sqlite.py dpg_navigator/_preview_word.py dpg_navigator/_preview_presentation.py dpg_navigator/_preview.py dpg_navigator/_dialog.py dpg_navigator/_pdf.py dpg_navigator/_html.py
+python -m mypy
 python -m pytest -q
 ```
 

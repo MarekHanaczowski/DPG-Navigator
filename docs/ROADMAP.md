@@ -60,10 +60,11 @@ can trail the first stable release.
   `W`, `I` (isort), `B` (bugbear), `UP` (pyupgrade), `SIM` (simplify), with
   `SIM105`/`SIM108` ignored on purpose. CI runs `ruff check .` and
   `ruff format --check .`.
-- **Whole-package mypy:** move from the hand-maintained file list to
-  `files = ["dpg_navigator"]`, then progressively enable `warn_return_any`,
-  `disallow_any_generics`, `disallow_untyped_defs`; replace `cast(Any, None)`
-  optional-dependency shims with `Protocol`s.
+- **Whole-package mypy:** **DONE** for current flags (`check_untyped_defs`,
+  `no_implicit_optional`). `[tool.mypy] files = ["dpg_navigator"]` (tests
+  excluded); CI runs `python -m mypy` on Python != 3.8/3.9. Optional-backend
+  `cast(Any, None)` shims and stricter flags (`warn_return_any`,
+  `disallow_any_generics`, `disallow_untyped_defs`) remain for a later pass.
 - **`pre-commit`** as the single local entry point (ruff, ruff-format, mypy),
   and a **coverage gate** (`pytest-cov`) with a threshold for the pure-data
   modules only — do not force a high GUI number.

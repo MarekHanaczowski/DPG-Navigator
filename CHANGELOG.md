@@ -49,6 +49,9 @@ All notable changes to this project will be documented in this file.
   project from `pyproject.toml`.
 - Ruff lint covers pyflakes, whitespace, isort, bugbear, pyupgrade, and
   simplify (`target-version` py38). CI also runs `ruff format --check`.
+- mypy type-checks the whole `dpg_navigator` package (tests excluded) from
+  `[tool.mypy] files`; CI runs `python -m mypy` instead of a hand-maintained
+  file list.
 
 ### Fixed
 

@@ -59,12 +59,12 @@ dev = [
     "pytest-github-actions-annotate-failures>=0.2",
     "ruff>=0.6",
     "mypy>=1.10",
-    # Type stubs for optional backends imported in the mypy-checked modules —
-    # without these the "Type check pure modules" CI step reports
-    # import-untyped for markdown/openpyxl/pygments.
+    # Type stubs for optional backends imported in mypy-checked modules —
+    # without these CI reports import-untyped for markdown/openpyxl/pygments/bleach.
     "types-Markdown",
     "types-openpyxl",
     "types-Pygments",
+    "types-bleach",
     "dpg-navigator[all]",
 ]
 
@@ -133,6 +133,8 @@ known-first-party = ["dpg_navigator"]
 # CI matrix job type-checks against its own Python. This also avoids parse
 # errors from third-party stubs (e.g. numpy's PEP 695 `type` aliases) that only
 # install on the newer interpreters — the target then matches the stub syntax.
+files = ["dpg_navigator"]
+exclude = ["^dpg_navigator/tests/"]
 warn_unused_configs = true
 check_untyped_defs = true
 no_implicit_optional = true

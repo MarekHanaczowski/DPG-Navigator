@@ -13,13 +13,9 @@ pip install -e ".[dev]"          # dev install (pulls in the [all] preview extra
 
 python -m ruff check .           # lint (E9,F,W,I,B,UP,SIM; target py38)
 python -m ruff format --check .  # format gate (same as CI)
+python -m mypy                   # package type check via [tool.mypy] files= (skip 3.8/3.9 in CI)
 python -m pytest -q              # run the unit test suite
 pytest dpg_navigator/tests/test_filesystem.py::test_name   # single test
-
-# mypy is run only on the explicit file list in CI, and only on Python != 3.8/3.9.
-# The list is maintained manually and includes a few orchestration modules that
-# import DearPyGui; do not run mypy over the whole package. See the exact list in
-# .github/workflows/ci.yml ("Type check pure modules") or README "Development".
 
 python demo.py                   # launch the interactive demo dialog (needs a display)
 python benchmarks/benchmark_heavy_paths.py --profile default --iterations 3

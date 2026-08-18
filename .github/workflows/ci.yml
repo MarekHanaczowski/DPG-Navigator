@@ -52,37 +52,9 @@ jobs:
       - name: Format
         run: python -m ruff format --check .
 
-      - name: Type check pure modules
+      - name: Type check package
         if: ${{ matrix.python-version != '3.8' && matrix.python-version != '3.9' }}
-        run: >-
-          python -m mypy
-          dpg_navigator/_types.py
-          dpg_navigator/_filesystem.py
-          dpg_navigator/_platform.py
-          dpg_navigator/_icons.py
-          dpg_navigator/_styles.py
-          dpg_navigator/_keyboard.py
-          dpg_navigator/_preview_registry.py
-          dpg_navigator/_preview_table.py
-          dpg_navigator/_preview_archive.py
-          dpg_navigator/_preview_spreadsheet.py
-          dpg_navigator/_preview_sqlite.py
-          dpg_navigator/_preview_word.py
-          dpg_navigator/_preview_presentation.py
-          dpg_navigator/_preview.py
-          dpg_navigator/_dialog.py
-          dpg_navigator/_pdf.py
-          dpg_navigator/_html.py
-          dpg_navigator/_availability.py
-          dpg_navigator/_job_manager.py
-          dpg_navigator/vfs/_base.py
-          dpg_navigator/vfs/_registry.py
-          dpg_navigator/vfs/_local.py
-          dpg_navigator/vfs/_archive.py
-          dpg_navigator/vfs/__init__.py
-          dpg_navigator/dialog/_state.py
-          dpg_navigator/dialog/_logic.py
-          dpg_navigator/dialog/_ui.py
+        run: python -m mypy
 
       - name: Test
         run: python -m pytest -q
@@ -121,37 +93,9 @@ jobs:
       - name: Format
         run: python -m ruff format --check .
 
-      - name: Type check pure modules
+      - name: Type check package
         if: ${{ matrix.python-version != '3.8' && matrix.python-version != '3.9' }}
-        run: >-
-          python -m mypy
-          dpg_navigator/_types.py
-          dpg_navigator/_filesystem.py
-          dpg_navigator/_platform.py
-          dpg_navigator/_icons.py
-          dpg_navigator/_styles.py
-          dpg_navigator/_keyboard.py
-          dpg_navigator/_preview_registry.py
-          dpg_navigator/_preview_table.py
-          dpg_navigator/_preview_archive.py
-          dpg_navigator/_preview_spreadsheet.py
-          dpg_navigator/_preview_sqlite.py
-          dpg_navigator/_preview_word.py
-          dpg_navigator/_preview_presentation.py
-          dpg_navigator/_preview.py
-          dpg_navigator/_dialog.py
-          dpg_navigator/_pdf.py
-          dpg_navigator/_html.py
-          dpg_navigator/_availability.py
-          dpg_navigator/_job_manager.py
-          dpg_navigator/vfs/_base.py
-          dpg_navigator/vfs/_registry.py
-          dpg_navigator/vfs/_local.py
-          dpg_navigator/vfs/_archive.py
-          dpg_navigator/vfs/__init__.py
-          dpg_navigator/dialog/_state.py
-          dpg_navigator/dialog/_logic.py
-          dpg_navigator/dialog/_ui.py
+        run: python -m mypy
 
       - name: Test
         run: python -m pytest -q

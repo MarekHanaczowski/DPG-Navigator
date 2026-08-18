@@ -3,20 +3,10 @@
 from __future__ import annotations  # PEP 604/585 in signatures need this on py3.8/3.9
 
 import logging
-
-import dearpygui.dearpygui as dpg
-from defusedxml import minidom as _minidom  # type: ignore[import-untyped]
-
-try:
-    import openpyxl
-except ImportError:
-    openpyxl = None
-try:
-    import sqlite3
-except ImportError:
-    sqlite3 = None
-
 from typing import Callable
+
+import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
+from defusedxml import minidom as _minidom  # type: ignore[import-untyped]
 
 from .._availability import _load_workbook
 from .._filesystem import DirectoryLister
@@ -41,8 +31,8 @@ class DataRenderer(TableRenderMixin, BaseRenderer):
 
     def __init__(self, load_text_content_cb: Callable[[str, int], tuple[str | None, bool]]):
         self._load_text_content = load_text_content_cb
-        self._current_entry = None
-        self._ctx = None
+        self._current_entry: FileEntry | None = None
+        self._ctx: PreviewContext | None = None
 
     def render(self, entry: FileEntry, ctx: PreviewContext) -> None:
         """Render a supported data file into the preview panel."""
@@ -154,7 +144,7 @@ class DataRenderer(TableRenderMixin, BaseRenderer):
         if self._ctx is None or self._ctx.panel_id is None:
             return
 
-        text, is_bin = self._load_text_content(entry.full_path)
+        text, is_bin = self._load_text_content(entry.full_path, self._text_offset)
         if is_bin:
             self._render_binary_warning(entry)
             return
@@ -192,6 +182,7 @@ class DataRenderer(TableRenderMixin, BaseRenderer):
         """Parse an Excel .xlsx file and display as a native DPG table."""
         if self._ctx is None or self._ctx.panel_id is None:
             return
+        ctx = self._ctx
 
         try:
             table = load_excel_table(
@@ -207,7 +198,7 @@ class DataRenderer(TableRenderMixin, BaseRenderer):
 
         def _build_excel_ui():
             if len(table.sheetnames) > 1:
-                with dpg.group(horizontal=True, parent=self._ctx.panel_id):
+                with dpg.group(horizontal=True, parent=ctx.panel_id):
                     dpg.add_text("Sheet:", color=[180, 180, 180])
 
                     def on_sheet_changed(sender, app_data, user_data):
@@ -279,6 +270,7 @@ class DataRenderer(TableRenderMixin, BaseRenderer):
         """Parse a SQLite database file and display a table's contents."""
         if self._ctx is None or self._ctx.panel_id is None:
             return
+        ctx = self._ctx
 
         try:
             table = load_sqlite_table(
@@ -294,7 +286,7 @@ class DataRenderer(TableRenderMixin, BaseRenderer):
 
         def _build_db_ui():
             if len(table.tables) > 1:
-                with dpg.group(horizontal=True, parent=self._ctx.panel_id):
+                with dpg.group(horizontal=True, parent=ctx.panel_id):
                     dpg.add_text("Table:", color=[200, 200, 200])
                     dpg.add_combo(
                         items=table.tables,

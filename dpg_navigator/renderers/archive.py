@@ -19,15 +19,6 @@ from ._base import BaseRenderer, PreviewContext, TableRenderMixin
 
 _log = logging.getLogger(__name__)
 
-try:
-    import zipfile
-except ImportError:
-    zipfile = None
-try:
-    import py7zr
-except ImportError:
-    py7zr = None
-
 
 class ArchiveRenderer(TableRenderMixin, BaseRenderer):
     """Render ZIP and 7z archive listings and selected members."""
@@ -38,8 +29,8 @@ class ArchiveRenderer(TableRenderMixin, BaseRenderer):
 
     def __init__(self, request_update_cb: Callable[[FileEntry], None]):
         self._request_update = request_update_cb
-        self._current_entry = None
-        self._ctx = None
+        self._current_entry: FileEntry | None = None
+        self._ctx: PreviewContext | None = None
 
     def render(self, entry: FileEntry, ctx: PreviewContext) -> None:
         """Render an archive listing in the supplied preview context."""

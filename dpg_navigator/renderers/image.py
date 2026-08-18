@@ -47,13 +47,12 @@ class ImageRenderer(BaseRenderer):
         if _PILImage is None:
             raise RuntimeError("Pillow is not installed or unavailable.")
         with _PILImage.open(path) as img:
-            if img.mode != "RGBA":
-                img = img.convert("RGBA")
-            img_w, img_h = img.size
+            rgba = img.convert("RGBA") if img.mode != "RGBA" else img
+            img_w, img_h = rgba.size
             if img_w > 8192 or img_h > 8192:
-                img.thumbnail((8192, 8192))
-                img_w, img_h = img.size
-            raw_data = img.tobytes()
+                rgba.thumbnail((8192, 8192))
+                img_w, img_h = rgba.size
+            raw_data = rgba.tobytes()
             # Normalize to 0.0-1.0 float array expected by DPG
             float_data = array.array("f", (b / 255.0 for b in raw_data))
             return img_w, img_h, float_data

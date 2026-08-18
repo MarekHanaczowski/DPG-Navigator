@@ -12,7 +12,7 @@ import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 try:
     import bleach
 except ImportError:
-    bleach = None
+    bleach = None  # type: ignore[assignment]
 
 from .._availability import (
     _DocxDocument,
@@ -136,19 +136,19 @@ class DocumentRenderer(BaseRenderer):
 
     def __init__(self, load_text_content_cb: Callable[[str, int], tuple[str | None, bool]]):
         self._load_text_content = load_text_content_cb
-        self._current_entry = None
-        self._ctx = None
+        self._current_entry: FileEntry | None = None
+        self._ctx: PreviewContext | None = None
 
         # Sub-renderers (delegates) — created lazily at first use, once the
         # render-time config_tag is available on the context.
-        self._html = None
-        self._pdf = None
+        self._html: HTMLRenderer | None = None
+        self._pdf: PDFRenderer | None = None
 
         # Widget references owned by this renderer
-        self._html_image_id = None
-        self._html_status_label = None
-        self._pdf_image_id = None
-        self._pdf_page_label = None
+        self._html_image_id: int | str | None = None
+        self._html_status_label: int | str | None = None
+        self._pdf_image_id: int | str | None = None
+        self._pdf_page_label: int | str | None = None
 
     def render(self, entry: FileEntry, ctx: PreviewContext) -> None:
         """Render a document using the backend selected by its extension."""
