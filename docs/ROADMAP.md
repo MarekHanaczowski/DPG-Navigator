@@ -59,7 +59,8 @@ can trail the first stable release.
 - **Broader ruff + `ruff format --check`:** **DONE.** Lint selects `E9`, `F`,
   `W`, `I` (isort), `B` (bugbear), `UP` (pyupgrade), `SIM` (simplify), with
   `SIM105`/`SIM108` ignored on purpose. CI runs `ruff check .` and
-  `ruff format --check .`.
+  `ruff format --check .`. Format skips Markdown (`*.md`); Ruff 0.16+ would
+  otherwise rewrite Python fences in README and audit notes.
 - **Whole-package mypy:** **DONE.** `[tool.mypy] files = ["dpg_navigator"]`
   (tests excluded); CI runs `python -m mypy` on Python != 3.8/3.9. Flags:
   `check_untyped_defs`, `no_implicit_optional`, `disallow_untyped_defs`,

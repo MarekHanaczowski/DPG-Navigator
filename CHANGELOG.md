@@ -57,6 +57,8 @@ All notable changes to this project will be documented in this file.
   `[tool.mypy] files` with `disallow_untyped_defs`, `warn_return_any`, and
   `disallow_any_generics`. Optional backends use `OptionalModule` instead of
   `cast(Any, None)`.
+- `ruff format --check` skips Markdown (`*.md`). Ruff 0.16+ otherwise rewrites
+  Python fences in README and audit notes.
 
 ### Fixed
 

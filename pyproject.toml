@@ -112,6 +112,11 @@ target-version = "py38"
 line-length = 120
 extend-exclude = [".pytest_tmp", ".pytest_tmp_cache"]
 
+[tool.ruff.format]
+# Ruff 0.16+ formats Python fences in Markdown. Keep README examples and
+# historical audit notes out of the format gate.
+exclude = ["*.md"]
+
 [tool.ruff.lint]
 select = [
     "E9",
