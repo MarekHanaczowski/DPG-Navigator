@@ -160,7 +160,7 @@ class PreviewKind(Enum):
     SQLITE = auto()
     FONT = auto()
     XML = auto()
-    CODE = auto()
+    CODE = auto()  # monospace text; extra gates routing, not highlighting
     TEXT = auto()
     PDF = auto()
     ZIP = auto()

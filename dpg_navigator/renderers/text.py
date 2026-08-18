@@ -1,4 +1,4 @@
-"""Text and code preview renderers."""
+"""Monospace text and source-code preview (no syntax highlighting)."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from ._base import BaseRenderer, PreviewContext
 
 
 class TextRenderer(BaseRenderer):
-    """Render text and source-code previews."""
+    """Render text and source-code previews as monospace DPG text."""
 
     _TEXT_PREVIEW_MAX_SIZE = 100 * 1024  # 100 KB chunks
 

@@ -14,11 +14,11 @@ class VFSRegistry:
 
     @classmethod
     def register_default_providers(cls) -> None:
-        """Register the built-in providers."""
+        """Register ArchiveVFSProvider then LocalVFSProvider.
+
+        Archive matches ``path|inner`` virtual paths; Local matches the rest.
+        """
         if not cls._providers:
-            # Order matters: more specific first.
-            # Local is fallback but we put it first for fast path if it doesn't match '|'.
-            # Wait, since they check `is_valid_path`, any order where true match works is fine.
             cls._providers.extend(
                 [
                     ArchiveVFSProvider(),

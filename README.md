@@ -84,7 +84,7 @@ the host still needs the bytes.
 The package keeps filesystem/search logic separate from DearPyGui rendering:
 
 - `FileDialog` orchestrates the dialog and public lifecycle.
-- `dialog/_state.py`, `dialog/_logic.py`, and `dialog/_ui.py` hold state, GUI-free behavior, and widget construction.
+- `dialog/_state.py`, `dialog/_logic.py`, and `dialog/_ui.py` hold state, GUI-free behavior, and widget construction. Drive lists are computed off-thread and applied on the DearPyGui thread.
 - `_preview_registry.py` routes file extensions, while `PreviewPanel` delegates rendering to format-specific classes in `renderers/`.
 - Preview loaders such as `_preview_word.py` and `_preview_spreadsheet.py` return plain data and can be tested without a DearPyGui context.
 
@@ -126,13 +126,20 @@ Preview features are organized into installable extras:
 | `all` | `pip install dpg-navigator[all]` | All of the above |
 
 > **Chrome/Chromium required for some previews.** The `html`, `markdown`,
-> and the pixel-perfect `word` previews render through **Chrome
-> Headless** (driven by `html2image`). Installing the extra pulls in the Python
-> packages but **not** a browser — a Chrome or Chromium binary must be present
-> on the system `PATH`. If none is found (or a preview extra is not installed),
+> and the pixel-perfect `word` previews render through **Chrome Headless**
+> (driven by `html2image`'s `--screenshot` CLI). Installing the extra pulls in
+> the Python packages but **not** a browser. A Chrome, Chromium, or
+> `chrome-headless-shell` binary must be resolvable: set `DPG_CHROME_BIN`
+> (preferred), `CHROME_BIN`, or `CHROME_PATH`, or leave html2image to search
+> `PATH`. Full Chrome for Testing can hang on `--screenshot`; the old-headless
+> `chrome-headless-shell` binary from [Chrome for Testing](https://googlechromelabs.github.io/chrome-for-testing/)
+> is the reliable CLI. If none is found (or a preview extra is not installed),
 > HTML files fall back to raw-text rendering, and Markdown/Word degrade to
-> their text extractors, so the dialog stays usable. Chrome is launched with
-> JavaScript disabled and network access blocked through a dead proxy.
+> their text extractors. Chrome is launched with JavaScript disabled and
+> network access blocked through a dead proxy (`file://` preview HTML is
+> bypassed so the screenshot is not delayed by that proxy).
+> Containers/CI that cannot start the sandbox may set `DPG_CHROME_NO_SANDBOX=1`
+> (weakens isolation; not the default).
 
 ## Configuration
 
@@ -232,7 +239,8 @@ python -m pytest -q --cov=dpg_navigator --cov-report=term-missing
 # same ruff/mypy checks as a git hook (Python >= 3.9, venv must be active)
 pre-commit install
 pre-commit run --all-files
-# opt-in real DearPyGui smoke (needs a display)
+# opt-in real DearPyGui smoke (needs a display). CI runs this under xvfb
+# as a required job (DPG_CHROME_NO_SANDBOX=1, chrome-headless-shell).
 DPG_INTEGRATION=1 pytest -m integration
 # headless Linux:
 xvfb-run -a env DPG_INTEGRATION=1 pytest -m integration

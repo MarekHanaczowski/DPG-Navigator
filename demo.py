@@ -1,3 +1,9 @@
+"""Interactive demo for dpg-navigator.
+
+Opens a FileDialog with preview enabled. Needs a display. Bind a Unicode
+font so Polish filenames render; see README "Unicode filenames".
+"""
+
 import os
 import sys
 

@@ -72,8 +72,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/MarekHanaczowski/dpg-navigator"
-Repository = "https://github.com/MarekHanaczowski/dpg-navigator"
+Homepage = "https://github.com/MarekHanaczowski/DPG-Navigator"
+Repository = "https://github.com/MarekHanaczowski/DPG-Navigator"
 
 [tool.hatch.version]
 source = "regex"

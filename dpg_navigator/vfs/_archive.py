@@ -33,7 +33,7 @@ def _short_md5(data: bytes) -> str:
 
 
 class ArchiveVFSProvider(VFSProvider):
-    """Provides access to virtual paths inside ZIP and 7z archives."""
+    """Virtual paths inside ZIP and 7z: ``archive_path|/inner/dir``."""
 
     def is_valid_path(self, path: str) -> bool:
         if "|" not in path:

@@ -1,10 +1,12 @@
 """Filesystem operations for the dpg_navigator package.
 
-Contains DirectoryLister, which handles directory enumeration, filtering,
-sorting, and display formatting. Pure logic with no DearPyGui dependency.
+``DirectoryLister`` is a static facade: it does not scan the disk itself.
+It asks ``VFSRegistry.get_provider(path)`` and delegates to
+``LocalVFSProvider`` or ``ArchiveVFSProvider``. Archive virtual paths use
+``archive_path|/internal/path``.
 
-DirectoryIndex provides a background-built in-memory index for fast
-recursive file search across directory trees.
+``DirectoryIndex`` is a background-built in-memory index for recursive
+search, capped at ``INDEX_MAX_ENTRIES``.
 """
 
 from __future__ import annotations
@@ -59,10 +61,10 @@ def _short_md5(data: bytes) -> str:
 class DirectoryLister:
     """Lists directory contents with filtering, sorting, and error handling.
 
-    Pure logic (no DearPyGui dependency).  Supports both real directories
-    (via ``os.scandir``) and virtual archive paths (ZIP/7z) using the
-    ``archive_path|/internal/path`` convention.  Also provides temporary
-    file extraction for archive preview with ZipSlip protection.
+    Pure logic (no DearPyGui dependency). Delegates to ``VFSRegistry``:
+    physical paths go through ``LocalVFSProvider``, virtual archive paths
+    (``archive_path|/internal/path``) through ``ArchiveVFSProvider``.
+    Also extracts archive members to a session temp dir with ZipSlip checks.
     """
 
     _session_temp_dir: str | None = None
@@ -252,8 +254,9 @@ class DirectoryIndex:
     """Background-built in-memory index for fast recursive file search.
 
     After ``build()`` is called (typically from a background thread),
-    the index holds a flat list of ``FileEntry`` objects for all files
-    and directories found recursively under the root path.
+    the index holds a flat list of ``FileEntry`` objects for files and
+    directories found under the root path, up to ``INDEX_MAX_ENTRIES``
+    (extra entries are dropped; the partial index is kept).
 
     Thread safety: ``build()`` writes ``_entries`` and ``_ready`` behind
     ``_lock``; ``search()`` reads them behind the same lock.  A

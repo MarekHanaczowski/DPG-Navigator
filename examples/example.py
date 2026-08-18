@@ -1,3 +1,8 @@
+"""Example: open-file dialog with a host window.
+
+Needs a display. On Windows, DPI awareness is set before the DPG context.
+"""
+
 import os
 import sys
 

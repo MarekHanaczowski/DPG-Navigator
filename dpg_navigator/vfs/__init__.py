@@ -1,4 +1,8 @@
-"""Virtual File System (VFS) abstraction for dpg_navigator."""
+"""Virtual filesystem: physical paths and zip/7z members.
+
+Archive convention: ``C:\\path\\file.zip|/inner/dir`` — ``|`` separates the
+archive file from the path inside it. ``DirectoryLister`` delegates here.
+"""
 
 from __future__ import annotations
 
