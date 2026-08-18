@@ -78,7 +78,7 @@ def _load_notes(slide: Any) -> str:
     try:
         notes_slide = slide.notes_slide
         if notes_slide and notes_slide.notes_text_frame:
-            return notes_slide.notes_text_frame.text.strip()
+            return str(notes_slide.notes_text_frame.text.strip())
     except Exception:
         pass
     return ""

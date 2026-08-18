@@ -2,7 +2,7 @@
 
 from __future__ import annotations  # PEP 604/585 in signatures need this on py3.8/3.9
 
-from typing import Callable
+from typing import Any, Callable
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
@@ -87,7 +87,7 @@ class PreviewPanel:
         """Return image extensions supported by the image preview path."""
         return STB_IMAGE_EXTS | PILLOW_EXTRA_EXTS
 
-    def __init__(self, config: DialogConfig, preview_width: int, show: bool):
+    def __init__(self, config: DialogConfig, preview_width: int, show: bool) -> None:
         self._config = config
         self._config_tag = config.tag
         self._saved_width = preview_width
@@ -175,7 +175,7 @@ class PreviewPanel:
         if callable(handler):
             handler(None, None, None)
 
-    def on_resize(self, sender, app_data, user_data) -> None:
+    def on_resize(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """Forward a DearPyGui resize event to the active renderer."""
         if not self._panel_id or not self._show:
             return
@@ -265,7 +265,7 @@ class PreviewPanel:
         """Whether the preview panel is currently shown (tracked by toggle)."""
         return self._show
 
-    def on_mouse_wheel(self, sender, app_data, user_data) -> None:
+    def on_mouse_wheel(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """Route mouse-wheel scroll to the active renderer if it handles it.
 
         Registered as a global wheel handler by the keyboard mixin. Only the

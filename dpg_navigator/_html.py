@@ -19,28 +19,38 @@ import threading
 import time
 import uuid
 from concurrent.futures import Future
-from typing import Any, cast
+from typing import Any, Callable
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
 from ._job_manager import JobManager, TimerTask
+from ._optional import OptionalModule, as_optional, require_optional
 
 _log = logging.getLogger(__name__)
 
+_Html2Image: OptionalModule | None
 try:
-    from html2image import Html2Image as _Html2Image  # type: ignore[import-untyped]
-except Exception:  # optional backend absent or incompatible (e.g. old Python)
-    _Html2Image = cast(Any, None)
+    from html2image import Html2Image as _Html2Image_cls  # type: ignore[import-untyped]
 
-try:
-    import numpy as _np
+    _Html2Image = as_optional(_Html2Image_cls)
 except Exception:  # optional backend absent or incompatible (e.g. old Python)
-    _np = cast(Any, None)
+    _Html2Image = None
 
+_np: OptionalModule | None
 try:
-    from PIL import Image as _PILImage
+    import numpy as _numpy_mod
+
+    _np = as_optional(_numpy_mod)
 except Exception:  # optional backend absent or incompatible (e.g. old Python)
-    _PILImage = cast(Any, None)
+    _np = None
+
+_PILImage: OptionalModule | None
+try:
+    from PIL import Image as _PILImage_mod
+
+    _PILImage = as_optional(_PILImage_mod)
+except Exception:  # optional backend absent or incompatible (e.g. old Python)
+    _PILImage = None
 
 try:
     import psutil as _psutil  # type: ignore[import-untyped]
@@ -226,14 +236,17 @@ def _strip_file_urls(html: str) -> str:
 
 # Lazily computed float32 background color
 _bg_f32_cache: Any = None
-_LANCZOS = getattr(getattr(_PILImage, "Resampling", _PILImage), "LANCZOS", 1)
+_LANCZOS: Any = 1
+if _PILImage is not None:
+    _LANCZOS = getattr(getattr(_PILImage, "Resampling", _PILImage), "LANCZOS", 1)
 
 
-def _get_bg_f32() -> _np.ndarray:
+def _get_bg_f32() -> Any:
     """Return the background color as a float32 RGBA array (cached)."""
     global _bg_f32_cache
+    np = require_optional(_np, "numpy")
     if _bg_f32_cache is None:
-        _bg_f32_cache = _np.array(_BG_COLOR_RGBA, dtype=_np.float32) / _np.float32(255)
+        _bg_f32_cache = np.array(_BG_COLOR_RGBA, dtype=np.float32) / np.float32(255)
     return _bg_f32_cache
 
 
@@ -258,19 +271,20 @@ def _inject_helpers(html: str) -> str:
     return html
 
 
-def _auto_trim(img: _PILImage.Image) -> _PILImage.Image:
+def _auto_trim(img: Any) -> Any:
     """Trim empty background rows from top and bottom of the render.
 
     Uses vectorized numpy — computes per-row mean deviation from
     the background color across all pixels simultaneously.
     """
+    np = require_optional(_np, "numpy")
     w, h = img.size
-    pixels = _np.array(img)
-    bg_i16 = _np.array(_BG_COLOR_RGBA, dtype=_np.int16)
-    row_diff = _np.abs(
-        pixels.astype(_np.int16) - bg_i16,
+    pixels = np.array(img)
+    bg_i16 = np.array(_BG_COLOR_RGBA, dtype=np.int16)
+    row_diff = np.abs(
+        pixels.astype(np.int16) - bg_i16,
     ).mean(axis=(1, 2))
-    non_bg = _np.where(row_diff > _TRIM_TOLERANCE)[0]
+    non_bg = np.where(row_diff > _TRIM_TOLERANCE)[0]
     if len(non_bg) == 0:
         return img.crop((0, 0, w, 1))
     pad = 2
@@ -279,7 +293,7 @@ def _auto_trim(img: _PILImage.Image) -> _PILImage.Image:
     return img.crop((0, y0, w, y1))
 
 
-def _read_overflow_marker(pixels: _np.ndarray) -> tuple[bool, int]:
+def _read_overflow_marker(pixels: Any) -> tuple[bool, int]:
     """Read the JS overflow marker encoded in pixel (3,3).
 
     The marker encodes DOM scrollWidth as RGB: R = width >> 8,
@@ -295,7 +309,7 @@ def _read_overflow_marker(pixels: _np.ndarray) -> tuple[bool, int]:
     return False, 0
 
 
-def _clear_marker(arr: _np.ndarray) -> None:
+def _clear_marker(arr: Any) -> None:
     """Paint over the marker area with neighboring pixels."""
     s = min(30, arr.shape[0], arr.shape[1])
     h, w = arr.shape[:2]
@@ -306,22 +320,24 @@ def _clear_marker(arr: _np.ndarray) -> None:
 
 
 def _get_scaled_doc(
-    full_arr: _np.ndarray,
+    full_arr: Any,
     current_w: int,
     target_w: int,
     current_h: int,
-) -> tuple[_np.ndarray, int, int]:
+) -> tuple[Any, int, int]:
     """Scale the full render to target width using Lanczos resampling.
 
     Returns (scaled_array, new_width, new_height).
     """
     if target_w <= 0 or current_w == target_w:
         return full_arr, current_w, current_h
+    np = require_optional(_np, "numpy")
+    pil = require_optional(_PILImage, "Pillow")
     scale = target_w / current_w
     target_h = max(1, int(current_h * scale))
-    img = _PILImage.fromarray(full_arr)
+    img = pil.fromarray(full_arr)
     img_scaled = img.resize((target_w, target_h), _LANCZOS)
-    return _np.array(img_scaled, dtype=_np.uint8), target_w, target_h
+    return np.array(img_scaled, dtype=np.uint8), target_w, target_h
 
 
 # ── HTMLRenderer class ─────────────────────────────────────────
@@ -352,7 +368,7 @@ class HTMLRenderer:
     _chrome_proc_lock: threading.Lock = threading.Lock()
     _chrome_procs: list[tuple[Any, Any]] = []
 
-    def __init__(self, config_tag: str):
+    def __init__(self, config_tag: str) -> None:
         self._config_tag = config_tag
         self._current_path: str = ""
         self._html_content: str = ""
@@ -436,15 +452,16 @@ class HTMLRenderer:
             _kill_process_tree(proc)
 
     @classmethod
-    def _get_hti(cls) -> _Html2Image:
+    def _get_hti(cls) -> Any:
         """Lazily initialize the shared Html2Image instance."""
+        html2image = require_optional(_Html2Image, "html2image")
         _ensure_chromium_run_hook()
         if cls._hti is None:
             with cls._hti_lock:
                 if cls._hti is None:
                     profile_dir = tempfile.mkdtemp(prefix="dpg_nav_chrome_")
                     cls._chrome_profile_dir = profile_dir
-                    cls._hti = _Html2Image(
+                    cls._hti = html2image(
                         output_path=profile_dir,
                         custom_flags=[
                             "--hide-scrollbars",
@@ -475,8 +492,8 @@ class HTMLRenderer:
         path: str,
         w: int,
         h: int,
-        on_complete=None,
-        on_resize_complete=None,
+        on_complete: Callable[..., Any] | None = None,
+        on_resize_complete: Callable[..., Any] | None = None,
     ) -> bool:
         """Open an HTML file and start background rendering.
 
@@ -520,8 +537,8 @@ class HTMLRenderer:
         html_content: str,
         w: int,
         h: int,
-        on_complete=None,
-        on_resize_complete=None,
+        on_complete: Callable[..., Any] | None = None,
+        on_resize_complete: Callable[..., Any] | None = None,
     ) -> bool:
         """Open raw HTML content and start background rendering.
 
@@ -625,10 +642,11 @@ class HTMLRenderer:
         if self._tex_buffer is None:
             raise RuntimeError("Failed to allocate HTML texture buffer")
 
+        np = require_optional(_np, "numpy")
         bg = _get_bg_f32()
-        self._viewport_buf = _np.empty(
+        self._viewport_buf = np.empty(
             (self._tex_h, self._tex_w, 4),
-            dtype=_np.float32,
+            dtype=np.float32,
         )
         self._viewport_buf[:] = bg
 
@@ -656,7 +674,7 @@ class HTMLRenderer:
         self,
         width: int,
         height: int,
-    ) -> _PILImage.Image | None:
+    ) -> Any | None:
         """Take a Chrome Headless screenshot with overscan compensation.
 
         Renders +20px wider to mask the Windows OS scrollbar reservation
@@ -681,7 +699,8 @@ class HTMLRenderer:
             _chrome_owner.generation = None
         if not os.path.exists(target_path):
             return None
-        img_full = _PILImage.open(target_path)
+        pil = require_optional(_PILImage, "Pillow")
+        img_full = pil.open(target_path)
         img_full.load()
         try:
             os.remove(target_path)
@@ -712,6 +731,8 @@ class HTMLRenderer:
         4. Scale to viewport width (outside mutex for performance)
         5. Update shared state and texture inside dpg.mutex()
         """
+        np = require_optional(_np, "numpy")
+        pil = require_optional(_PILImage, "Pillow")
         t0 = time.perf_counter()
         chrome_w = max(content_w, 100)
 
@@ -734,7 +755,7 @@ class HTMLRenderer:
 
         img_rgba = img.convert("RGBA")
         img.close()
-        pixels = _np.array(img_rgba)
+        pixels = np.array(img_rgba)
         _, scroll_w = _read_overflow_marker(pixels)
 
         # Re-render if content overflowed the viewport
@@ -758,19 +779,19 @@ class HTMLRenderer:
                 return
             img_rgba = img2.convert("RGBA")
             img2.close()
-            pixels = _np.array(img_rgba)
+            pixels = np.array(img_rgba)
             cached_min_w = scroll_w
             chrome_w = render_w
         else:
             cached_min_w = 0
 
         _clear_marker(pixels)
-        img_clean = _PILImage.fromarray(pixels)
+        img_clean = pil.fromarray(pixels)
         img_rgba.close()
         img_trimmed = _auto_trim(img_clean)
         img_clean.close()
 
-        arr = _np.array(img_trimmed, dtype=_np.uint8)
+        arr = np.array(img_trimmed, dtype=np.uint8)
         raw_w, raw_h = img_trimmed.size
         img_trimmed.close()
 
@@ -815,6 +836,7 @@ class HTMLRenderer:
         if self._doc_array is None or self._buf_ptr is None or self._viewport_buf is None:
             return
 
+        np = require_optional(_np, "numpy")
         bg = _get_bg_f32()
         content_w = self._tex_w - 2 * _MARGIN
 
@@ -835,7 +857,7 @@ class HTMLRenderer:
         else:
             pad_x = _MARGIN
 
-        self._viewport_buf[:copy_h, pad_x : pad_x + copy_w] = region.astype(_np.float32) / _np.float32(255)
+        self._viewport_buf[:copy_h, pad_x : pad_x + copy_w] = region.astype(np.float32) / np.float32(255)
 
         ctypes.memmove(
             self._buf_ptr,
@@ -891,7 +913,7 @@ class HTMLRenderer:
         # Capture target dimensions for the closure
         target_w, target_h = w, h
 
-        def _debounced():
+        def _debounced() -> None:
             if not self.is_open:
                 return
             # Cancel any in-progress render

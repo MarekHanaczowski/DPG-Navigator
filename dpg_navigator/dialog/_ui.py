@@ -5,6 +5,7 @@ from __future__ import annotations  # PEP 604/585 annotations need this on py3.8
 import logging
 import os
 import time
+from typing import TYPE_CHECKING
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
@@ -18,11 +19,14 @@ from .._types import DialogConfig, FileEntry
 from ._logic import DialogLogic
 from ._state import DialogState
 
+if TYPE_CHECKING:
+    from .._dialog import FileDialog
+
 
 class DialogUIBuilder:
     """Build and refresh the DearPyGui widget tree for a ``FileDialog``."""
 
-    def __init__(self, dialog, state: DialogState, logic: DialogLogic, config: DialogConfig):
+    def __init__(self, dialog: FileDialog, state: DialogState, logic: DialogLogic, config: DialogConfig) -> None:
         self.dialog = dialog
         self.state = state
         self.logic = logic

@@ -54,8 +54,9 @@ All notable changes to this project will be documented in this file.
 - Ruff lint covers pyflakes, whitespace, isort, bugbear, pyupgrade, and
   simplify (`target-version` py38). CI also runs `ruff format --check`.
 - mypy type-checks the whole `dpg_navigator` package (tests excluded) from
-  `[tool.mypy] files`; CI runs `python -m mypy` instead of a hand-maintained
-  file list.
+  `[tool.mypy] files` with `disallow_untyped_defs`, `warn_return_any`, and
+  `disallow_any_generics`. Optional backends use `OptionalModule` instead of
+  `cast(Any, None)`.
 
 ### Fixed
 

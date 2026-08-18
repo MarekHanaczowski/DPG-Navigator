@@ -75,16 +75,16 @@ class KeyboardMixin:
     def _is_dialog_active(self) -> bool:
         """Check if this dialog window is currently shown."""
         tag = self._config.tag
-        return dpg.does_item_exist(tag) and dpg.is_item_shown(tag)
+        return bool(dpg.does_item_exist(tag) and dpg.is_item_shown(tag))
 
     # ── Key handlers ───────────────────────────────────────────
 
-    def _on_key_escape(self, sender, app_data, user_data) -> None:
+    def _on_key_escape(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """ESC: close the dialog."""
         if self._is_dialog_active():
             self.hide()
 
-    def _on_key_f5(self, sender, app_data, user_data) -> None:
+    def _on_key_f5(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """F5: refresh the file listing and clear size/index caches."""
         if self._is_dialog_active():
             self._size_cache.clear()
@@ -93,7 +93,7 @@ class KeyboardMixin:
             if self._config.search_subfolders:
                 self._start_index_build()
 
-    def _on_key_a(self, sender, app_data, user_data) -> None:
+    def _on_key_a(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """Ctrl+A: select all visible entries."""
         if not self._is_dialog_active() or not _platform.is_mod_key_down():
             return
@@ -108,7 +108,7 @@ class KeyboardMixin:
                         self._selected_elements.append(widget)
                     break
 
-    def _on_key_up(self, sender, app_data, user_data) -> None:
+    def _on_key_up(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """Up: move focus to previous row. Alt+Up: navigate to parent."""
         if not self._is_dialog_active():
             return
@@ -117,12 +117,12 @@ class KeyboardMixin:
         else:
             self._move_focus(-1)
 
-    def _on_key_down(self, sender, app_data, user_data) -> None:
+    def _on_key_down(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """Down: move focus to next row in the explorer table."""
         if self._is_dialog_active():
             self._move_focus(1)
 
-    def _on_key_enter(self, sender, app_data, user_data) -> None:
+    def _on_key_enter(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """Enter: activate the focused row (navigate dir or select file).
 
         Skipped when an input field is active so that path/filename/search

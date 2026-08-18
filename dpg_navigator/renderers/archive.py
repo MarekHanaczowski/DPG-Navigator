@@ -27,7 +27,7 @@ class ArchiveRenderer(TableRenderMixin, BaseRenderer):
     _TEXT_PREVIEW_MAX_SIZE: int = 256 * 1024
     _PDF_EXTS: frozenset[str] = PDF_EXTS
 
-    def __init__(self, request_update_cb: Callable[[FileEntry], None]):
+    def __init__(self, request_update_cb: Callable[[FileEntry], None]) -> None:
         self._request_update = request_update_cb
         self._current_entry: FileEntry | None = None
         self._ctx: PreviewContext | None = None

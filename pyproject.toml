@@ -142,6 +142,9 @@ exclude = ["^dpg_navigator/tests/"]
 warn_unused_configs = true
 check_untyped_defs = true
 no_implicit_optional = true
+disallow_untyped_defs = true
+warn_return_any = true
+disallow_any_generics = true
 
 # Gate only GUI-free loaders / VFS / dialog logic (measured ~80% on 3.13).
 # Tracing still uses --cov=dpg_navigator; the report include list is what

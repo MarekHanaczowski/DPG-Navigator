@@ -5,7 +5,7 @@ from __future__ import annotations  # PEP 604/585 in signatures need this on py3
 import array
 import io
 import logging
-from typing import Callable
+from typing import Any, Callable
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
@@ -24,6 +24,7 @@ from .._availability import (
 )
 from .._filesystem import DirectoryLister
 from .._html import HTMLRenderer, chrome_available
+from .._optional import require_optional
 from .._pdf import PDFRenderer
 from .._preview_presentation import PresentationPreviewError, load_presentation
 from .._preview_word import WordPreviewError, WordTable, load_word_document
@@ -134,7 +135,7 @@ class DocumentRenderer(BaseRenderer):
     _STATUS_HEIGHT: int = 42
     """Height in pixels reserved for status/page labels below preview."""
 
-    def __init__(self, load_text_content_cb: Callable[[str, int], tuple[str | None, bool]]):
+    def __init__(self, load_text_content_cb: Callable[[str, int], tuple[str | None, bool]]) -> None:
         self._load_text_content = load_text_content_cb
         self._current_entry: FileEntry | None = None
         self._ctx: PreviewContext | None = None
@@ -333,7 +334,8 @@ class DocumentRenderer(BaseRenderer):
             return
 
         try:
-            md_html_raw = _markdown.markdown(
+            md = require_optional(_markdown, "markdown")
+            md_html_raw = md.markdown(
                 md_text,
                 extensions=["tables", "fenced_code"],
             )
@@ -409,7 +411,7 @@ class DocumentRenderer(BaseRenderer):
         """Open a PDF and display its first page in the preview panel."""
         self._show_pdf_from_path(entry.full_path)
 
-    def on_resize(self, sender, app_data, user_data) -> None:
+    def on_resize(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """Re-layout the active HTML or PDF preview after a panel resize."""
         dims = self._html_panel_size()
         if dims is None:
@@ -438,7 +440,7 @@ class DocumentRenderer(BaseRenderer):
             parent=self._ctx.panel_id,
         )
 
-    def on_mouse_wheel(self, sender, app_data, user_data) -> None:
+    def on_mouse_wheel(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """Scroll HTML previews or navigate PDF pages with the mouse wheel."""
         try:
             delta = float(app_data)
@@ -517,7 +519,8 @@ class DocumentRenderer(BaseRenderer):
         # Convert .docx -> HTML via mammoth
         try:
             with open(entry.full_path, "rb") as f:
-                result = _mammoth.convert_to_html(f)
+                mammoth = require_optional(_mammoth, "mammoth")
+                result = mammoth.convert_to_html(f)
             docx_html = result.value
         except Exception:
             dpg.add_text(
@@ -739,7 +742,8 @@ class DocumentRenderer(BaseRenderer):
                     # Image
                     if shape.image_blob is not None and _PILImage is not None:
                         try:
-                            pil_img = _PILImage.open(io.BytesIO(shape.image_blob))
+                            pil = require_optional(_PILImage, "Pillow")
+                            pil_img = pil.open(io.BytesIO(shape.image_blob))
                             img_rgba = pil_img.convert("RGBA")
                             pil_img.close()
                             img_w, img_h = img_rgba.size
@@ -747,9 +751,10 @@ class DocumentRenderer(BaseRenderer):
                             disp_w = int(img_w * scale)
                             disp_h = int(img_h * scale)
                             if _np is not None:
-                                arr = _np.frombuffer(img_rgba.tobytes(), dtype=_np.uint8).astype(
-                                    _np.float32
-                                ) / _np.float32(255.0)
+                                np = require_optional(_np, "numpy")
+                                arr = np.frombuffer(img_rgba.tobytes(), dtype=np.uint8).astype(np.float32) / np.float32(
+                                    255.0
+                                )
                                 raw = array.array("f", arr.tobytes())
                             else:
                                 raw = array.array(

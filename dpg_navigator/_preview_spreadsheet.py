@@ -7,12 +7,17 @@ from __future__ import annotations
 
 # MIT licensed
 from dataclasses import dataclass
-from typing import Any, Callable, cast
+from typing import Any, Callable
 
+from ._optional import OptionalCallable, as_optional
+
+_load_workbook: OptionalCallable | None
 try:
-    from openpyxl import load_workbook as _load_workbook  # type: ignore[import-untyped]
+    from openpyxl import load_workbook as _load_workbook_fn  # type: ignore[import-untyped]
+
+    _load_workbook = as_optional(_load_workbook_fn)
 except Exception:  # optional backend absent or incompatible (e.g. old Python)
-    _load_workbook = cast(Any, None)
+    _load_workbook = None
 
 
 class ExcelPreviewError(Exception):

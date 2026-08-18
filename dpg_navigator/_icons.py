@@ -238,7 +238,7 @@ class IconRegistry:
     ``_EXT_LOOKUP`` dictionary (supports double extensions like .tar.gz).
     """
 
-    def __init__(self, tag_prefix: str, images_dir: str):
+    def __init__(self, tag_prefix: str, images_dir: str) -> None:
         self._tags: dict[str, str] = {}
         self._tag_prefix = tag_prefix
         self._images_dir = images_dir

@@ -74,7 +74,7 @@ class ArchiveVFSProvider(VFSProvider):
 
         seen_names = set()
 
-        def _add_entry(item_name: str, is_d: bool, size: int | None, mtime: float):
+        def _add_entry(item_name: str, is_d: bool, size: int | None, mtime: float) -> None:
             if item_name in seen_names:
                 return
             if not is_d and dirs_only:

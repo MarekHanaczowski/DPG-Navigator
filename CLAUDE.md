@@ -14,6 +14,7 @@ pip install -e ".[dev]"          # dev install (pulls in the [all] preview extra
 python -m ruff check .           # lint (E9,F,W,I,B,UP,SIM; target py38)
 python -m ruff format --check .  # format gate (same as CI)
 python -m mypy                   # package type check via [tool.mypy] files= (skip 3.8/3.9 in CI)
+                                 # flags include disallow_untyped_defs, warn_return_any, disallow_any_generics
 python -m pytest -q              # run the unit test suite
 python -m pytest -q --cov=dpg_navigator --cov-report=term-missing
                                  # coverage gate on pure loaders/VFS/dialog logic (fail_under=75)
@@ -71,9 +72,8 @@ Routing and rendering are split:
 - **`_preview_registry.py`** — GUI-free routing. Extension `frozenset`s, the `PreviewKind` enum, `PreviewCapabilities`, and `resolve_preview_kind()`. **The order of checks in `resolve_preview_kind()` is load-bearing** (e.g. HTML and code are matched before generic text). Change it carefully; it has dedicated tests.
 - **`_preview.py` — `PreviewPanel`**: owns the panel, maps `PreviewKind → BaseRenderer`, and drives the active renderer.
 - **`renderers/`** — the DPG-facing renderer objects (`ImageRenderer`, `TextRenderer`, `DataRenderer`, `ArchiveRenderer`, `DocumentRenderer`, `FontRenderer`), each conforming to the `BaseRenderer` protocol in `renderers/_base.py` and receiving a `PreviewContext`. `DocumentRenderer` covers HTML/Markdown/PDF/Word/PPTX by delegating to the heavy renderers and pure loaders.
-- **`_preview_*.py`** (`_preview_word`, `_preview_presentation`, `_preview_archive`, `_preview_spreadsheet`, `_preview_sqlite`, `_preview_table`) — **pure data loaders**: they parse a file and return plain Python data structures, no DPG. The `renderers/` objects consume them. This is why they're unit-testable and appear in the mypy list.
-- **`_pdf.py` / `_html.py`** — the heavy renderers: pypdfium2 raw-texture PDF paging with an LRU cache and background prefetch; html2image (Chrome Headless) scrollable HTML viewport. HTML/Markdown/code/Word-HTML previews **require a Chrome/Chromium binary on PATH**, not just the Python extra — they degrade to text when it's missing.
-- **`_availability.py`** — every optional backend is probed once at import via `try/except` and exposed as a `*_available()` predicate. `chrome_available()` specifically checks for a resolvable browser binary, not just the package.
+- **`_availability.py`** — every optional backend is probed once at import via `try/except` and exposed as a `*_available()` predicate. `chrome_available()` specifically checks for a resolvable browser binary, not just the package. Failed imports are `None` typed as `OptionalModule` (`_optional.py`), not `cast(Any, None)`.
+- **`_preview_*.py`** (`_preview_word`, `_preview_presentation`, `_preview_archive`, `_preview_spreadsheet`, `_preview_sqlite`, `_preview_table`) — **pure data loaders**: they parse a file and return plain Python data structures, no DPG. The `renderers/` objects consume them. This is why they're unit-testable.
 
 ### Concurrency (`_job_manager.py`)
 

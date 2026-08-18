@@ -13,7 +13,7 @@ import queue
 import threading
 import time
 from concurrent.futures import Future
-from typing import Any
+from typing import Any, Callable
 
 _log = logging.getLogger(__name__)
 
@@ -23,19 +23,24 @@ _MAX_WORKERS = 8
 class TimerTask:
     """Represents a scheduled timer task."""
 
-    def __init__(self, execute_at: float, fn, args: tuple, kwargs: dict):
+    def __init__(
+        self,
+        execute_at: float,
+        fn: Callable[..., Any],
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+    ) -> None:
         self.execute_at = execute_at
         self.fn = fn
         self.args = args
         self.kwargs = kwargs
         self.cancelled = False
 
-    def cancel(self):
+    def cancel(self) -> None:
         """Cancel this timer so it won't execute."""
         self.cancelled = True
 
-    def __lt__(self, other):
-        # For heapq sorting based on execution time
+    def __lt__(self, other: TimerTask) -> bool:
         return self.execute_at < other.execute_at
 
 
@@ -95,7 +100,7 @@ class JobManager:
                 future.set_exception(exc)
 
     @classmethod
-    def submit(cls, fn, *args, **kwargs):
+    def submit(cls, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Future[Any]:
         """Submit a task to the bounded worker pool."""
         future: Future[Any] = Future()
         cls._ensure_pool()
@@ -103,7 +108,7 @@ class JobManager:
         return future
 
     @classmethod
-    def _timer_worker(cls):
+    def _timer_worker(cls) -> None:
         """Dedicated background loop that processes timers from the min-heap."""
         while True:
             with cls._timer_cond:
@@ -126,7 +131,13 @@ class JobManager:
                     cls._timer_cond.wait(next_task.execute_at - now)
 
     @classmethod
-    def schedule_timer(cls, interval: float, fn, args=None, kwargs=None) -> TimerTask:
+    def schedule_timer(
+        cls,
+        interval: float,
+        fn: Callable[..., Any],
+        args: tuple[Any, ...] | None = None,
+        kwargs: dict[str, Any] | None = None,
+    ) -> TimerTask:
         """Schedule a function to run after a delay, tracking the timer."""
         task = TimerTask(time.time() + interval, fn, args or (), kwargs or {})
 

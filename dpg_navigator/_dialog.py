@@ -123,6 +123,10 @@ class FileDialog(KeyboardMixin):
     _shared_size_theme: int | None = None
     _shared_preview_active_theme: int | None = None
     _instance_count: int = 0
+    _selec_theme: Any = None
+    _size_theme: Any = None
+    _status_label: Any = None
+    _subfolder_checkbox: Any = None
 
     @overload
     def __init__(
@@ -297,7 +301,7 @@ class FileDialog(KeyboardMixin):
     def _start_index_build(self) -> None:
         self.logic.start_index_build()
 
-    def _safe_refresh_ui(self, entries) -> None:
+    def _safe_refresh_ui(self, entries: list[FileEntry]) -> None:
         """Marshal UI refresh onto the DPG thread via mutex."""
         if self._destroyed:
             return
@@ -372,23 +376,23 @@ class FileDialog(KeyboardMixin):
         """Change the callback function. Does NOT modify the OK button directly."""
         self._callback = callback
 
-    def __enter__(self):
+    def __enter__(self) -> FileDialog:
         """Enter context manager; returns the FileDialog instance."""
         return self
 
-    def __exit__(self, *args):
+    def __exit__(self, *args: object) -> None:
         """Exit context manager; calls destroy() to release DPG resources."""
         self.destroy()
 
     # ── Navigation ──────────────────────────────────────────────
 
-    def _on_path_enter(self, sender, app_data, user_data) -> None:
+    def _on_path_enter(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """Handle Enter key in the path input field."""
         path = dpg.get_value(sender)
         if path:
             self.logic.navigate_to(path)
 
-    def _on_back(self, sender, app_data, user_data) -> None:
+    def _on_back(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """Handle click on the '..' row (double-click navigates to parent)."""
         if _platform.is_mod_key_down():
             dpg.set_value(sender, False)
@@ -415,7 +419,7 @@ class FileDialog(KeyboardMixin):
 
     # ── File listing ────────────────────────────────────────────
 
-    def _on_sort(self, sender, sort_specs, user_data) -> None:
+    def _on_sort(self, sender: Any, sort_specs: Any, user_data: Any) -> None:
         """Sort table rows by clicked column header.
 
         Directories are always kept above files. The ".." back row
@@ -439,7 +443,7 @@ class FileDialog(KeyboardMixin):
 
         reverse = direction < 0
 
-        def sort_key(row_id):
+        def sort_key(row_id: Any) -> tuple[Any, ...]:
             entry = self.state.row_entries.get(row_id)
             if entry is None:
                 return (0,)
@@ -475,7 +479,7 @@ class FileDialog(KeyboardMixin):
 
     # ── Click handling ──────────────────────────────────────────
 
-    def _on_entry_click(self, sender, app_data, user_data) -> None:
+    def _on_entry_click(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """Handle click on a file/directory entry (single and multi-select)."""
         entry: FileEntry = user_data
 
@@ -592,17 +596,17 @@ class FileDialog(KeyboardMixin):
         self.state.selected_files.clear()
         self.state.selected_elements.clear()
 
-    def _on_ok(self, sender, app_data, user_data) -> None:
+    def _on_ok(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """Handle OK button click — returns current selection."""
         self._return_selection()
 
-    def _on_cancel(self, sender, app_data, user_data) -> None:
+    def _on_cancel(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """Handle Cancel button click — hides dialog without callback."""
         self.hide()
 
     # ── Search & filter ─────────────────────────────────────────
 
-    def _on_search(self, sender, app_data, user_data) -> None:
+    def _on_search(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """Handle search field input — debounced to avoid per-keystroke rescans.
 
         Listing the directory (os.scandir + stat per entry) on every keystroke
@@ -611,11 +615,11 @@ class FileDialog(KeyboardMixin):
         """
         self.logic.trigger_search(dpg.get_value(sender))
 
-    def _on_subfolder_toggle(self, sender, app_data, user_data) -> None:
+    def _on_subfolder_toggle(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """Handle subfolder search checkbox toggle."""
         self.logic.set_search_subfolders(bool(dpg.get_value(sender)))
 
-    def _on_filter_change(self, sender, app_data, user_data) -> None:
+    def _on_filter_change(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """Handle file type filter combo selection change."""
         self.state.current_filter = dpg.get_value(sender)
         self.logic.refresh_listing()
@@ -674,7 +678,7 @@ class FileDialog(KeyboardMixin):
             dpg.show_item(self._new_folder_group)
             dpg.focus_item(self._new_folder_input)
 
-    def _on_new_folder_confirm(self, sender, app_data, user_data) -> None:
+    def _on_new_folder_confirm(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """Handle new folder input confirmation."""
         name = dpg.get_value(self._new_folder_input)
         dpg.hide_item(self._new_folder_group)

@@ -25,7 +25,7 @@ class DialogLogic:
         show_error_cb: Callable[[str, str], None],
         update_path_input_cb: Callable[[str], None],
         update_size_cell_cb: Callable[[str, str], None],
-    ):
+    ) -> None:
         self.state = state
         self.config = config
         self.refresh_ui = refresh_ui_cb

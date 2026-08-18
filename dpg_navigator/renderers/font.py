@@ -6,6 +6,8 @@ and common punctuation so pangrams render with real glyphs, not tofu boxes.
 
 from __future__ import annotations
 
+from typing import Any
+
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
 from .._types import FileEntry
@@ -107,7 +109,7 @@ def polish_sample_text() -> str:
     return _PANGRAMS[4]
 
 
-def load_font_with_unicode(path: str, size: float | int):
+def load_font_with_unicode(path: str, size: float | int) -> Any:
     """Create one DPG font; registers Polish ranges only when required by DPG."""
     with dpg.font(path, size) as font_id:
         _register_unicode_ranges()
@@ -118,7 +120,7 @@ class FontRenderer(BaseRenderer):
     """Preview a .ttf/.otf by loading it into DPG and drawing sample text."""
 
     def __init__(self) -> None:
-        self._font_ids: list = []
+        self._font_ids: list[Any] = []
 
     def render(self, entry: FileEntry, ctx: PreviewContext) -> None:
         """Load the selected font at several sizes and render Unicode samples."""

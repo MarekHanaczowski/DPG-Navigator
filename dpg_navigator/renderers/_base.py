@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, Protocol
+from typing import Any, Callable, Protocol
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
@@ -15,7 +15,7 @@ class PreviewContext:
 
     def __init__(
         self, panel_id: int | str, table_wrapper: int | str, config_tag: str, capabilities: PreviewCapabilities
-    ):
+    ) -> None:
         self.panel_id = panel_id
         self.table_wrapper = table_wrapper
         self.config_tag = config_tag
@@ -68,8 +68,8 @@ class TableRenderMixin:
         headers: list[str],
         rows: list[list[str]],
         status_text: str,
-        ui_builder=None,
-        row_click_callback=None,
+        ui_builder: Callable[[], None] | None = None,
+        row_click_callback: Callable[..., Any] | None = None,
     ) -> None:
         """Render tabular data as a native DPG table in the preview panel."""
         ctx = self._ctx

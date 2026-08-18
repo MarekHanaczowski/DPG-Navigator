@@ -3,7 +3,7 @@
 from __future__ import annotations  # PEP 604/585 in signatures need this on py3.8/3.9
 
 import logging
-from typing import Callable
+from typing import Any, Callable
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 from defusedxml import minidom as _minidom  # type: ignore[import-untyped]
@@ -29,7 +29,7 @@ class DataRenderer(TableRenderMixin, BaseRenderer):
     _TEXT_PREVIEW_MAX_SIZE: int = 256 * 1024
     _text_offset: int = 0
 
-    def __init__(self, load_text_content_cb: Callable[[str, int], tuple[str | None, bool]]):
+    def __init__(self, load_text_content_cb: Callable[[str, int], tuple[str | None, bool]]) -> None:
         self._load_text_content = load_text_content_cb
         self._current_entry: FileEntry | None = None
         self._ctx: PreviewContext | None = None
@@ -196,12 +196,12 @@ class DataRenderer(TableRenderMixin, BaseRenderer):
             self.clear()
             return
 
-        def _build_excel_ui():
+        def _build_excel_ui() -> None:
             if len(table.sheetnames) > 1:
                 with dpg.group(horizontal=True, parent=ctx.panel_id):
                     dpg.add_text("Sheet:", color=[180, 180, 180])
 
-                    def on_sheet_changed(sender, app_data, user_data):
+                    def on_sheet_changed(sender: Any, app_data: Any, user_data: Any) -> None:
                         self._render_excel_preview(entry, sheet_name_to_load=app_data)
 
                     dpg.add_combo(
@@ -284,7 +284,7 @@ class DataRenderer(TableRenderMixin, BaseRenderer):
             self._render_table_widget(entry.name, [], [], f"Error reading database: {e}")
             return
 
-        def _build_db_ui():
+        def _build_db_ui() -> None:
             if len(table.tables) > 1:
                 with dpg.group(horizontal=True, parent=ctx.panel_id):
                     dpg.add_text("Table:", color=[200, 200, 200])

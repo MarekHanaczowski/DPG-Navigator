@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Any, Callable
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
@@ -19,7 +19,7 @@ class TextRenderer(BaseRenderer):
         self,
         load_text_content_cb: Callable[[str, int], tuple[str | None, bool]],
         request_update_cb: Callable[[FileEntry], None],
-    ):
+    ) -> None:
         self._load_text_content = load_text_content_cb
         self._request_update = request_update_cb
         self._text_offset = 0
@@ -115,7 +115,7 @@ class TextRenderer(BaseRenderer):
                 enabled=(self._text_offset + self._TEXT_PREVIEW_MAX_SIZE < size_bytes),
             )
 
-    def _on_text_page_change(self, sender, app_data, user_data: int) -> None:
+    def _on_text_page_change(self, sender: Any, app_data: Any, user_data: int) -> None:
         if self._current_entry is None or self._current_entry.size_bytes is None:
             return
 

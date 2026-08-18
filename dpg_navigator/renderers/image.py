@@ -5,17 +5,21 @@ from __future__ import annotations  # PEP 604/585 annotations need this on py3.8
 import array
 import os
 import tempfile
-from typing import Any, cast
+from typing import Any
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
+from .._optional import OptionalModule, as_optional
 from .._types import FileEntry
 from ._base import BaseRenderer, PreviewContext
 
+_PILImage: OptionalModule | None
 try:
-    from PIL import Image as _PILImage
+    from PIL import Image as _PILImage_mod
+
+    _PILImage = as_optional(_PILImage_mod)
 except Exception:
-    _PILImage = cast(Any, None)
+    _PILImage = None
 
 
 class ImageRenderer(BaseRenderer):

@@ -14,28 +14,38 @@ import os
 import threading
 from collections import OrderedDict
 from concurrent.futures import Future
-from typing import Any, cast
+from typing import Any
 
 _log = logging.getLogger(__name__)
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
 from ._job_manager import JobManager
+from ._optional import OptionalModule, as_optional, require_optional
 
+_pdfium: OptionalModule | None
 try:
-    import pypdfium2 as _pdfium  # type: ignore[import-untyped]
-except Exception:  # optional backend absent or incompatible (e.g. old Python)
-    _pdfium = cast(Any, None)
+    import pypdfium2 as _pdfium_mod  # type: ignore[import-untyped]
 
-try:
-    import numpy as _np
+    _pdfium = as_optional(_pdfium_mod)
 except Exception:  # optional backend absent or incompatible (e.g. old Python)
-    _np = cast(Any, None)
+    _pdfium = None
 
+_np: OptionalModule | None
 try:
-    from PIL import Image as _PILImage
+    import numpy as _numpy_mod
+
+    _np = as_optional(_numpy_mod)
 except Exception:  # optional backend absent or incompatible (e.g. old Python)
-    _PILImage = cast(Any, None)
+    _np = None
+
+_PILImage: OptionalModule | None
+try:
+    from PIL import Image as _PILImage_mod
+
+    _PILImage = as_optional(_PILImage_mod)
+except Exception:  # optional backend absent or incompatible (e.g. old Python)
+    _PILImage = None
 
 
 def pdf_available() -> bool:
@@ -58,7 +68,7 @@ class PDFRenderer:
 
     _CACHE_SIZE: int = 10
 
-    def __init__(self, config_tag: str):
+    def __init__(self, config_tag: str) -> None:
         self._config_tag = config_tag
         self._doc: Any = None
         self._total_pages: int = 0
@@ -117,7 +127,8 @@ class PDFRenderer:
             return False
 
         try:
-            self._doc = _pdfium.PdfDocument(path)
+            pdfium = require_optional(_pdfium, "pypdfium2")
+            self._doc = pdfium.PdfDocument(path)
             self._total_pages = len(self._doc)
             self._current_path = path
             self._current_page = 0
@@ -191,7 +202,8 @@ class PDFRenderer:
             raise RuntimeError("Failed to allocate PDF texture buffer")
 
         # Initialize to white using memmove from numpy
-        white = _np.ones(buf_size, dtype=_np.float32)
+        np = require_optional(_np, "numpy")
+        white = np.ones(buf_size, dtype=np.float32)
         self._buf_ptr = ctypes.addressof(ctypes.c_float.from_buffer(self._tex_buffer))
         ctypes.memmove(self._buf_ptr, white.ctypes.data, white.nbytes)
 
@@ -210,11 +222,12 @@ class PDFRenderer:
 
     # ── Rendering pipeline ────────────────────────────────────
 
-    def _render_to_array(self, page_num: int, w: int, h: int) -> _np.ndarray:
+    def _render_to_array(self, page_num: int, w: int, h: int) -> Any:
         """Render a single page to a numpy float32 RGBA array sized w x h."""
         if self._doc is None:
             raise RuntimeError("PDF document is not open")
 
+        np = require_optional(_np, "numpy")
         with self._doc_lock:
             page = self._doc[page_num]
             pw, ph = page.get_size()
@@ -232,26 +245,26 @@ class PDFRenderer:
             pil_img = pil_img.crop((0, 0, iw, h))
             ih = h
         arr = (
-            _np.frombuffer(
+            np.frombuffer(
                 pil_img.tobytes(),
-                dtype=_np.uint8,
-            ).astype(_np.float32)
+                dtype=np.uint8,
+            ).astype(np.float32)
             / 255.0
         )
 
         if iw != w or ih != h:
-            canvas = _np.ones(w * h * 4, dtype=_np.float32)
+            canvas = np.ones(w * h * 4, dtype=np.float32)
             ox = (w - iw) // 2
             oy = (h - ih) // 2
             # Vectorized centering on a 2D view of the flat canvas — bit-identical
             # to the former per-row loop, but without Python-level iteration.
             canvas.reshape(h, w, 4)[oy : oy + ih, ox : ox + iw] = arr.reshape(ih, iw, 4)
-            return _np.ascontiguousarray(canvas)
-        return _np.ascontiguousarray(arr)
+            return np.ascontiguousarray(canvas)
+        return np.ascontiguousarray(arr)
 
     # ── LRU cache ─────────────────────────────────────────────
 
-    def _get_page(self, page_num: int) -> _np.ndarray:
+    def _get_page(self, page_num: int) -> Any:
         """Get a rendered page from cache or render it fresh."""
         with self._cache_lock:
             if page_num in self._page_cache:

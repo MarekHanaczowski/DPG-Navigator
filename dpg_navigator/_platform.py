@@ -131,8 +131,8 @@ def _get_xdg_dir(name: str) -> str | None:
 def is_mod_key_down() -> bool:
     """Check if modifier key is held: Command on macOS, Ctrl on others."""
     if _SYSTEM == "Darwin":
-        return dpg.is_key_down(dpg.mvKey_LSuper) or dpg.is_key_down(dpg.mvKey_RSuper)
-    return dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl)
+        return bool(dpg.is_key_down(dpg.mvKey_LSuper) or dpg.is_key_down(dpg.mvKey_RSuper))
+    return bool(dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl))
 
 
 def is_hidden(filepath: str) -> bool:

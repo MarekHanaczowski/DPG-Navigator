@@ -67,7 +67,7 @@ class LabeledSidebar(SidebarRenderer):
 
     _MAX_TREE_DEPTH: int = 10
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the labeled sidebar renderer.
 
         All instance attributes are declared here; they are populated
@@ -87,7 +87,15 @@ class LabeledSidebar(SidebarRenderer):
         """Return whether the sidebar supports user-resizing."""
         return True
 
-    def render(self, parent, shortcuts, drives, icons, on_navigate, custom_dirs=None):
+    def render(
+        self,
+        parent: int | str,
+        shortcuts: dict[str, str],
+        drives: list[str],
+        icons: IconRegistry,
+        on_navigate: Callable[[str], None],
+        custom_dirs: list[tuple[str, str]] | None = None,
+    ) -> None:
         """Build icon + text shortcut list and expandable drive tree."""
         self._on_navigate = on_navigate
         self._icons = icons
@@ -210,7 +218,7 @@ class LabeledSidebar(SidebarRenderer):
 class CompactSidebar(SidebarRenderer):
     """Style 1: icon-only buttons, narrow sidebar (~40px)."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._on_navigate: Callable[[str], None] | None = None
         self._icons: IconRegistry | None = None
         self._drive_container: int | str | None = None
@@ -223,7 +231,15 @@ class CompactSidebar(SidebarRenderer):
         """Return whether the sidebar supports user-resizing."""
         return False
 
-    def render(self, parent, shortcuts, drives, icons, on_navigate, custom_dirs=None):
+    def render(
+        self,
+        parent: int | str,
+        shortcuts: dict[str, str],
+        drives: list[str],
+        icons: IconRegistry,
+        on_navigate: Callable[[str], None],
+        custom_dirs: list[tuple[str, str]] | None = None,
+    ) -> None:
         """Render icon-only shortcut buttons and drive buttons in a narrow sidebar."""
         self._on_navigate = on_navigate
         self._icons = icons

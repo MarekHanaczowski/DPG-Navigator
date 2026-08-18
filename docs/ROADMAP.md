@@ -55,16 +55,16 @@ can trail the first stable release.
 - Remaining maintenance is limited to keeping the compatibility adapters thin and
   adding focused integration coverage for the live DearPyGui paths.
 
-### 5. Tooling gates — **PARTIAL**
+### 5. Tooling gates — **DONE**
 - **Broader ruff + `ruff format --check`:** **DONE.** Lint selects `E9`, `F`,
   `W`, `I` (isort), `B` (bugbear), `UP` (pyupgrade), `SIM` (simplify), with
   `SIM105`/`SIM108` ignored on purpose. CI runs `ruff check .` and
   `ruff format --check .`.
-- **Whole-package mypy:** **DONE** for current flags (`check_untyped_defs`,
-  `no_implicit_optional`). `[tool.mypy] files = ["dpg_navigator"]` (tests
-  excluded); CI runs `python -m mypy` on Python != 3.8/3.9. Optional-backend
-  `cast(Any, None)` shims and stricter flags (`warn_return_any`,
-  `disallow_any_generics`, `disallow_untyped_defs`) remain for a later pass.
+- **Whole-package mypy:** **DONE.** `[tool.mypy] files = ["dpg_navigator"]`
+  (tests excluded); CI runs `python -m mypy` on Python != 3.8/3.9. Flags:
+  `check_untyped_defs`, `no_implicit_optional`, `disallow_untyped_defs`,
+  `warn_return_any`, `disallow_any_generics`. Optional backends use
+  `OptionalModule` / `require_optional()` instead of `cast(Any, None)`.
 - **`pre-commit`:** **DONE.** `.pre-commit-config.yaml` runs ruff check (with
   `--fix`), `ruff format`, and `python -m mypy` from the active `[dev]`
   environment (`language: system`, so versions match CI). Install with
