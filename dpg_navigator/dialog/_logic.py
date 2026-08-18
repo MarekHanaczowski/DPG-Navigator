@@ -1,4 +1,9 @@
-"""Business logic for the file dialog."""
+"""GUI-free file-dialog business logic.
+
+Navigation, listing, debounced search, background index build, and
+directory-size jobs. Never imports DearPyGui; talks to the UI through
+injected callbacks (``refresh_ui_cb``, ``show_error_cb``, …).
+"""
 
 from __future__ import annotations
 

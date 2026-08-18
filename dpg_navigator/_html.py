@@ -1,8 +1,9 @@
 """HTML rendering support for the preview panel.
 
-Uses html2image (Chrome Headless) + numpy + Pillow for rendering
-HTML files into a scrollable DPG raw_texture with background rendering,
-auto-trim, overflow detection, and responsive scaling.
+Uses html2image (Chrome ``--screenshot`` CLI) + numpy + Pillow to draw
+HTML into a scrollable DPG raw_texture. Chrome is launched with JavaScript
+off and a dead proxy (``file://`` bypassed). Binary path: ``DPG_CHROME_BIN``
+/ ``CHROME_BIN`` / ``CHROME_PATH``, else html2image's search.
 """
 
 from __future__ import annotations
@@ -70,8 +71,8 @@ def chrome_available() -> bool:
     """Return True if a Chrome/Chromium binary is resolvable for rendering.
 
     ``html_available()`` only checks the Python packages; html2image still
-    needs a browser binary on the system. The lookup touches the filesystem,
-    so the result is resolved once and cached.
+    needs a browser binary. Lookup order: ``DPG_CHROME_BIN``, ``CHROME_BIN``,
+    ``CHROME_PATH``, then html2image's own search. The result is cached.
     """
     global _chrome_available_cache
     if _chrome_available_cache is not None:
@@ -427,10 +428,14 @@ class HTMLRenderer:
     Accepts HTML from a file path (``open``) or a raw string
     (``open_string``, used by mammoth Word preview).
 
+    Production flags disable JavaScript, so the injected overflow marker
+    does not run (wide documents may not trigger a second screenshot).
+
     The rendering pipeline is:
-    1. Read/receive HTML, inject CSS reset and JS overflow marker
+    1. Read/receive HTML, inject CSS reset and a JS overflow marker
     2. Chrome Headless screenshot (with overscan for scrollbar compensation)
-    3. Read JS overflow marker — re-render wider if content overflowed
+    3. Read the overflow marker (no-op while JS is off; wide docs may skip
+       a second screenshot)
     4. Auto-trim empty background rows from top/bottom (vectorized numpy)
     5. Scale to fit viewport width if document is wider
     6. Copy visible scroll region into raw_texture via ctypes.memmove

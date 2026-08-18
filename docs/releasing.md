@@ -41,7 +41,10 @@ After `pip install -e ".[dev]"` on Python >= 3.9, `pre-commit install` wires the
 same ruff/mypy commands as git hooks (`pre-commit run --all-files`). CI still
 runs the tools directly and does not invoke pre-commit.
 
-Push the release commit and confirm that every GitHub Actions matrix job passes.
+Push the release commit and confirm that every GitHub Actions job passes,
+including **DearPyGui smoke (xvfb)** (required) as well as the Python matrix.
+The xvfb job installs Chrome for Testing plus `chrome-headless-shell` and sets
+`DPG_CHROME_NO_SANDBOX=1`. `pip-audit` stays informational (`continue-on-error`).
 
 CI also generates a CycloneDX SBOM (`sbom.cdx.json`) as the `sbom-cyclonedx`
 artifact. Third-party Actions are pinned to commit SHAs in

@@ -1,4 +1,7 @@
-"""State management for the file dialog."""
+"""Mutable FileDialog state (navigation, selection, search, generations).
+
+``DialogState`` is a plain dataclass. The only method is ``navigate()``.
+"""
 
 from __future__ import annotations  # PEP 604/585 annotations need this on py3.8/3.9
 
@@ -10,7 +13,11 @@ from .._types import FileEntry
 
 @dataclass
 class DialogState:
-    """Holds the current state of the file dialog."""
+    """Mutable dialog state (navigation, selection, search, generations).
+
+    No behavior beyond ``navigate()``. ``bg_generation`` / ``index_generation``
+    cancel stale background listing and index builds.
+    """
 
     # Navigation & Selection
     current_dir: str = ""

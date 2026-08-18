@@ -1,4 +1,9 @@
-"""Modular Preview Panel component for the file dialog."""
+"""Modular preview panel for the file dialog.
+
+Routes a ``FileEntry`` through ``resolve_preview_kind()`` to a
+``BaseRenderer``. Text decoding (BOM / UTF-16 / binary) lives here so
+tests can cover it without a live renderer.
+"""
 
 from __future__ import annotations  # PEP 604/585 in signatures need this on py3.8/3.9
 
@@ -78,7 +83,10 @@ def decode_preview_bytes(
 
 
 class PreviewPanel:
-    """Route selected files to the appropriate DearPyGui preview renderer."""
+    """Route selected files to the appropriate DearPyGui preview renderer.
+
+    ``PreviewKind.CODE`` shares ``TextRenderer`` (monospace text).
+    """
 
     _TEXT_PREVIEW_MAX_SIZE = 100 * 1024
 

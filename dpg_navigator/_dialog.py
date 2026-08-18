@@ -55,7 +55,7 @@ class FileDialog(KeyboardMixin):
 
     Features sidebar navigation (labeled or compact), file listing with
     column sorting, real-time search with recursive subfolder index,
-    extension filtering, keyboard navigation (Up/Down/Enter/Esc/F5),
+    extension filtering, keyboard navigation (Up/Down/Enter/Esc/F5/Alt+Up),
     multi-selection with Ctrl+click/Ctrl+A, drag-and-drop payloads,
     new folder creation, async directory size calculation, archive
     browsing (ZIP/7z), and an optional preview panel supporting:
@@ -338,7 +338,7 @@ class FileDialog(KeyboardMixin):
     # ── Public API ──────────────────────────────────────────────
 
     def show(self) -> None:
-        """Show the file dialog window and navigate to default directory."""
+        """Show the window, navigate to the default directory, apply pending drives."""
         self.logic.navigate_to(self.state.current_dir)
         dpg.show_item(self._config.tag)
         self._apply_pending_sidebar_drives()
@@ -393,7 +393,12 @@ class FileDialog(KeyboardMixin):
             cls._schedule_sidebar_poll()
 
     def destroy(self) -> None:
-        """Release all DPG resources (textures, handlers, windows, themes)."""
+        """Release this dialog's DPG resources.
+
+        When the last ``FileDialog`` in the process is destroyed, also shuts
+        down ``JobManager``, the extraction temp dir, and the shared Chrome
+        renderer.
+        """
         if self._destroyed:
             return
         self._destroyed = True
@@ -668,9 +673,10 @@ class FileDialog(KeyboardMixin):
     def _on_search(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """Handle search field input — debounced to avoid per-keystroke rescans.
 
-        Listing the directory (os.scandir + stat per entry) on every keystroke
-        freezes the UI on large folders. Both the shallow listing and the
-        recursive subfolder search are deferred until the user pauses typing.
+        Listing via the VFS (``os.scandir`` locally, zip/7z members in
+        archives) on every keystroke freezes the UI on large folders. Both
+        the shallow listing and the recursive subfolder search wait until
+        the user pauses typing.
         """
         self.logic.trigger_search(dpg.get_value(sender))
 

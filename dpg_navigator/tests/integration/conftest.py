@@ -1,14 +1,13 @@
 """Gate for the real-DearPyGui integration tests.
 
 Importing dearpygui requires a working display/GPU, so these modules are NOT
-collected during a normal ``pytest`` run (which would otherwise import a real
-Chrome/OpenGL stack and can crash in headless/sandboxed environments). They are
-collected only when ``DPG_INTEGRATION=1`` is set.
+collected during a normal ``pytest`` run. They are collected only when
+``DPG_INTEGRATION=1`` is set.
 
-Run them with a display, e.g.::
+CI runs them under xvfb as a required job (``DPG_CHROME_NO_SANDBOX=1``,
+``DPG_CHROME_BIN`` = chrome-headless-shell). Locally::
 
     DPG_INTEGRATION=1 pytest -m integration
-    # headless Linux:
     xvfb-run -a env DPG_INTEGRATION=1 pytest -m integration
 """
 

@@ -1,7 +1,7 @@
 """Keyboard shortcut and table navigation mixin for FileDialog.
 
-Provides ESC, F5, Ctrl+A, Up/Down/Enter key handlers, arrow-key
-table navigation, and mouse wheel/drag handlers for preview panel
+Provides ESC, F5, Ctrl+A, Up/Down/Enter, and Alt+Up (go up) key handlers,
+arrow-key table navigation, and mouse wheel/drag handlers for preview panel
 resize, PDF page scrolling, and HTML scroll.  This is a mixin class —
 it accesses ``self._*`` attributes defined by the host :class:`FileDialog`.
 """
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 
 class KeyboardMixin:
-    """Mixin providing keyboard shortcuts and arrow-key table navigation.
+    """Mixin: Esc/F5/Ctrl+A/arrows/Enter and Alt+Up (archive-aware go up).
 
     Expected attributes on the mixing-in class (provided by FileDialog):
 

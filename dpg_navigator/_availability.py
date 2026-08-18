@@ -1,6 +1,7 @@
-"""Dependency checking module.
+"""Dependency probes for optional preview backends.
 
-Provides functions to check if optional dependencies are installed.
+Each ``*_available()`` is safe at import time (failed imports stay
+``None``). HTML/Chrome probes delegate to ``_html.py``.
 """
 
 from __future__ import annotations
@@ -47,7 +48,11 @@ def html_available() -> bool:
 
 
 def chrome_available() -> bool:
-    """Return True if HTML packages are present and a Chrome binary is found."""
+    """Return True if HTML packages are present and a Chrome binary is found.
+
+    Delegates to ``dpg_navigator._html.chrome_available`` (cached; honors
+    ``DPG_CHROME_BIN`` / ``CHROME_BIN`` / ``CHROME_PATH``).
+    """
     from ._html import chrome_available as _chrome_available
 
     return _chrome_available()
@@ -136,7 +141,11 @@ except Exception:
 
 
 def pygments_available() -> bool:
-    """Return True if Pygments is installed."""
+    """Return True if Pygments is installed.
+
+    Gates ``PreviewKind.CODE`` routing. Source files still render as
+    monospace text — Pygments is not used for highlighting.
+    """
     return _pygments is not None
 
 

@@ -1,10 +1,7 @@
-"""Tests for dpg_navigator._dialog — path validation and selection logic.
+"""Tests for FileDialog glue: selection, archives, sidebar drives, adapters.
 
-Only tests logic that can be verified WITHOUT running DearPyGui.
-All DPG calls are mocked where needed.
-
-Imports validate_folder_name and build_selection_list from the ACTUAL source
-(dpg_navigator._filesystem) instead of duplicating the logic in tests.
+DearPyGui is mocked. Path validation and listing helpers are imported from
+``dpg_navigator._filesystem`` rather than reimplemented here.
 """
 
 from __future__ import annotations

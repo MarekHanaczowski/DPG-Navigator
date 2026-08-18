@@ -1,9 +1,8 @@
 """Lifecycle and concurrency tests exercising real background machinery.
 
-These drive the actual thread-spawning and cancellation paths (DirectoryIndex
-build, FileDialog background index) against a real temp filesystem, with
-DearPyGui mocked only at the call boundary. They establish the thread-lifecycle
-baseline for the JobManager work in docs/ROADMAP.md (P1 #1).
+These drive DirectoryIndex build and FileDialog background-index threads
+against a real temp filesystem (generation cancellation, thread settle),
+with DearPyGui mocked only at the call boundary.
 """
 
 from __future__ import annotations

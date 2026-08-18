@@ -52,7 +52,13 @@ class _Stop:
 
 
 class JobManager:
-    """Centralized manager for background threads and timers."""
+    """Process-wide bounded worker pool and shared timer loop.
+
+    ``submit()`` queues callables on eight daemon workers. ``schedule_timer()``
+    uses one min-heap thread and dispatches due work into the same pool.
+    ``shutdown()`` (last ``FileDialog.destroy()``) cancels queued jobs and
+    joins. In-flight tasks finish or hit their own generation checks.
+    """
 
     _lock: threading.Lock = threading.Lock()
     _work_queue: queue.Queue[Any] = queue.Queue()

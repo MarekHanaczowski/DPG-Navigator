@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Module and class docstrings, README, CLAUDE.md, and the release checklist
+  match post-1.0.0b4 behavior: VFS facade, bounded `JobManager`, Chrome
+  `DPG_CHROME_BIN` / `chrome-headless-shell`, sidebar drive updates on the
+  DPG thread, and xvfb as a required CI job.
+
+## [1.0.0b4] - 2026-08-18
+
 ### Added
 
 - Font preview loads Unicode-aware fonts with Polish diacritics and common

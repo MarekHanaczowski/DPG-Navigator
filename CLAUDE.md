@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`dpg-navigator` — a file/directory picker widget for [DearPyGui](https://github.com/hoffstadt/DearPyGui) with a rich preview panel (images, PDF, Word, Excel, PowerPoint, Markdown, HTML, CSV, SQLite, fonts, archives, syntax-highlighted code). Installable library; import root is `dpg_navigator`. Supports Python 3.8–3.13, Windows/Linux/macOS.
+`dpg-navigator` — a file/directory picker widget for [DearPyGui](https://github.com/hoffstadt/DearPyGui) with a rich preview panel (images, PDF, Word, Excel, PowerPoint, Markdown, HTML, CSV, SQLite, fonts, archives, source code as text). Installable library; import root is `dpg_navigator`. Supports Python 3.8–3.13, Windows/Linux/macOS. Version is `__version__` in `dpg_navigator/__init__.py` (currently a `1.0.0b*` beta).
 
 ## Commands
 
@@ -31,6 +31,10 @@ Integration tests (real DearPyGui + GPU/display) are **not** collected by a norm
 ```bash
 DPG_INTEGRATION=1 pytest -m integration           # needs a display
 xvfb-run -a env DPG_INTEGRATION=1 pytest -m integration   # headless Linux
+# GitHub Actions runs the same suite under xvfb as a required CI job.
+# Sandbox-less runners also need DPG_CHROME_NO_SANDBOX=1 and (for HTML
+# smoke) DPG_CHROME_BIN pointing at chrome-headless-shell — html2image
+# uses Chrome's ``--screenshot`` CLI, which hangs on full Chrome for Testing.
 ```
 
 ### Release / tooling notes (don't trip on these)
@@ -72,16 +76,16 @@ Routing and rendering are split:
 - **`_preview_registry.py`** — GUI-free routing. Extension `frozenset`s, the `PreviewKind` enum, `PreviewCapabilities`, and `resolve_preview_kind()`. **The order of checks in `resolve_preview_kind()` is load-bearing** (e.g. HTML and code are matched before generic text). Change it carefully; it has dedicated tests.
 - **`_preview.py` — `PreviewPanel`**: owns the panel, maps `PreviewKind → BaseRenderer`, and drives the active renderer.
 - **`renderers/`** — the DPG-facing renderer objects (`ImageRenderer`, `TextRenderer`, `DataRenderer`, `ArchiveRenderer`, `DocumentRenderer`, `FontRenderer`), each conforming to the `BaseRenderer` protocol in `renderers/_base.py` and receiving a `PreviewContext`. `DocumentRenderer` covers HTML/Markdown/PDF/Word/PPTX by delegating to the heavy renderers and pure loaders.
-- **`_availability.py`** — every optional backend is probed once at import via `try/except` and exposed as a `*_available()` predicate. `chrome_available()` specifically checks for a resolvable browser binary, not just the package. Failed imports are `None` typed as `OptionalModule` (`_optional.py`), not `cast(Any, None)`.
+- **`_availability.py`** — every optional backend is probed once at import via `try/except` and exposed as a `*_available()` predicate. `chrome_available()` (in `_html.py`) checks for a resolvable browser binary (`DPG_CHROME_BIN` / `CHROME_BIN` / `CHROME_PATH`, then html2image's search), not just the Python packages. Failed imports are `None` typed as `OptionalModule` (`_optional.py`), not `cast(Any, None)`.
 - **`_preview_*.py`** (`_preview_word`, `_preview_presentation`, `_preview_archive`, `_preview_spreadsheet`, `_preview_sqlite`, `_preview_table`) — **pure data loaders**: they parse a file and return plain Python data structures, no DPG. The `renderers/` objects consume them. This is why they're unit-testable.
 
 ### Concurrency (`_job_manager.py`)
 
-`JobManager` is a static class. `submit()` runs work on short-lived daemon threads; `schedule_timer()`/`cancel_timer()` share **one** min-heap timer thread (not one OS thread per timer) to keep debouncing cheap.
+`JobManager` is a static class. `submit()` queues work on a **bounded pool of 8 daemon workers** so a burst of index/size/preview jobs cannot spawn one OS thread per task. `schedule_timer()`/`cancel_timer()` share **one** min-heap timer thread; due timers dispatch into the same pool. `shutdown()` cancels queued jobs, then joins.
 
 **DPG is single-threaded.** Two invariants follow:
 
-1. Background workers must marshal every DPG call back onto the main thread inside `dpg.mutex()`. The `FileDialog._safe_*` methods are the marshaling boundary; they re-check `self._destroyed` first, and only plain Python values cross the mutex boundary.
+1. Background workers must not rebuild the widget tree. Listing/size updates marshal through `FileDialog._safe_*` (destroyed check, then `dpg.mutex()`). Sidebar drive enumeration stores a plain Python list; widgets are applied on the DPG thread via `show()` or a `set_frame_callback` poll — `dpg.mutex()` from a worker still races `render_dearpygui_frame` (xvfb segfault).
 2. Stale-result cancellation uses **generation counters** on `DialogState` (`bg_generation`, `index_generation`). A background task captures the counter value when it starts and bails if it no longer matches — navigating away or refreshing bumps the counter.
 
 ### Shared-resource lifecycle
