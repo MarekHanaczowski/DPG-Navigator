@@ -10,9 +10,9 @@ import os
 import zipfile
 from typing import Any, Collection
 
-from ._base import VFSProvider
+from .._preview_registry import SEVEN_Z_EXTS, ZIP_EXTS
 from .._types import FileEntry
-from .._preview_registry import ZIP_EXTS, SEVEN_Z_EXTS
+from ._base import VFSProvider
 
 _log = logging.getLogger(__name__)
 
@@ -28,7 +28,8 @@ def _short_md5(data: bytes) -> str:
     try:
         return hashlib.md5(data, usedforsecurity=False).hexdigest()[:8]
     except TypeError:
-        return hashlib.md5(data).hexdigest()[:8]
+        # Python 3.8 fallback; used only for non-cryptographic temp-dir naming.
+        return hashlib.md5(data).hexdigest()[:8]  # nosec B324
 
 
 class ArchiveVFSProvider(VFSProvider):
@@ -53,61 +54,67 @@ class ArchiveVFSProvider(VFSProvider):
         show_dir_size: bool = False,
     ) -> list[FileEntry]:
         entries: list[FileEntry] = []
-        
+
         parts = path.split("|", 1)
         if len(parts) != 2:
             return entries
-            
+
         archive_path = parts[0]
         internal_dir = parts[1].replace("\\", "/").strip("/")
-        
+
         if not os.path.isfile(archive_path):
             return entries
-            
+
         ext = os.path.splitext(archive_path)[1].lower()
         is_zip = ext in ZIP_EXTS
         is_7z = ext in SEVEN_Z_EXTS
-        
+
         if not is_zip and not is_7z:
             return entries
 
         seen_names = set()
-        
-        def _add_entry(item_name: str, is_d: bool, size: int | None, mtime: float):
+
+        def _add_entry(item_name: str, is_d: bool, size: int | None, mtime: float) -> None:
             if item_name in seen_names:
                 return
             if not is_d and dirs_only:
                 return
             if search_query and search_query.lower() not in item_name.lower():
                 return
-                
+
             bypass_filter = file_filter.lower() in (ZIP_EXTS | SEVEN_Z_EXTS)
-            if not is_d and file_filter != ".*" and not bypass_filter:
-                if not fnmatch.fnmatch(item_name.lower(), f"*{file_filter.lower()}"):
-                    return
+            if (
+                not is_d
+                and file_filter != ".*"
+                and not bypass_filter
+                and not fnmatch.fnmatch(item_name.lower(), f"*{file_filter.lower()}")
+            ):
+                return
 
             seen_names.add(item_name)
             item_internal_path = f"{internal_dir}/{item_name}" if internal_dir else item_name
-            
-            entries.append(FileEntry(
-                name=item_name,
-                full_path=f"{archive_path}|/{item_internal_path}",
-                is_dir=is_d,
-                size_bytes=size,
-                modified_time=mtime,
-                is_hidden=False,
-            ))
+
+            entries.append(
+                FileEntry(
+                    name=item_name,
+                    full_path=f"{archive_path}|/{item_internal_path}",
+                    is_dir=is_d,
+                    size_bytes=size,
+                    modified_time=mtime,
+                    is_hidden=False,
+                )
+            )
 
         try:
             if is_zip:
-                with zipfile.ZipFile(archive_path, 'r') as zf:
+                with zipfile.ZipFile(archive_path, "r") as zf:
                     for info in zf.infolist():
                         p = info.filename.strip("/")
                         if internal_dir and not p.startswith(internal_dir + "/"):
                             continue
-                        rel_p = p[len(internal_dir) + 1:] if internal_dir else p
+                        rel_p = p[len(internal_dir) + 1 :] if internal_dir else p
                         if not rel_p:
-                            continue 
+                            continue
                         if "/" in rel_p:
                             child_dir_name = rel_p.split("/")[0]
                             _add_entry(child_dir_name, True, None, 0.0)
@@ -119,17 +126,17 @@ class ArchiveVFSProvider(VFSProvider):
                             except Exception:
                                 ts = 0.0
                             _add_entry(rel_p, is_d, info.file_size, ts)
-                            
+
             elif is_7z:
                 if _py7zr is None:
                     _log.warning("py7zr is not installed, cannot list .7z archive")
                     return entries
-                with _py7zr.SevenZipFile(archive_path, 'r') as z:
+                with _py7zr.SevenZipFile(archive_path, "r") as z:
                     for info in z.list():
                         p = info.filename.replace("\\", "/").strip("/")
                         if internal_dir and not p.startswith(internal_dir + "/"):
                             continue
-                        rel_p = p[len(internal_dir) + 1:] if internal_dir else p
+                        rel_p = p[len(internal_dir) + 1 :] if internal_dir else p
                         if not rel_p:
                             continue
                         if "/" in rel_p:
@@ -139,7 +146,7 @@ class ArchiveVFSProvider(VFSProvider):
                             is_d = info.is_directory
                             ts = info.creationtime.timestamp() if info.creationtime else 0.0
                             _add_entry(rel_p, is_d, info.uncompressed, ts)
-                            
+
         except Exception as e:
             _log.error("Failed to list archive %s: %s", archive_path, e)
 
@@ -147,7 +154,7 @@ class ArchiveVFSProvider(VFSProvider):
         return entries
 
     def get_size(self, path: str, is_dir: bool, show_dir_size: bool) -> int | None:
-        """Virtual directories size computing is not implemented."""
+        """Return ``None`` because archive directory sizes are not computed."""
         return None
 
     def extract_file(
@@ -159,15 +166,15 @@ class ArchiveVFSProvider(VFSProvider):
     ) -> str | None:
         if "|" not in virtual_path:
             return None
-            
+
         try:
             parts = virtual_path.split("|", 1)
             archive_path = parts[0]
             internal_path = parts[1].replace("\\", "/").strip("/")
-            
+
             if not os.path.isfile(archive_path):
                 return None
-                
+
             ext = os.path.splitext(archive_path)[1].lower()
             is_zip = ext in ZIP_EXTS
             is_7z = ext in SEVEN_Z_EXTS
@@ -185,16 +192,16 @@ class ArchiveVFSProvider(VFSProvider):
                     and size > max_size
                     and member_ext not in allowed_large_exts
                 )
-            
+
             archive_hash = _short_md5(archive_path.encode())
             archive_temp_root = os.path.join(temp_root, archive_hash)
             os.makedirs(archive_temp_root, exist_ok=True)
-            
+
             extracted_path = ""
             real_root = os.path.realpath(archive_temp_root)
 
             if is_zip:
-                with zipfile.ZipFile(archive_path, 'r') as zf:
+                with zipfile.ZipFile(archive_path, "r") as zf:
                     info = zf.getinfo(internal_path)
                     if info.flag_bits & 0x1:
                         _log.warning("Encrypted ZIP not supported for preview: %s", archive_path)
@@ -213,7 +220,7 @@ class ArchiveVFSProvider(VFSProvider):
                 if _py7zr is None:
                     _log.warning("py7zr is not installed, cannot extract from .7z")
                     return None
-                with _py7zr.SevenZipFile(archive_path, 'r') as z:
+                with _py7zr.SevenZipFile(archive_path, "r") as z:
                     if z.password:
                         _log.warning("Encrypted 7z not supported for preview: %s", archive_path)
                         return None
@@ -237,5 +244,5 @@ class ArchiveVFSProvider(VFSProvider):
                 return os.path.abspath(extracted_path)
         except Exception as e:
             _log.error("Failed to extract from archive %s: %s", virtual_path, e)
-            
+
         return None

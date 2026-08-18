@@ -3,6 +3,10 @@
 **Przeglądana wersja:** `1.0.0b3` (`dpg_navigator/__init__.py`)  
 **Zakres:** statyczny przegląd modułów `dpg_navigator/`, testów, CI, konfiguracji pakowania i dokumentacji. Nie uruchamiano testów runtime ani skanów CVE zależności.
 
+> **Dokument historyczny.** Raport opisuje wersję `1.0.0b3` sprzed obecnego
+> podziału na `dialog/` i `renderers/`; zalecenia architektoniczne są zapisem
+> wcześniejszego długu, a nie bieżącym opisem kodu.
+
 ---
 
 ## Podsumowanie dla kierownictwa

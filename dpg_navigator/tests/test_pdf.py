@@ -2,61 +2,60 @@
 
 from __future__ import annotations
 
+import importlib.util
 import threading
-from collections import OrderedDict
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+HAS_NUMPY = importlib.util.find_spec("numpy") is not None
 
 # ── pdf_available ────────────────────────────────────────────────
 
 
 class TestPdfAvailable:
     def test_available_when_all_installed(self):
-        with patch("dpg_navigator._pdf._pdfium", MagicMock()), \
-             patch("dpg_navigator._pdf._np", MagicMock()), \
-             patch("dpg_navigator._pdf._PILImage", MagicMock()):
+        with patch("dpg_navigator._pdf._pdfium", MagicMock()), patch("dpg_navigator._pdf._np", MagicMock()), patch(
+            "dpg_navigator._pdf._PILImage", MagicMock()
+        ):
             from dpg_navigator._pdf import pdf_available
+
             assert pdf_available() is True
 
     def test_unavailable_without_pypdfium2(self):
-        with patch("dpg_navigator._pdf._pdfium", None), \
-             patch("dpg_navigator._pdf._np", MagicMock()), \
-             patch("dpg_navigator._pdf._PILImage", MagicMock()):
+        with patch("dpg_navigator._pdf._pdfium", None), patch("dpg_navigator._pdf._np", MagicMock()), patch(
+            "dpg_navigator._pdf._PILImage", MagicMock()
+        ):
             from dpg_navigator._pdf import pdf_available
+
             assert pdf_available() is False
 
     def test_unavailable_without_numpy(self):
-        with patch("dpg_navigator._pdf._pdfium", MagicMock()), \
-             patch("dpg_navigator._pdf._np", None), \
-             patch("dpg_navigator._pdf._PILImage", MagicMock()):
+        with patch("dpg_navigator._pdf._pdfium", MagicMock()), patch("dpg_navigator._pdf._np", None), patch(
+            "dpg_navigator._pdf._PILImage", MagicMock()
+        ):
             from dpg_navigator._pdf import pdf_available
+
             assert pdf_available() is False
 
     def test_unavailable_without_pillow(self):
-        with patch("dpg_navigator._pdf._pdfium", MagicMock()), \
-             patch("dpg_navigator._pdf._np", MagicMock()), \
-             patch("dpg_navigator._pdf._PILImage", None):
+        with patch("dpg_navigator._pdf._pdfium", MagicMock()), patch("dpg_navigator._pdf._np", MagicMock()), patch(
+            "dpg_navigator._pdf._PILImage", None
+        ):
             from dpg_navigator._pdf import pdf_available
+
             assert pdf_available() is False
 
     def test_unavailable_when_all_missing(self):
-        with patch("dpg_navigator._pdf._pdfium", None), \
-             patch("dpg_navigator._pdf._np", None), \
-             patch("dpg_navigator._pdf._PILImage", None):
+        with patch("dpg_navigator._pdf._pdfium", None), patch("dpg_navigator._pdf._np", None), patch(
+            "dpg_navigator._pdf._PILImage", None
+        ):
             from dpg_navigator._pdf import pdf_available
+
             assert pdf_available() is False
 
 
 # ── PDFRenderer unit tests (mocked DPG + pypdfium2) ──────────────
-
-
-try:
-    import numpy as np
-    HAS_NUMPY = True
-except ImportError:
-    HAS_NUMPY = False
 
 pytestmark = pytest.mark.skipif(not HAS_NUMPY, reason="numpy required")
 
@@ -71,7 +70,9 @@ def mock_dpg():
         # mvBuffer returns a bytearray-like object with ctypes support
         def fake_mvbuffer(size):
             import ctypes
+
             return (ctypes.c_float * size)()
+
         m.mvBuffer = fake_mvbuffer
 
         # texture_registry returns a context manager
@@ -88,6 +89,7 @@ def mock_dpg():
 def make_renderer(mock_dpg):
     """Create a PDFRenderer with mocked DPG."""
     from dpg_navigator._pdf import PDFRenderer
+
     return PDFRenderer("test_tag")
 
 
@@ -104,12 +106,23 @@ class TestPDFRendererInit:
         r.close()  # should not raise
         assert r.is_open is False
 
+    def test_open_rejects_oversized_file(self, make_renderer):
+        from dpg_navigator._pdf import _MAX_PDF_BYTES
+
+        r = make_renderer
+        with patch("dpg_navigator._pdf.os.path.getsize", return_value=_MAX_PDF_BYTES + 1), patch(
+            "dpg_navigator._pdf._pdfium"
+        ) as pdfium:
+            assert r.open("huge.pdf", 100, 100) is False
+            pdfium.PdfDocument.assert_not_called()
+
 
 class TestLRUCache:
     """Test the LRU cache logic using _get_page with mocked rendering."""
 
     def test_cache_stores_rendered_page(self, make_renderer):
         import numpy as np
+
         r = make_renderer
         r._tex_w = 100
         r._tex_h = 100
@@ -123,6 +136,7 @@ class TestLRUCache:
 
     def test_cache_hit_does_not_re_render(self, make_renderer):
         import numpy as np
+
         r = make_renderer
         r._tex_w = 100
         r._tex_h = 100
@@ -136,6 +150,7 @@ class TestLRUCache:
 
     def test_cache_hit_moves_to_end(self, make_renderer):
         import numpy as np
+
         r = make_renderer
         r._tex_w = 10
         r._tex_h = 10
@@ -150,6 +165,7 @@ class TestLRUCache:
 
     def test_cache_eviction_at_capacity(self, make_renderer):
         import numpy as np
+
         r = make_renderer
         r._tex_w = 10
         r._tex_h = 10
@@ -169,6 +185,7 @@ class TestLRUCache:
 class TestPageNavigation:
     def test_next_page_increments(self, make_renderer):
         import numpy as np
+
         r = make_renderer
         r._doc = MagicMock()
         r._total_pages = 10
@@ -178,9 +195,9 @@ class TestPageNavigation:
         r._buf_ptr = 0
 
         arr = np.ones(10 * 10 * 4, dtype=np.float32)
-        with patch.object(r, "_get_page", return_value=arr), \
-             patch("dpg_navigator._pdf.ctypes") as mock_ctypes, \
-             patch.object(r, "_start_prefetch"):
+        with patch.object(r, "_get_page", return_value=arr), patch("dpg_navigator._pdf.ctypes"), patch.object(
+            r, "_start_prefetch"
+        ):
             page_info = r.next_page()
             assert page_info == (4, 10)
             assert r._current_page == 4
@@ -195,6 +212,7 @@ class TestPageNavigation:
 
     def test_prev_page_decrements(self, make_renderer):
         import numpy as np
+
         r = make_renderer
         r._doc = MagicMock()
         r._total_pages = 10
@@ -204,9 +222,9 @@ class TestPageNavigation:
         r._buf_ptr = 0
 
         arr = np.ones(10 * 10 * 4, dtype=np.float32)
-        with patch.object(r, "_get_page", return_value=arr), \
-             patch("dpg_navigator._pdf.ctypes") as mock_ctypes, \
-             patch.object(r, "_start_prefetch"):
+        with patch.object(r, "_get_page", return_value=arr), patch("dpg_navigator._pdf.ctypes"), patch.object(
+            r, "_start_prefetch"
+        ):
             page_info = r.prev_page()
             assert page_info == (2, 10)
             assert r._current_page == 2
@@ -221,6 +239,7 @@ class TestPageNavigation:
 
     def test_show_page_clamps_to_valid_range(self, make_renderer):
         import numpy as np
+
         r = make_renderer
         r._doc = MagicMock()
         r._total_pages = 5
@@ -229,9 +248,9 @@ class TestPageNavigation:
         r._buf_ptr = 0
 
         arr = np.ones(10 * 10 * 4, dtype=np.float32)
-        with patch.object(r, "_get_page", return_value=arr), \
-             patch("dpg_navigator._pdf.ctypes"), \
-             patch.object(r, "_start_prefetch"):
+        with patch.object(r, "_get_page", return_value=arr), patch("dpg_navigator._pdf.ctypes"), patch.object(
+            r, "_start_prefetch"
+        ):
             page_info = r.show_page(100)
             assert page_info == (4, 5)
 
@@ -239,9 +258,45 @@ class TestPageNavigation:
             assert page_info == (0, 5)
 
 
+class TestDocumentRendererWheel:
+    def _make_renderer(self):
+        from dpg_navigator.renderers.document import DocumentRenderer
+
+        renderer = DocumentRenderer(lambda path, offset: (None, False))
+        renderer._pdf = MagicMock()
+        renderer._pdf.is_open = True
+        renderer._pdf_page_label = "page_label"
+        return renderer
+
+    def test_wheel_up_shows_previous_page(self):
+        renderer = self._make_renderer()
+        renderer._pdf.prev_page.return_value = (1, 4)
+
+        with patch("dpg_navigator.renderers.document.dpg") as mock_dpg:
+            mock_dpg.does_item_exist.return_value = True
+            renderer.on_mouse_wheel(None, 1.0, None)
+
+        renderer._pdf.prev_page.assert_called_once_with()
+        renderer._pdf.next_page.assert_not_called()
+        mock_dpg.set_value.assert_called_once_with("page_label", "Page 2 / 4")
+
+    def test_wheel_down_shows_next_page(self):
+        renderer = self._make_renderer()
+        renderer._pdf.next_page.return_value = (2, 4)
+
+        with patch("dpg_navigator.renderers.document.dpg") as mock_dpg:
+            mock_dpg.does_item_exist.return_value = True
+            renderer.on_mouse_wheel(None, -1.0, None)
+
+        renderer._pdf.next_page.assert_called_once_with()
+        renderer._pdf.prev_page.assert_not_called()
+        mock_dpg.set_value.assert_called_once_with("page_label", "Page 3 / 4")
+
+
 class TestResourceCleanup:
     def test_close_clears_all_state(self, make_renderer):
         import numpy as np
+
         r = make_renderer
         r._doc = MagicMock()
         r._total_pages = 10
@@ -285,6 +340,7 @@ class TestRenderToArray:
 
     def test_produces_correct_shape(self, make_renderer):
         import numpy as np
+
         r = make_renderer
         r._doc_lock = threading.Lock()
 
@@ -295,6 +351,7 @@ class TestRenderToArray:
 
         # Create a small test image via PIL
         from PIL import Image
+
         test_img = Image.new("RGBA", (50, 75), (255, 0, 0, 255))
         mock_bitmap.to_pil.return_value = test_img
 
@@ -309,7 +366,7 @@ class TestRenderToArray:
         assert result.flags["C_CONTIGUOUS"]
 
     def test_page_fitting_preserves_aspect(self, make_renderer):
-        import numpy as np
+
         r = make_renderer
         r._doc_lock = threading.Lock()
 
@@ -318,6 +375,7 @@ class TestRenderToArray:
         mock_bitmap = MagicMock()
 
         from PIL import Image
+
         # After scaling to fit 200x200, page becomes 100x200
         test_img = Image.new("RGBA", (100, 200), (0, 255, 0, 255))
         mock_bitmap.to_pil.return_value = test_img
@@ -358,7 +416,7 @@ class TestCanvasCentering:
         for row in range(ih):
             src_s = row * iw * 4
             dst_s = ((oy + row) * w + ox) * 4
-            canvas[dst_s:dst_s + iw * 4] = arr[src_s:src_s + iw * 4]
+            canvas[dst_s : dst_s + iw * 4] = arr[src_s : src_s + iw * 4]
 
         # Check left margin is white
         assert canvas[0] == 1.0
@@ -367,7 +425,6 @@ class TestCanvasCentering:
         assert canvas[center_idx] == pytest.approx(0.5)
 
     def test_exact_fit_no_canvas_needed(self):
-        import numpy as np
 
         iw, ih = 100, 100
         w, h = 100, 100
@@ -392,7 +449,6 @@ class TestPrefetchGeneration:
         assert r._prefetch_generation == gen + 1
 
     def test_stale_prefetch_aborts(self, make_renderer):
-        import numpy as np
         r = make_renderer
         r._doc = MagicMock()
         r._total_pages = 5
@@ -404,6 +460,24 @@ class TestPrefetchGeneration:
         with patch.object(r, "_render_to_array") as mock_render:
             r._prefetch_worker(2, stale_gen)
             mock_render.assert_not_called()
+
+    def test_close_cancels_prefetch_future(self, make_renderer):
+        r = make_renderer
+        fut = MagicMock()
+        r._prefetch_future = fut
+        r.close()
+        fut.cancel.assert_called_once()
+        assert r._prefetch_future is None
+
+    def test_start_prefetch_cancels_previous_future(self, make_renderer):
+        r = make_renderer
+        old = MagicMock()
+        new = MagicMock()
+        r._prefetch_future = old
+        with patch("dpg_navigator._pdf.JobManager.submit", return_value=new):
+            r._start_prefetch(1)
+        old.cancel.assert_called_once()
+        assert r._prefetch_future is new
 
 
 class TestTextureLifecycle:
@@ -450,6 +524,7 @@ class TestOnResize:
 
     def test_returns_page_info_when_size_changed(self, make_renderer):
         import numpy as np
+
         r = make_renderer
         r._doc = MagicMock()
         r._total_pages = 3
@@ -459,9 +534,9 @@ class TestOnResize:
         r._tex_exists = True
 
         arr = np.ones(200 * 200 * 4, dtype=np.float32)
-        with patch.object(r, "_get_page", return_value=arr), \
-             patch("dpg_navigator._pdf.ctypes") as mock_ctypes, \
-             patch.object(r, "_start_prefetch"):
+        with patch.object(r, "_get_page", return_value=arr), patch("dpg_navigator._pdf.ctypes"), patch.object(
+            r, "_start_prefetch"
+        ):
             result = r.on_resize(200, 200)
             assert result == (1, 3)
 

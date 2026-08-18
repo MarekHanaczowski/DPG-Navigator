@@ -1,4 +1,4 @@
-name: CI
+﻿name: CI
 
 on:
   # Only main pushes: feature-branch commits are validated via their PR, so
@@ -16,6 +16,9 @@ on:
       - 'LICENSE'
   workflow_call:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -32,9 +35,10 @@ jobs:
         python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
 
     steps:
-      - uses: actions/checkout@v6
+      # Pin to commit SHA (not floating tags) for supply-chain integrity.
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -45,33 +49,20 @@ jobs:
       - name: Lint
         run: python -m ruff check .
 
-      - name: Type check pure modules
-        # mypy cannot target 3.8, and the numpy that installs on 3.8/3.9 ships
-        # stubs newer mypy can't parse under those targets. Type-check on
-        # 3.10+; runtime compatibility on 3.8/3.9 is covered by the test run.
+      - name: Format
+        run: python -m ruff format --check .
+
+      - name: Type check package
         if: ${{ matrix.python-version != '3.8' && matrix.python-version != '3.9' }}
-        run: >-
-          python -m mypy
-          dpg_navigator/_types.py
-          dpg_navigator/_filesystem.py
-          dpg_navigator/_platform.py
-          dpg_navigator/_icons.py
-          dpg_navigator/_styles.py
-          dpg_navigator/_keyboard.py
-          dpg_navigator/_preview_registry.py
-          dpg_navigator/_preview_table.py
-          dpg_navigator/_preview_archive.py
-          dpg_navigator/_preview_spreadsheet.py
-          dpg_navigator/_preview_sqlite.py
-          dpg_navigator/_preview_word.py
-          dpg_navigator/_preview_presentation.py
-          dpg_navigator/_preview.py
-          dpg_navigator/_dialog.py
-          dpg_navigator/_pdf.py
-          dpg_navigator/_html.py
+        run: python -m mypy
 
       - name: Test
+        if: ${{ matrix.python-version != '3.13' }}
         run: python -m pytest -q
+
+      - name: Test with coverage
+        if: ${{ matrix.python-version == '3.13' }}
+        run: python -m pytest -q --cov=dpg_navigator --cov-report=term-missing
 
   test-cross-platform:
     # Windows (2x) and macOS (10x) are the expensive runners. A push to main
@@ -91,9 +82,9 @@ jobs:
           - { os: macos-latest, python-version: "3.13" }
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -104,30 +95,72 @@ jobs:
       - name: Lint
         run: python -m ruff check .
 
-      - name: Type check pure modules
+      - name: Format
+        run: python -m ruff format --check .
+
+      - name: Type check package
         if: ${{ matrix.python-version != '3.8' && matrix.python-version != '3.9' }}
-        run: >-
-          python -m mypy
-          dpg_navigator/_types.py
-          dpg_navigator/_filesystem.py
-          dpg_navigator/_platform.py
-          dpg_navigator/_icons.py
-          dpg_navigator/_styles.py
-          dpg_navigator/_keyboard.py
-          dpg_navigator/_preview_registry.py
-          dpg_navigator/_preview_table.py
-          dpg_navigator/_preview_archive.py
-          dpg_navigator/_preview_spreadsheet.py
-          dpg_navigator/_preview_sqlite.py
-          dpg_navigator/_preview_word.py
-          dpg_navigator/_preview_presentation.py
-          dpg_navigator/_preview.py
-          dpg_navigator/_dialog.py
-          dpg_navigator/_pdf.py
-          dpg_navigator/_html.py
+        run: python -m mypy
 
       - name: Test
         run: python -m pytest -q
+
+  integration:
+    # Real DearPyGui needs a display. xvfb + software GL is the Linux stand-in.
+    name: DearPyGui smoke (xvfb)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install xvfb and software GL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xvfb libgl1-mesa-dri libgl1 libglib2.0-0 libxkbcommon0 libegl1
+
+      # html2image needs a real Chrome/Chromium, not the Ubuntu snap stub.
+      - name: Install Chrome for HTML preview smoke
+        id: setup-chrome
+        uses: browser-actions/setup-chrome@48ad923757ca74d66703209fe939badbdf80f2f4  # v2.2.0
+        with:
+          chrome-version: stable
+          install-dependencies: true
+
+      # html2image uses Chrome's ``--screenshot`` CLI (old headless). Full
+      # Chrome for Testing hangs on that path; chrome-headless-shell is the
+      # matching binary from Chrome for Testing.
+      - name: Install chrome-headless-shell
+        env:
+          CHROME_VERSION: ${{ steps.setup-chrome.outputs.chrome-version }}
+        run: |
+          set -euo pipefail
+          ver=$(echo "$CHROME_VERSION" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
+          dest="${RUNNER_TEMP}/chrome-headless-shell"
+          mkdir -p "$dest"
+          curl -fsSL -o "${RUNNER_TEMP}/chrome-headless-shell.zip" \
+            "https://storage.googleapis.com/chrome-for-testing-public/${ver}/linux64/chrome-headless-shell-linux64.zip"
+          unzip -q "${RUNNER_TEMP}/chrome-headless-shell.zip" -d "$dest"
+          bin=$(find "$dest" -type f -name chrome-headless-shell | head -n 1)
+          test -n "$bin"
+          chmod +x "$bin"
+          echo "DPG_CHROME_BIN=${bin}" >> "$GITHUB_ENV"
+          "$bin" --version
+
+      - name: Install development dependencies
+        run: python -m pip install -e ".[dev]"
+
+      - name: Integration smoke
+        env:
+          DPG_INTEGRATION: "1"
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          DPG_CHROME_NO_SANDBOX: "1"
+        run: xvfb-run -a python -m pytest -m integration -q --tb=short
 
   audit:
     name: Dependency audit
@@ -138,9 +171,9 @@ jobs:
     # not fail unrelated work.
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
         with:
           python-version: "3.13"
           cache: pip
@@ -153,3 +186,31 @@ jobs:
 
       - name: Audit dependencies
         run: python -m pip_audit
+
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install project and CycloneDX
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[all]"
+          python -m pip install cyclonedx-bom
+
+      - name: Generate CycloneDX SBOM
+        run: |
+          python -m cyclonedx_py environment --of JSON -o sbom.cdx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: sbom-cyclonedx
+          path: sbom.cdx.json
+          retention-days: 30

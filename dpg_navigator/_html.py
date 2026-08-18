@@ -6,34 +6,56 @@ auto-trim, overflow detection, and responsive scaling.
 """
 
 from __future__ import annotations
-# MIT licensed
 
+# MIT licensed
 import ctypes
+import logging
 import os
+import re
+import shutil
+import subprocess
 import tempfile
 import threading
 import time
 import uuid
-from typing import Any, cast
+from concurrent.futures import Future
+from typing import Any, Callable
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
 from ._job_manager import JobManager, TimerTask
+from ._optional import OptionalModule, as_optional, require_optional
+
+_log = logging.getLogger(__name__)
+
+_Html2Image: OptionalModule | None
+try:
+    from html2image import Html2Image as _Html2Image_cls  # type: ignore[import-untyped]
+
+    _Html2Image = as_optional(_Html2Image_cls)
+except Exception:  # optional backend absent or incompatible (e.g. old Python)
+    _Html2Image = None
+
+_np: OptionalModule | None
+try:
+    import numpy as _numpy_mod
+
+    _np = as_optional(_numpy_mod)
+except Exception:  # optional backend absent or incompatible (e.g. old Python)
+    _np = None
+
+_PILImage: OptionalModule | None
+try:
+    from PIL import Image as _PILImage_mod
+
+    _PILImage = as_optional(_PILImage_mod)
+except Exception:  # optional backend absent or incompatible (e.g. old Python)
+    _PILImage = None
 
 try:
-    from html2image import Html2Image as _Html2Image  # type: ignore[import-untyped]
-except Exception:  # optional backend absent or incompatible (e.g. old Python)
-    _Html2Image = cast(Any, None)
-
-try:
-    import numpy as _np
-except Exception:  # optional backend absent or incompatible (e.g. old Python)
-    _np = cast(Any, None)
-
-try:
-    from PIL import Image as _PILImage
-except Exception:  # optional backend absent or incompatible (e.g. old Python)
-    _PILImage = cast(Any, None)
+    import psutil as _psutil  # type: ignore[import-untyped]
+except Exception:  # required dep; still degrade to Popen.kill()
+    _psutil = None
 
 
 def html_available() -> bool:
@@ -75,8 +97,181 @@ _TRIM_TOLERANCE: int = 5
 _RESIZE_DEBOUNCE: float = 0.4
 _OVERSCAN: int = 20
 _MAX_RENDER_W: int = 4000
+_MAX_HTML_BYTES: int = 2 * 1024 * 1024
+"""Reject HTML/Markdown sources larger than this before spawning Chrome."""
 _CHROME_TIMEOUT: float = 30.0
 """Seconds before a hung Chrome screenshot subprocess is killed."""
+
+_chrome_owner = threading.local()
+_chromium_run_patched = False
+
+
+def _resolve_chrome_executable() -> str | None:
+    """Return an explicit Chrome binary from the environment, if set.
+
+    html2image only honors ``CHROME_BIN`` when a separate toggle var is set.
+    CI and hosts can pass ``DPG_CHROME_BIN`` (preferred), ``CHROME_BIN``, or
+    ``CHROME_PATH`` instead.
+    """
+    for key in ("DPG_CHROME_BIN", "CHROME_BIN", "CHROME_PATH"):
+        raw = os.environ.get(key)
+        if not raw:
+            continue
+        path = os.path.expanduser(raw.strip())
+        if os.path.isfile(path):
+            return path
+        located = shutil.which(path)
+        if located:
+            return located
+    return None
+
+
+def _is_headless_shell(executable: str | None) -> bool:
+    """Return True if *executable* is Chrome's old-headless screenshot binary."""
+    if not executable:
+        return False
+    return "headless-shell" in os.path.basename(executable).lower()
+
+
+def _chrome_custom_flags(profile_dir: str) -> list[str]:
+    """Flags for untrusted HTML: JS off, no network, isolated profile.
+
+    The dead proxy is ``127.0.0.1:1`` without extra quotes: a quoted value
+    becomes part of argv on POSIX, and port 0 can stall connect(). Port 1
+    is almost always connection-refused, so subresource loads fail fast.
+    ``--proxy-bypass-list=<-loopback>`` keeps ``file://`` (html2image temp
+    HTML) off that proxy; otherwise Linux can wait the full TCP timeout.
+
+    ``DPG_CHROME_NO_SANDBOX=1`` adds container flags (``--no-sandbox``,
+    ``--no-zygote``, …) for CI where the sandbox cannot start. Not the
+    default — those flags weaken process isolation. ``--disable-gpu`` is
+    omitted there: it hangs ``--screenshot`` on Chrome for Testing + xvfb.
+    """
+    flags = [
+        "--hide-scrollbars",
+        "--force-device-scale-factor=1",
+        "--log-level=3",
+        # JS off: untrusted HTML must not run. The injected
+        # overflow marker is therefore a no-op (see A06).
+        "--disable-javascript",
+        "--proxy-server=http://127.0.0.1:1",
+        "--proxy-bypass-list=<-loopback>",
+        "--block-new-web-contents",
+        f"--user-data-dir={profile_dir}",
+        f"--crash-dumps-dir={profile_dir}",
+    ]
+    if os.environ.get("DPG_CHROME_NO_SANDBOX") == "1":
+        flags.extend(
+            [
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--no-zygote",
+                "--no-first-run",
+                "--virtual-time-budget=10000",
+            ]
+        )
+    else:
+        flags.insert(2, "--disable-gpu")
+    return flags
+
+
+class _ChromeCancelled(Exception):
+    """Raised when a screenshot is aborted because the preview closed."""
+
+
+class _ChromiumSubprocessProxy:
+    """Replace html2image's ``chromium.subprocess`` without touching stdlib."""
+
+    def run(self, *args: Any, **kwargs: Any) -> subprocess.CompletedProcess[Any]:
+        return _chrome_popen_run(*args, **kwargs)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(subprocess, name)
+
+
+def _ensure_chromium_run_hook() -> None:
+    """Route html2image Chrome launches through ``_chrome_popen_run``."""
+    global _chromium_run_patched
+    if _chromium_run_patched:
+        return
+    try:
+        import html2image.browsers.chromium as chromium_mod  # type: ignore[import-untyped]
+    except Exception:
+        return
+    chromium_mod.subprocess = _ChromiumSubprocessProxy()
+    _chromium_run_patched = True
+
+
+def _kill_process_tree(proc: Any) -> None:
+    """Kill *proc* and its children (headless Chrome is multi-process)."""
+    poll = getattr(proc, "poll", None)
+    if callable(poll) and poll() is not None:
+        return
+    pid = getattr(proc, "pid", None)
+    if _psutil is not None and pid is not None:
+        try:
+            parent = _psutil.Process(pid)
+            victims = parent.children(recursive=True)
+            victims.append(parent)
+            for victim in victims:
+                try:
+                    victim.kill()
+                except Exception:
+                    pass
+            _psutil.wait_procs(victims, timeout=1.0)
+        except Exception:
+            _log.debug("psutil Chrome process-tree kill failed", exc_info=True)
+    try:
+        if not callable(poll) or proc.poll() is None:
+            proc.kill()
+    except OSError:
+        pass
+    try:
+        proc.wait(timeout=1.0)
+    except Exception:
+        pass
+
+
+def _chrome_popen_run(
+    command: Any,
+    *args: Any,
+    **kwargs: Any,
+) -> subprocess.CompletedProcess[Any]:
+    """``subprocess.run`` stand-in that records Popen so close() can kill it."""
+    if args:
+        raise TypeError("chrome run hook does not take extra positional args")
+    timeout = kwargs.pop("timeout", _CHROME_TIMEOUT)
+    kwargs.pop("check", None)
+    owner = getattr(_chrome_owner, "renderer", None)
+    gen = getattr(_chrome_owner, "generation", None)
+    if owner is not None and owner._render_generation != gen:
+        raise _ChromeCancelled()
+    proc = subprocess.Popen(command, **kwargs)
+    if owner is not None:
+        HTMLRenderer._register_chrome(proc, owner)
+    try:
+        if owner is not None and owner._render_generation != gen:
+            _kill_process_tree(proc)
+            raise _ChromeCancelled()
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _log.warning(
+                "Chrome screenshot timed out after %.0fs (%s)",
+                timeout,
+                command[0] if isinstance(command, list) and command else command,
+            )
+            _kill_process_tree(proc)
+            try:
+                proc.communicate(timeout=2.0)
+            except Exception:
+                pass
+            raise
+        return subprocess.CompletedProcess(command, proc.returncode, stdout, stderr)
+    finally:
+        HTMLRenderer._unregister_chrome(proc)
+
 
 _CSS_RESET = (
     "<style>"
@@ -85,39 +280,64 @@ _CSS_RESET = (
     "</style>"
 )
 
+# Encodes DOM scrollWidth into pixel (3,3). Inert while Chrome is launched
+# with --disable-javascript (production flags). Kept so a wider re-render
+# can still run if that flag is ever dropped.
 _OVERFLOW_MARKER = (
     '<script>window.addEventListener("load",function(){'
     'var m=document.createElement("div");'
     'm.style.cssText="position:fixed;top:0;left:0;width:10px;height:10px;'
     'z-index:999999;pointer-events:none;";'
-    'var sw=Math.max(document.documentElement.scrollWidth,'
-    'document.body.scrollWidth,document.documentElement.offsetWidth,'
-    'document.body.offsetWidth);'
-    'var v=Math.min(sw,65535);'
+    "var sw=Math.max(document.documentElement.scrollWidth,"
+    "document.body.scrollWidth,document.documentElement.offsetWidth,"
+    "document.body.offsetWidth);"
+    "var v=Math.min(sw,65535);"
     'm.style.backgroundColor="rgb("+(v>>8)+","+(v&255)+",255)";'
-    'document.body.appendChild(m);'
-    '});</script>'
+    "document.body.appendChild(m);"
+    "});</script>"
 )
+
+_FILE_ATTR_RE = re.compile(
+    r"""(?ix)
+    (\s(?:src|href|poster|data)\s*=\s*)
+    (["'])file:.*?\2
+    """
+)
+_FILE_CSS_RE = re.compile(r"""(?i)url\(\s*(["']?)file:[^)]*\)""")
+
+
+def _strip_file_urls(html: str) -> str:
+    """Drop file: URLs so Chrome cannot be pointed at local paths."""
+    html = _FILE_ATTR_RE.sub(r"\1\2\2", html)
+    return _FILE_CSS_RE.sub("url()", html)
+
 
 # Lazily computed float32 background color
 _bg_f32_cache: Any = None
-_LANCZOS = getattr(getattr(_PILImage, "Resampling", _PILImage), "LANCZOS", 1)
+_LANCZOS: Any = 1
+if _PILImage is not None:
+    _LANCZOS = getattr(getattr(_PILImage, "Resampling", _PILImage), "LANCZOS", 1)
 
 
-def _get_bg_f32() -> "_np.ndarray":
+def _get_bg_f32() -> Any:
     """Return the background color as a float32 RGBA array (cached)."""
     global _bg_f32_cache
+    np = require_optional(_np, "numpy")
     if _bg_f32_cache is None:
-        _bg_f32_cache = (
-            _np.array(_BG_COLOR_RGBA, dtype=_np.float32) / _np.float32(255)
-        )
+        _bg_f32_cache = np.array(_BG_COLOR_RGBA, dtype=np.float32) / np.float32(255)
     return _bg_f32_cache
 
 
 # ── Pure helper functions ──────────────────────────────────────
 
+
 def _inject_helpers(html: str) -> str:
-    """Inject CSS reset and JS overflow marker into raw HTML."""
+    """Inject CSS reset and JS overflow marker into raw HTML.
+
+    The marker does not run under the default ``--disable-javascript`` flag.
+    Local ``file:`` URLs are stripped before Chrome sees the document.
+    """
+    html = _strip_file_urls(html)
     if "</head>" in html:
         html = html.replace("</head>", _CSS_RESET + "</head>", 1)
     else:
@@ -129,19 +349,20 @@ def _inject_helpers(html: str) -> str:
     return html
 
 
-def _auto_trim(img: "_PILImage.Image") -> "_PILImage.Image":
+def _auto_trim(img: Any) -> Any:
     """Trim empty background rows from top and bottom of the render.
 
     Uses vectorized numpy — computes per-row mean deviation from
     the background color across all pixels simultaneously.
     """
+    np = require_optional(_np, "numpy")
     w, h = img.size
-    pixels = _np.array(img)
-    bg_i16 = _np.array(_BG_COLOR_RGBA, dtype=_np.int16)
-    row_diff = _np.abs(
-        pixels.astype(_np.int16) - bg_i16,
+    pixels = np.array(img)
+    bg_i16 = np.array(_BG_COLOR_RGBA, dtype=np.int16)
+    row_diff = np.abs(
+        pixels.astype(np.int16) - bg_i16,
     ).mean(axis=(1, 2))
-    non_bg = _np.where(row_diff > _TRIM_TOLERANCE)[0]
+    non_bg = np.where(row_diff > _TRIM_TOLERANCE)[0]
     if len(non_bg) == 0:
         return img.crop((0, 0, w, 1))
     pad = 2
@@ -150,7 +371,7 @@ def _auto_trim(img: "_PILImage.Image") -> "_PILImage.Image":
     return img.crop((0, y0, w, y1))
 
 
-def _read_overflow_marker(pixels: "_np.ndarray") -> tuple[bool, int]:
+def _read_overflow_marker(pixels: Any) -> tuple[bool, int]:
     """Read the JS overflow marker encoded in pixel (3,3).
 
     The marker encodes DOM scrollWidth as RGB: R = width >> 8,
@@ -166,36 +387,39 @@ def _read_overflow_marker(pixels: "_np.ndarray") -> tuple[bool, int]:
     return False, 0
 
 
-def _clear_marker(arr: "_np.ndarray") -> None:
+def _clear_marker(arr: Any) -> None:
     """Paint over the marker area with neighboring pixels."""
     s = min(30, arr.shape[0], arr.shape[1])
     h, w = arr.shape[:2]
     if w > s:
-        arr[:s, :s] = arr[:s, s:s + 1]
+        arr[:s, :s] = arr[:s, s : s + 1]
     elif h > s:
-        arr[:s, :s] = arr[s:s + 1, :s]
+        arr[:s, :s] = arr[s : s + 1, :s]
 
 
 def _get_scaled_doc(
-    full_arr: "_np.ndarray",
+    full_arr: Any,
     current_w: int,
     target_w: int,
     current_h: int,
-) -> tuple["_np.ndarray", int, int]:
+) -> tuple[Any, int, int]:
     """Scale the full render to target width using Lanczos resampling.
 
     Returns (scaled_array, new_width, new_height).
     """
     if target_w <= 0 or current_w == target_w:
         return full_arr, current_w, current_h
+    np = require_optional(_np, "numpy")
+    pil = require_optional(_PILImage, "Pillow")
     scale = target_w / current_w
     target_h = max(1, int(current_h * scale))
-    img = _PILImage.fromarray(full_arr)
+    img = pil.fromarray(full_arr)
     img_scaled = img.resize((target_w, target_h), _LANCZOS)
-    return _np.array(img_scaled, dtype=_np.uint8), target_w, target_h
+    return np.array(img_scaled, dtype=np.uint8), target_w, target_h
 
 
 # ── HTMLRenderer class ─────────────────────────────────────────
+
 
 class HTMLRenderer:
     """Renders HTML into a scrollable DPG raw_texture via Chrome Headless.
@@ -218,8 +442,11 @@ class HTMLRenderer:
     # Shared Html2Image instance (lazy-initialized, one Chrome config for all)
     _hti: Any = None
     _hti_lock: threading.Lock = threading.Lock()
+    _chrome_profile_dir: str | None = None
+    _chrome_proc_lock: threading.Lock = threading.Lock()
+    _chrome_procs: list[tuple[Any, Any]] = []
 
-    def __init__(self, config_tag: str):
+    def __init__(self, config_tag: str) -> None:
         self._config_tag = config_tag
         self._current_path: str = ""
         self._html_content: str = ""
@@ -246,6 +473,7 @@ class HTMLRenderer:
 
         # Render state
         self._render_generation: int = 0
+        self._render_future: Future[Any] | None = None
         self._is_rendering: bool = False
         self._min_unclipped_w: int = 0
         self._last_chrome_w: int = 0
@@ -281,29 +509,57 @@ class HTMLRenderer:
     # ── Html2Image singleton ──────────────────────────────────
 
     @classmethod
-    def _get_hti(cls) -> "_Html2Image":
+    def _register_chrome(cls, proc: Any, owner: Any) -> None:
+        with cls._chrome_proc_lock:
+            cls._chrome_procs.append((proc, owner))
+
+    @classmethod
+    def _unregister_chrome(cls, proc: Any) -> None:
+        with cls._chrome_proc_lock:
+            cls._chrome_procs = [item for item in cls._chrome_procs if item[0] is not proc]
+
+    @classmethod
+    def _kill_owned_chrome(cls, owner: Any | None) -> None:
+        """Kill tracked Chrome processes. ``owner=None`` kills all."""
+        with cls._chrome_proc_lock:
+            if owner is None:
+                victims = [proc for proc, _owner in cls._chrome_procs]
+            else:
+                victims = [proc for proc, item_owner in cls._chrome_procs if item_owner is owner]
+        for proc in victims:
+            _kill_process_tree(proc)
+
+    @classmethod
+    def _get_hti(cls) -> Any:
         """Lazily initialize the shared Html2Image instance."""
+        html2image = require_optional(_Html2Image, "html2image")
+        _ensure_chromium_run_hook()
         if cls._hti is None:
             with cls._hti_lock:
                 if cls._hti is None:
-                    cls._hti = _Html2Image(
-                        output_path=tempfile.gettempdir(),
-                        custom_flags=[
-                            '--hide-scrollbars',
-                            '--force-device-scale-factor=1',
-                            '--disable-gpu',
-                            '--log-level=3',
-                            '--disable-javascript',
-                            '--proxy-server="http://127.0.0.1:0"',
-                            f'--user-data-dir={os.path.join(tempfile.gettempdir(), "dpg_nav_chrome_profile")}',
-                        ],
-                        disable_logging=True,
-                    )
-                    # html2image runs Chrome via subprocess.run() with no
-                    # timeout, so a hung browser would block the render thread
-                    # forever. Inject a timeout: subprocess.run then kills the
-                    # process and raises TimeoutExpired, which _hti_screenshot
-                    # turns into a clean render failure.
+                    profile_dir = tempfile.mkdtemp(prefix="dpg_nav_chrome_")
+                    cls._chrome_profile_dir = profile_dir
+                    hti_kwargs: dict[str, Any] = {
+                        "output_path": profile_dir,
+                        "custom_flags": _chrome_custom_flags(profile_dir),
+                        # CI: keep Chrome stderr so a hung screenshot is diagnosable.
+                        "disable_logging": os.environ.get("DPG_CHROME_NO_SANDBOX") != "1",
+                    }
+                    chrome_bin = _resolve_chrome_executable()
+                    if chrome_bin is not None:
+                        hti_kwargs["browser_executable"] = chrome_bin
+                    cls._hti = html2image(**hti_kwargs)
+                    # html2image drives the ``--screenshot`` CLI (old headless).
+                    # ``--headless=new`` on full Chrome for Testing hangs; the
+                    # chrome-headless-shell binary wants plain ``--headless``.
+                    exe = chrome_bin or str(getattr(cls._hti.browser, "executable", "") or "")
+                    if _is_headless_shell(exe):
+                        try:
+                            cls._hti.browser.use_new_headless = None
+                        except (AttributeError, TypeError):  # pragma: no cover
+                            pass
+                    # html2image has no timeout; our Popen hook honors this
+                    # value and close()/shutdown_shared() can kill earlier.
                     try:
                         cls._hti.browser._subprocess_run_kwargs["timeout"] = _CHROME_TIMEOUT
                     except (AttributeError, TypeError):  # pragma: no cover
@@ -313,8 +569,12 @@ class HTMLRenderer:
     # ── Open / close ──────────────────────────────────────────
 
     def open(
-        self, path: str, w: int, h: int,
-        on_complete=None, on_resize_complete=None,
+        self,
+        path: str,
+        w: int,
+        h: int,
+        on_complete: Callable[..., Any] | None = None,
+        on_resize_complete: Callable[..., Any] | None = None,
     ) -> bool:
         """Open an HTML file and start background rendering.
 
@@ -333,10 +593,14 @@ class HTMLRenderer:
         self.close()
 
         try:
-            with open(path, encoding="utf-8", errors="replace") as f:
-                raw_html = f.read()
+            with open(path, "rb") as f:
+                raw_bytes = f.read(_MAX_HTML_BYTES + 1)
         except (OSError, PermissionError):
             return False
+        if len(raw_bytes) > _MAX_HTML_BYTES:
+            self._status_text = "File too large for preview"
+            return False
+        raw_html = raw_bytes.decode("utf-8", errors="replace")
 
         self._current_path = path
         self._html_content = _inject_helpers(raw_html)
@@ -350,8 +614,12 @@ class HTMLRenderer:
         return True
 
     def open_string(
-        self, html_content: str, w: int, h: int,
-        on_complete=None, on_resize_complete=None,
+        self,
+        html_content: str,
+        w: int,
+        h: int,
+        on_complete: Callable[..., Any] | None = None,
+        on_resize_complete: Callable[..., Any] | None = None,
     ) -> bool:
         """Open raw HTML content and start background rendering.
 
@@ -361,6 +629,10 @@ class HTMLRenderer:
         Returns True if rendering started.
         """
         self.close()
+
+        if len(html_content.encode("utf-8", errors="replace")) > _MAX_HTML_BYTES:
+            self._status_text = "Content too large for preview"
+            return False
 
         self._current_path = ""
         self._html_content = _inject_helpers(html_content)
@@ -373,9 +645,18 @@ class HTMLRenderer:
         self._start_render(content_w)
         return True
 
+    def _cancel_render_future(self) -> None:
+        """Drop a queued Chrome render so a worker never starts it."""
+        fut = self._render_future
+        self._render_future = None
+        if fut is not None:
+            fut.cancel()
+
     def close(self) -> None:
-        """Cancel any background render and release DPG resources."""
+        """Cancel any background render, kill this preview's Chrome, release DPG."""
         self._render_generation += 1
+        self._cancel_render_future()
+        type(self)._kill_owned_chrome(self)
 
         if self._resize_timer is not None:
             JobManager.cancel_timer(self._resize_timer)
@@ -406,6 +687,25 @@ class HTMLRenderer:
         self._on_resize_complete = None
         self._status_text = ""
 
+    @classmethod
+    def shutdown_shared(cls) -> None:
+        """Drop the shared Html2Image singleton after the last dialog closes.
+
+        Kills any in-flight Chrome child processes first so the session
+        profile directory can be removed without racing a live browser.
+        """
+        cls._kill_owned_chrome(None)
+        with cls._chrome_proc_lock:
+            cls._chrome_procs.clear()
+        with cls._hti_lock:
+            cls._hti = None
+            profile_dir = cls._chrome_profile_dir
+            cls._chrome_profile_dir = None
+        if profile_dir:
+            shutil.rmtree(profile_dir, ignore_errors=True)
+        global _chrome_available_cache
+        _chrome_available_cache = None
+
     # ── Texture management ────────────────────────────────────
 
     def _recreate_texture(self, w: int, h: int) -> None:
@@ -423,9 +723,11 @@ class HTMLRenderer:
         if self._tex_buffer is None:
             raise RuntimeError("Failed to allocate HTML texture buffer")
 
+        np = require_optional(_np, "numpy")
         bg = _get_bg_f32()
-        self._viewport_buf = _np.empty(
-            (self._tex_h, self._tex_w, 4), dtype=_np.float32,
+        self._viewport_buf = np.empty(
+            (self._tex_h, self._tex_w, 4),
+            dtype=np.float32,
         )
         self._viewport_buf[:] = bg
 
@@ -433,13 +735,16 @@ class HTMLRenderer:
             ctypes.c_float.from_buffer(self._tex_buffer),
         )
         ctypes.memmove(
-            self._buf_ptr, self._viewport_buf.ctypes.data,
+            self._buf_ptr,
+            self._viewport_buf.ctypes.data,
             self._viewport_buf.nbytes,
         )
 
         with dpg.texture_registry():
             self._tex_id = dpg.add_raw_texture(
-                self._tex_w, self._tex_h, self._tex_buffer,
+                self._tex_w,
+                self._tex_h,
+                self._tex_buffer,
                 format=dpg.mvFormat_Float_rgba,
             )
         self._tex_exists = True
@@ -447,8 +752,10 @@ class HTMLRenderer:
     # ── Chrome screenshot ─────────────────────────────────────
 
     def _hti_screenshot(
-        self, width: int, height: int,
-    ) -> "_PILImage.Image | None":
+        self,
+        width: int,
+        height: int,
+    ) -> Any | None:
         """Take a Chrome Headless screenshot with overscan compensation.
 
         Renders +20px wider to mask the Windows OS scrollbar reservation
@@ -456,7 +763,10 @@ class HTMLRenderer:
         """
         hti = self._get_hti()
         temp_name = f"dpg_html_{uuid.uuid4().hex[:12]}.png"
-        target_path = os.path.join(tempfile.gettempdir(), temp_name)
+        out_dir = getattr(hti, "output_path", None) or type(self)._chrome_profile_dir or tempfile.gettempdir()
+        target_path = os.path.join(str(out_dir), temp_name)
+        _chrome_owner.renderer = self
+        _chrome_owner.generation = self._render_generation
         try:
             hti.screenshot(
                 html_str=self._html_content,
@@ -465,9 +775,13 @@ class HTMLRenderer:
             )
         except Exception:
             return None
+        finally:
+            _chrome_owner.renderer = None
+            _chrome_owner.generation = None
         if not os.path.exists(target_path):
             return None
-        img_full = _PILImage.open(target_path)
+        pil = require_optional(_PILImage, "Pillow")
+        img_full = pil.open(target_path)
         img_full.load()
         try:
             os.remove(target_path)
@@ -481,14 +795,13 @@ class HTMLRenderer:
 
     def _start_render(self, content_w: int) -> None:
         """Start a background Chrome render with a new generation counter."""
+        self._cancel_render_future()
         self._render_generation += 1
+        type(self)._kill_owned_chrome(self)
         self._is_rendering = True
         self._status_text = "Rendering..."
         gen = self._render_generation
-        JobManager.submit(
-            self._render_worker,
-            content_w, gen
-        )
+        self._render_future = JobManager.submit(self._render_worker, content_w, gen)
 
     def _render_worker(self, content_w: int, gen: int) -> None:
         """Background render thread.
@@ -499,8 +812,14 @@ class HTMLRenderer:
         4. Scale to viewport width (outside mutex for performance)
         5. Update shared state and texture inside dpg.mutex()
         """
+        np = require_optional(_np, "numpy")
+        pil = require_optional(_PILImage, "Pillow")
         t0 = time.perf_counter()
         chrome_w = max(content_w, 100)
+
+        if self._render_generation != gen:
+            self._is_rendering = False
+            return
 
         img = self._hti_screenshot(chrome_w, _RENDER_H)
         if img is None:
@@ -517,7 +836,7 @@ class HTMLRenderer:
 
         img_rgba = img.convert("RGBA")
         img.close()
-        pixels = _np.array(img_rgba)
+        pixels = np.array(img_rgba)
         _, scroll_w = _read_overflow_marker(pixels)
 
         # Re-render if content overflowed the viewport
@@ -541,25 +860,28 @@ class HTMLRenderer:
                 return
             img_rgba = img2.convert("RGBA")
             img2.close()
-            pixels = _np.array(img_rgba)
+            pixels = np.array(img_rgba)
             cached_min_w = scroll_w
             chrome_w = render_w
         else:
             cached_min_w = 0
 
         _clear_marker(pixels)
-        img_clean = _PILImage.fromarray(pixels)
+        img_clean = pil.fromarray(pixels)
         img_rgba.close()
         img_trimmed = _auto_trim(img_clean)
         img_clean.close()
 
-        arr = _np.array(img_trimmed, dtype=_np.uint8)
+        arr = np.array(img_trimmed, dtype=np.uint8)
         raw_w, raw_h = img_trimmed.size
         img_trimmed.close()
 
         # Heavy scaling done OUTSIDE dpg.mutex() — critical for 60fps
         new_doc_array, new_doc_w, new_doc_h = _get_scaled_doc(
-            arr, raw_w, content_w, raw_h,
+            arr,
+            raw_w,
+            content_w,
+            raw_h,
         )
 
         elapsed = (time.perf_counter() - t0) * 1000
@@ -592,10 +914,10 @@ class HTMLRenderer:
         than the viewport.  Uses pre-allocated viewport_buf to avoid
         per-frame numpy allocations.
         """
-        if (self._doc_array is None or self._buf_ptr is None
-                or self._viewport_buf is None):
+        if self._doc_array is None or self._buf_ptr is None or self._viewport_buf is None:
             return
 
+        np = require_optional(_np, "numpy")
         bg = _get_bg_f32()
         content_w = self._tex_w - 2 * _MARGIN
 
@@ -607,7 +929,7 @@ class HTMLRenderer:
         if copy_h <= 0 or copy_w <= 0:
             return
 
-        region = self._doc_array[sy:sy + copy_h, :copy_w]
+        region = self._doc_array[sy : sy + copy_h, :copy_w]
 
         self._viewport_buf[:] = bg
 
@@ -616,12 +938,11 @@ class HTMLRenderer:
         else:
             pad_x = _MARGIN
 
-        self._viewport_buf[:copy_h, pad_x:pad_x + copy_w] = (
-            region.astype(_np.float32) / _np.float32(255)
-        )
+        self._viewport_buf[:copy_h, pad_x : pad_x + copy_w] = region.astype(np.float32) / np.float32(255)
 
         ctypes.memmove(
-            self._buf_ptr, self._viewport_buf.ctypes.data,
+            self._buf_ptr,
+            self._viewport_buf.ctypes.data,
             self._viewport_buf.nbytes,
         )
 
@@ -673,7 +994,7 @@ class HTMLRenderer:
         # Capture target dimensions for the closure
         target_w, target_h = w, h
 
-        def _debounced():
+        def _debounced() -> None:
             if not self.is_open:
                 return
             # Cancel any in-progress render
@@ -686,7 +1007,10 @@ class HTMLRenderer:
             new_doc = None
             if self._full_array is not None:
                 new_doc = _get_scaled_doc(
-                    self._full_array, self._full_w, content_w, self._full_h,
+                    self._full_array,
+                    self._full_w,
+                    content_w,
+                    self._full_h,
                 )
 
             with dpg.mutex():
@@ -701,9 +1025,7 @@ class HTMLRenderer:
                     self._on_resize_complete()
 
             # Chrome re-render if layout is responsive
-            if not (self._min_unclipped_w > 0
-                    and content_w < self._min_unclipped_w
-                    and self._full_array is not None):
+            if not (self._min_unclipped_w > 0 and content_w < self._min_unclipped_w and self._full_array is not None):
                 self._start_render(content_w)
 
         self._resize_timer = JobManager.schedule_timer(_RESIZE_DEBOUNCE, _debounced)

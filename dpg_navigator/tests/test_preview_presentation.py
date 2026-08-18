@@ -16,30 +16,36 @@ class TestLoadPresentation:
     def test_loads_tables_images_text_and_notes(self):
         table_shape = SimpleNamespace(
             has_table=True,
-            table=SimpleNamespace(rows=[
-                SimpleNamespace(cells=[
-                    SimpleNamespace(text=" A "),
-                    SimpleNamespace(text=" B "),
-                ]),
-            ]),
+            table=SimpleNamespace(
+                rows=[
+                    SimpleNamespace(
+                        cells=[
+                            SimpleNamespace(text=" A "),
+                            SimpleNamespace(text=" B "),
+                        ]
+                    ),
+                ]
+            ),
         )
         text_shape = SimpleNamespace(
             has_table=False,
             shape_type=1,
             image=SimpleNamespace(blob=b"image-bytes"),
             has_text_frame=True,
-            text_frame=SimpleNamespace(paragraphs=[
-                SimpleNamespace(
-                    text="Indented",
-                    level=2,
-                    runs=[
-                        SimpleNamespace(
-                            text="Indented",
-                            font=SimpleNamespace(bold=True, italic=False),
-                        ),
-                    ],
-                ),
-            ]),
+            text_frame=SimpleNamespace(
+                paragraphs=[
+                    SimpleNamespace(
+                        text="Indented",
+                        level=2,
+                        runs=[
+                            SimpleNamespace(
+                                text="Indented",
+                                font=SimpleNamespace(bold=True, italic=False),
+                            ),
+                        ],
+                    ),
+                ]
+            ),
         )
         slide = SimpleNamespace(
             shapes=[table_shape, text_shape],

@@ -3,15 +3,22 @@
 from __future__ import annotations
 
 import os
+import tempfile
 import time
+import uuid
 import zipfile
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from dpg_navigator._filesystem import DirectoryLister, DirectoryIndex, MAX_SCAN_DEPTH, INDEX_SCAN_DEPTH
+from dpg_navigator._filesystem import (
+    INDEX_SCAN_DEPTH,
+    MAX_SCAN_DEPTH,
+    DirectoryIndex,
+    DirectoryLister,
+    resolve_archive_selection,
+)
 from dpg_navigator._types import FileEntry
-
 
 # ── format_size ─────────────────────────────────────────────────
 
@@ -95,6 +102,7 @@ class TestFormatTime:
         ts = time.time()
         result = DirectoryLister.format_time(ts)
         assert isinstance(result, str)
+
 
 from dpg_navigator.vfs import VFSRegistry
 
@@ -356,7 +364,9 @@ class TestListDirectory:
         (tmp_path / "report.txt").write_text("data")
         (tmp_path / "report.py").write_text("code")
         result = DirectoryLister.list_directory(
-            str(tmp_path), file_filter=".py", search_query="report",
+            str(tmp_path),
+            file_filter=".py",
+            search_query="report",
         )
         files = [e for e in result if not e.is_dir]
         assert len(files) == 1
@@ -366,7 +376,9 @@ class TestListDirectory:
         """Search matches hidden file but show_hidden=False -> excluded."""
         (tmp_path / ".secret.txt").write_text("hidden")
         result = DirectoryLister.list_directory(
-            str(tmp_path), show_hidden=False, search_query="secret",
+            str(tmp_path),
+            show_hidden=False,
+            search_query="secret",
         )
         assert result == []
 
@@ -412,9 +424,9 @@ class TestListDirectory:
         d2 = d1 / "level2"
         d3 = d2 / "level3"
         d3.mkdir(parents=True)
-        (d1 / "a.txt").write_text("12345")       # 5 bytes
-        (d2 / "b.txt").write_text("123456789")    # 9 bytes
-        (d3 / "c.txt").write_text("12")           # 2 bytes
+        (d1 / "a.txt").write_text("12345")  # 5 bytes
+        (d2 / "b.txt").write_text("123456789")  # 9 bytes
+        (d3 / "c.txt").write_text("12")  # 2 bytes
         size = VFSRegistry.get_provider(str(d1)).get_size(str(d1), is_dir=True, show_dir_size=True)
         assert size == 16
 
@@ -440,7 +452,8 @@ class TestListDirectory:
         (tmp_path / "root_file.txt").write_text("abc")
 
         result = DirectoryLister.list_directory(
-            str(tmp_path), show_dir_size=True,
+            str(tmp_path),
+            show_dir_size=True,
         )
         dir_entry = next(e for e in result if e.is_dir)
         assert dir_entry.name == "subdir"
@@ -466,7 +479,7 @@ class TestExtractFromArchive:
             )
             assert extracted is not None
             assert os.path.isfile(extracted)
-            with open(extracted, "r", encoding="utf-8") as handle:
+            with open(extracted, encoding="utf-8") as handle:
                 assert handle.read() == "hello"
         finally:
             DirectoryLister.cleanup_temp_files()
@@ -502,6 +515,184 @@ class TestExtractFromArchive:
             DirectoryLister.cleanup_temp_files()
 
 
+class TestZipSlipExtraction:
+    """Traversal members must not be written outside the session extract root."""
+
+    def _probe_name(self) -> str:
+        return f"dpg_zipslip_{uuid.uuid4().hex}.txt"
+
+    def _escaped_locations(self, probe: str) -> list[str]:
+        session = DirectoryLister._session_temp_dir
+        locations = [
+            os.path.join(tempfile.gettempdir(), probe),
+        ]
+        if session:
+            locations.append(os.path.join(session, probe))
+            parent = os.path.dirname(session)
+            locations.append(os.path.join(parent, probe))
+        return locations
+
+    def _assert_blocked(self, extracted: str | None, probe: str) -> None:
+        assert extracted is None
+        for path in self._escaped_locations(probe):
+            assert not os.path.isfile(path), f"ZipSlip wrote {path}"
+
+    def test_zip_dotdot_member_is_blocked(self, tmp_path):
+        probe = self._probe_name()
+        archive_path = tmp_path / "evil.zip"
+        with zipfile.ZipFile(archive_path, "w") as zf:
+            zf.writestr(zipfile.ZipInfo(f"../{probe}"), b"pwned")
+
+        try:
+            extracted = DirectoryLister.extract_from_archive(
+                f"{archive_path}|/../{probe}",
+            )
+            self._assert_blocked(extracted, probe)
+        finally:
+            DirectoryLister.cleanup_temp_files()
+
+    def test_zip_nested_dotdot_member_is_blocked(self, tmp_path):
+        probe = self._probe_name()
+        archive_path = tmp_path / "evil.zip"
+        with zipfile.ZipFile(archive_path, "w") as zf:
+            zf.writestr(zipfile.ZipInfo(f"foo/../../{probe}"), b"pwned")
+
+        try:
+            extracted = DirectoryLister.extract_from_archive(
+                f"{archive_path}|/foo/../../{probe}",
+            )
+            self._assert_blocked(extracted, probe)
+        finally:
+            DirectoryLister.cleanup_temp_files()
+
+    def test_zip_backslash_dotdot_member_is_blocked(self, tmp_path):
+        probe = self._probe_name()
+        member = f"..\\{probe}"
+        archive_path = tmp_path / "evil.zip"
+        with zipfile.ZipFile(archive_path, "w") as zf:
+            zf.writestr(zipfile.ZipInfo(member), b"pwned")
+
+        try:
+            extracted = DirectoryLister.extract_from_archive(
+                f"{archive_path}|/{member}",
+            )
+            self._assert_blocked(extracted, probe)
+            assert not (tmp_path / probe).is_file()
+        finally:
+            DirectoryLister.cleanup_temp_files()
+
+    def test_resolve_archive_selection_reports_zipslip(self, tmp_path):
+        probe = self._probe_name()
+        archive_path = tmp_path / "evil.zip"
+        with zipfile.ZipFile(archive_path, "w") as zf:
+            zf.writestr(zipfile.ZipInfo(f"../{probe}"), b"pwned")
+
+        try:
+            resolved, failed = resolve_archive_selection(
+                [f"{archive_path}|/../{probe}"],
+            )
+            assert resolved == []
+            assert failed == probe
+            self._assert_blocked(None, probe)
+        finally:
+            DirectoryLister.cleanup_temp_files()
+
+    def test_7z_dotdot_member_is_blocked(self, tmp_path):
+        py7zr = pytest.importorskip("py7zr")
+        probe = self._probe_name()
+        payload = tmp_path / "payload.txt"
+        payload.write_bytes(b"pwned")
+        archive_path = tmp_path / "evil.7z"
+        with py7zr.SevenZipFile(archive_path, "w") as archive:
+            archive.write(str(payload), f"../{probe}")
+
+        try:
+            extracted = DirectoryLister.extract_from_archive(
+                f"{archive_path}|/../{probe}",
+            )
+            self._assert_blocked(extracted, probe)
+        finally:
+            DirectoryLister.cleanup_temp_files()
+
+    def test_7z_backslash_dotdot_member_is_blocked(self, tmp_path):
+        py7zr = pytest.importorskip("py7zr")
+        probe = self._probe_name()
+        payload = tmp_path / "payload.txt"
+        payload.write_bytes(b"pwned")
+        archive_path = tmp_path / "evil.7z"
+        member = f"..\\{probe}"
+        with py7zr.SevenZipFile(archive_path, "w") as archive:
+            archive.write(str(payload), member)
+
+        try:
+            extracted = DirectoryLister.extract_from_archive(
+                f"{archive_path}|/{member}",
+            )
+            self._assert_blocked(extracted, probe)
+            assert not (tmp_path / probe).is_file()
+        finally:
+            DirectoryLister.cleanup_temp_files()
+
+
+class TestResolveArchiveSelection:
+    def test_keeps_plain_paths(self, tmp_path):
+        local = str(tmp_path / "a.txt")
+        resolved, failed = resolve_archive_selection([local, str(tmp_path / "b.txt")])
+        assert failed is None
+        assert resolved == [local, str(tmp_path / "b.txt")]
+
+    def test_extracts_virtual_zip_member(self, tmp_path):
+        archive_path = tmp_path / "sample.zip"
+        with zipfile.ZipFile(archive_path, "w") as zf:
+            zf.writestr("docs/readme.txt", "hello")
+
+        try:
+            resolved, failed = resolve_archive_selection(
+                [f"{archive_path}|/docs/readme.txt"],
+            )
+            assert failed is None
+            assert len(resolved) == 1
+            assert os.path.isfile(resolved[0])
+            with open(resolved[0], encoding="utf-8") as handle:
+                assert handle.read() == "hello"
+        finally:
+            DirectoryLister.cleanup_temp_files()
+
+    def test_returns_failed_name_when_oversized(self, tmp_path):
+        archive_path = tmp_path / "large.zip"
+        with zipfile.ZipFile(archive_path, "w") as zf:
+            zf.writestr("docs/large.txt", "x" * 32)
+
+        try:
+            resolved, failed = resolve_archive_selection(
+                [f"{archive_path}|/docs/large.txt"],
+                max_size=8,
+            )
+            assert failed == "large.txt"
+            assert resolved == []
+        finally:
+            DirectoryLister.cleanup_temp_files()
+
+    def test_mixed_local_and_virtual(self, tmp_path):
+        local = str(tmp_path / "local.txt")
+        (tmp_path / "local.txt").write_text("ok")
+        archive_path = tmp_path / "sample.zip"
+        with zipfile.ZipFile(archive_path, "w") as zf:
+            zf.writestr("inner.txt", "zip")
+
+        try:
+            resolved, failed = resolve_archive_selection(
+                [local, f"{archive_path}|/inner.txt"],
+            )
+            assert failed is None
+            assert resolved[0] == local
+            assert os.path.isfile(resolved[1])
+            with open(resolved[1], encoding="utf-8") as handle:
+                assert handle.read() == "zip"
+        finally:
+            DirectoryLister.cleanup_temp_files()
+
+
 class TestPolishCharacters:
     """Verify that files and directories with Polish diacritics
     (ą, ć, ę, ł, ń, ó, ś, ź, ż) are handled correctly."""
@@ -528,7 +719,7 @@ class TestPolishCharacters:
         assert entry.name == "łąka.txt"
         assert entry.full_path == os.path.join(str(tmp_path), "łąka.txt")
         assert not entry.is_dir
-        assert entry.size_bytes == len("trawa".encode())
+        assert entry.size_bytes == len(b"trawa")
 
     def test_polish_dir_entry_properties(self, tmp_path):
         """Directory entry preserves Polish characters."""
@@ -553,7 +744,8 @@ class TestPolishCharacters:
         (tmp_path / "zdjęcie_wakacje.jpg").write_bytes(b"\xff\xd8")
         (tmp_path / "notatka.txt").write_text("abc")
         result = DirectoryLister.list_directory(
-            str(tmp_path), search_query="zdjęcie",
+            str(tmp_path),
+            search_query="zdjęcie",
         )
         assert len(result) == 1
         assert result[0].name == "zdjęcie_wakacje.jpg"
@@ -562,7 +754,8 @@ class TestPolishCharacters:
         """Search with Polish chars is case-insensitive."""
         (tmp_path / "Łódź.txt").write_text("city")
         result = DirectoryLister.list_directory(
-            str(tmp_path), search_query="łódź",
+            str(tmp_path),
+            search_query="łódź",
         )
         assert len(result) == 1
         assert result[0].name == "Łódź.txt"
@@ -606,7 +799,8 @@ class TestPolishCharacters:
         (tmp_path / "pióro.py").write_text("code")
         (tmp_path / "książka.txt").write_text("text")
         result = DirectoryLister.list_directory(
-            str(tmp_path), file_filter=".py",
+            str(tmp_path),
+            file_filter=".py",
         )
         files = [e for e in result if not e.is_dir]
         assert len(files) == 1
@@ -808,9 +1002,11 @@ class TestDirectoryIndex:
         idx = DirectoryIndex()
         # Build with generation mismatch after start
         gen[0] = 0
+
         def changing_gen():
             gen[0] += 1  # increment every check — cancels immediately
             return gen[0]
+
         idx.build(str(nested_tree), 0, changing_gen)
         # Index should NOT be ready (cancelled)
         assert not idx.ready

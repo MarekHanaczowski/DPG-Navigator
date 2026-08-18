@@ -32,11 +32,24 @@ Install the development dependencies and run the same checks as CI:
 ```bash
 python -m pip install -e ".[dev]"
 python -m ruff check .
-python -m mypy dpg_navigator/_types.py dpg_navigator/_filesystem.py dpg_navigator/_platform.py dpg_navigator/_icons.py dpg_navigator/_styles.py dpg_navigator/_keyboard.py dpg_navigator/_preview_registry.py dpg_navigator/_preview_table.py dpg_navigator/_preview_archive.py dpg_navigator/_preview_spreadsheet.py dpg_navigator/_preview_sqlite.py dpg_navigator/_preview_word.py dpg_navigator/_preview_presentation.py dpg_navigator/_preview.py dpg_navigator/_dialog.py dpg_navigator/_pdf.py dpg_navigator/_html.py
-python -m pytest -q
+python -m ruff format --check .
+python -m mypy
+python -m pytest -q --cov=dpg_navigator --cov-report=term-missing
 ```
 
+After `pip install -e ".[dev]"` on Python >= 3.9, `pre-commit install` wires the
+same ruff/mypy commands as git hooks (`pre-commit run --all-files`). CI still
+runs the tools directly and does not invoke pre-commit.
+
 Push the release commit and confirm that every GitHub Actions matrix job passes.
+
+CI also generates a CycloneDX SBOM (`sbom.cdx.json`) as the `sbom-cyclonedx`
+artifact. Third-party Actions are pinned to commit SHAs in
+`.github/workflows/ci.yml` and `publish.yml` (not floating tags).
+
+When adding a runtime or extra dependency, update `pyproject.toml` only (not
+`requirements.txt` pins) and add a row to `THIRD_PARTY_NOTICES.md`. Keep the
+Icons8 credit if you add or replace files under `dpg_navigator/images/`.
 
 ## 3. Optional local build and smoke test
 
@@ -54,7 +67,7 @@ Then run the wheel smoke test:
 ```bash
 python -m venv .smoke_venv
 python -m pip --python .smoke_venv install --no-deps dist/dpg_navigator-<version>-py3-none-any.whl
-python -m pip --python .smoke_venv install "dearpygui>=1.9.1" "psutil>=5.9.0"
+python -m pip --python .smoke_venv install "dearpygui>=1.9.1" "psutil>=5.9.0" "bleach>=6.0" "defusedxml>=0.7.1"
 python -m pip --python .smoke_venv show dpg-navigator
 python -c "import dpg_navigator; from dpg_navigator import FileDialog, DialogConfig; print(dpg_navigator.__version__); print(FileDialog.__name__); print(DialogConfig().title)"
 ```

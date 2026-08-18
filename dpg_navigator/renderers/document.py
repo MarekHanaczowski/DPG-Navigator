@@ -1,33 +1,35 @@
 """Document preview renderer for HTML, Markdown, PDF, Word, and PPTX."""
+
 from __future__ import annotations  # PEP 604/585 in signatures need this on py3.8/3.9
-import io
+
 import array
+import io
 import logging
-from typing import Callable, Optional, Tuple
+from typing import Any, Callable
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
 try:
     import bleach
 except ImportError:
-    bleach = None
+    bleach = None  # type: ignore[assignment]
 
-from ._base import BaseRenderer, PreviewContext
-from .._types import FileEntry
-from .._filesystem import DirectoryLister
-from .._pdf import PDFRenderer
-from .._html import HTMLRenderer
-from .._preview_word import load_word_document, WordTable, WordPreviewError
-from .._preview_presentation import load_presentation, PresentationPreviewError
 from .._availability import (
-    _np,
-    _PILImage,
+    _DocxDocument,
     _mammoth,
     _markdown,
-    _DocxDocument,
+    _np,
+    _PILImage,
     _Presentation,
-    chrome_available,
 )
+from .._filesystem import DirectoryLister
+from .._html import HTMLRenderer, chrome_available
+from .._optional import require_optional
+from .._pdf import PDFRenderer
+from .._preview_presentation import PresentationPreviewError, load_presentation
+from .._preview_word import WordPreviewError, WordTable, load_word_document
+from .._types import FileEntry
+from ._base import BaseRenderer, PreviewContext
 
 _log = logging.getLogger(__name__)
 
@@ -125,47 +127,60 @@ img { max-width: 100%; height: auto; }
 
 
 class DocumentRenderer(BaseRenderer):
+    """Render HTML, Markdown, PDF, Word, and PowerPoint previews."""
+
     _TEXT_PREVIEW_MAX_SIZE: int = 256 * 1024
     """Maximum file size in bytes to attempt text preview (256 KB)."""
 
     _STATUS_HEIGHT: int = 42
     """Height in pixels reserved for status/page labels below preview."""
 
-    def __init__(self, load_text_content_cb: Callable[[str, int], Tuple[Optional[str], bool]]):
+    def __init__(self, load_text_content_cb: Callable[[str, int], tuple[str | None, bool]]) -> None:
         self._load_text_content = load_text_content_cb
-        self._current_entry = None
-        self._ctx = None
+        self._current_entry: FileEntry | None = None
+        self._ctx: PreviewContext | None = None
 
         # Sub-renderers (delegates) — created lazily at first use, once the
         # render-time config_tag is available on the context.
-        self._html = None
-        self._pdf = None
+        self._html: HTMLRenderer | None = None
+        self._pdf: PDFRenderer | None = None
 
         # Widget references owned by this renderer
-        self._html_image_id = None
-        self._html_status_label = None
-        self._pdf_image_id = None
-        self._pdf_page_label = None
+        self._html_image_id: int | str | None = None
+        self._html_status_label: int | str | None = None
+        self._pdf_image_id: int | str | None = None
+        self._pdf_page_label: int | str | None = None
 
     def render(self, entry: FileEntry, ctx: PreviewContext) -> None:
+        """Render a document using the backend selected by its extension."""
         self._ctx = ctx
         self._current_entry = entry
         ext = entry.ext
-        if ext in ('.html', '.htm'):
+        if ext in (".html", ".htm"):
             self._render_html_preview(entry)
-        elif ext == '.md':
+        elif ext == ".md":
             self._render_markdown_preview(entry)
-        elif ext == '.pdf':
+        elif ext == ".pdf":
             self._render_pdf_preview(entry)
-        elif ext in ('.docx', '.doc'):
-            self._render_word_preview(entry)
-        elif ext == '.pptx':
+        elif ext in (".docx", ".doc"):
+            if self._ctx.capabilities.mammoth and chrome_available():
+                self._render_word_html_preview(entry)
+            else:
+                self._render_word_preview(entry)
+        elif ext == ".pptx":
             self._render_pptx_preview(entry)
         else:
             ctx.show_error("Unsupported document", f"{ext} is not supported")
 
     def clear(self) -> None:
+        """Close active heavy backends and clear the preview state."""
+        if self._html is not None:
+            self._html.close()
+        if self._pdf is not None:
+            self._pdf.close()
         self._clear_for_html()
+        self._html = None
+        self._pdf = None
         self._current_entry = None
         self._ctx = None
 
@@ -267,7 +282,9 @@ class DocumentRenderer(BaseRenderer):
             return
         render_w, render_h = dims
         if not self._html.open(
-            entry.full_path, render_w, render_h,
+            entry.full_path,
+            render_w,
+            render_h,
             on_complete=self._on_html_render_done,
             on_resize_complete=self._on_html_resize_done,
         ):
@@ -281,9 +298,11 @@ class DocumentRenderer(BaseRenderer):
 
     def _on_html_render_done(self) -> None:
         """Called by HTMLRenderer inside dpg.mutex() when render completes."""
-        if (self._html_status_label is not None
-                and dpg.does_item_exist(self._html_status_label)
-                and self._html is not None):
+        if (
+            self._html_status_label is not None
+            and dpg.does_item_exist(self._html_status_label)
+            and self._html is not None
+        ):
             dpg.set_value(self._html_status_label, self._html.status_text)
 
     def _on_html_resize_done(self) -> None:
@@ -315,11 +334,44 @@ class DocumentRenderer(BaseRenderer):
             return
 
         try:
-            md_html_raw = _markdown.markdown(
-                md_text, extensions=["tables", "fenced_code"],
+            md = require_optional(_markdown, "markdown")
+            md_html_raw = md.markdown(
+                md_text,
+                extensions=["tables", "fenced_code"],
             )
             if bleach is not None:
-                md_html = bleach.clean(md_html_raw, tags=["h1","h2","h3","h4","h5","h6","p","a","ul","ol","li","strong","em","code","pre","blockquote","table","thead","tbody","tr","th","td","br","hr","div","span","img"])
+                md_html = bleach.clean(
+                    md_html_raw,
+                    tags=[
+                        "h1",
+                        "h2",
+                        "h3",
+                        "h4",
+                        "h5",
+                        "h6",
+                        "p",
+                        "a",
+                        "ul",
+                        "ol",
+                        "li",
+                        "strong",
+                        "em",
+                        "code",
+                        "pre",
+                        "blockquote",
+                        "table",
+                        "thead",
+                        "tbody",
+                        "tr",
+                        "th",
+                        "td",
+                        "br",
+                        "hr",
+                        "div",
+                        "span",
+                        "img",
+                    ],
+                )
             else:
                 md_html = md_html_raw
         except Exception as e:
@@ -345,7 +397,9 @@ class DocumentRenderer(BaseRenderer):
             )
 
         if not self._html.open_string(
-            full_html, render_w, render_h,
+            full_html,
+            render_w,
+            render_h,
             on_complete=self._on_html_render_done,
             on_resize_complete=self._on_html_resize_done,
         ):
@@ -356,6 +410,59 @@ class DocumentRenderer(BaseRenderer):
     def _render_pdf_preview(self, entry: FileEntry) -> None:
         """Open a PDF and display its first page in the preview panel."""
         self._show_pdf_from_path(entry.full_path)
+
+    def on_resize(self, sender: Any, app_data: Any, user_data: Any) -> None:
+        """Re-layout the active HTML or PDF preview after a panel resize."""
+        dims = self._html_panel_size()
+        if dims is None:
+            return
+        render_w, render_h = dims
+
+        if self._html is not None and self._html.is_open:
+            self._html.on_resize(render_w, render_h)
+            return
+
+        if self._pdf is None or not self._pdf.is_open:
+            return
+        page_info = self._pdf.on_resize(render_w, render_h)
+        if page_info is None or self._ctx is None or self._ctx.panel_id is None:
+            return
+
+        dpg.delete_item(self._ctx.panel_id, children_only=True)
+        if self._pdf.tex_id is not None:
+            self._pdf_image_id = dpg.add_image(
+                self._pdf.tex_id,
+                parent=self._ctx.panel_id,
+            )
+        self._pdf_page_label = dpg.add_text(
+            f"Page {page_info[0] + 1} / {page_info[1]}",
+            color=[180, 180, 180],
+            parent=self._ctx.panel_id,
+        )
+
+    def on_mouse_wheel(self, sender: Any, app_data: Any, user_data: Any) -> None:
+        """Scroll HTML previews or navigate PDF pages with the mouse wheel."""
+        try:
+            delta = float(app_data)
+        except (TypeError, ValueError):
+            return
+        if delta == 0:
+            return
+
+        if self._html is not None and self._html.is_open:
+            self._html.on_scroll(delta)
+            if self._html_status_label is not None and dpg.does_item_exist(self._html_status_label):
+                dpg.set_value(self._html_status_label, self._html.status_text)
+            return
+
+        if self._pdf is None or not self._pdf.is_open:
+            return
+        page_info = self._pdf.prev_page() if delta > 0 else self._pdf.next_page()
+        if self._pdf_page_label is not None and dpg.does_item_exist(self._pdf_page_label):
+            dpg.set_value(
+                self._pdf_page_label,
+                f"Page {page_info[0] + 1} / {page_info[1]}",
+            )
 
     def _show_pdf_from_path(self, path: str) -> None:
         """Core PDF rendering — shared by PDF files and Word conversions."""
@@ -412,7 +519,8 @@ class DocumentRenderer(BaseRenderer):
         # Convert .docx -> HTML via mammoth
         try:
             with open(entry.full_path, "rb") as f:
-                result = _mammoth.convert_to_html(f)
+                mammoth = require_optional(_mammoth, "mammoth")
+                result = mammoth.convert_to_html(f)
             docx_html = result.value
         except Exception:
             dpg.add_text(
@@ -425,10 +533,10 @@ class DocumentRenderer(BaseRenderer):
         # Wrap in styled HTML document
         html_content = (
             '<!DOCTYPE html><html><head><meta charset="utf-8">'
-            f'<style>{_MAMMOTH_CSS}</style>'
-            '</head><body>'
+            f"<style>{_MAMMOTH_CSS}</style>"
+            "</head><body>"
             f'<div class="mammoth-wrapper">{docx_html}</div>'
-            '</body></html>'
+            "</body></html>"
         )
 
         dims = self._html_panel_size()
@@ -436,7 +544,9 @@ class DocumentRenderer(BaseRenderer):
             return
         render_w, render_h = dims
         if not self._html.open_string(
-            html_content, render_w, render_h,
+            html_content,
+            render_w,
+            render_h,
             on_complete=self._on_html_render_done,
             on_resize_complete=self._on_html_resize_done,
         ):
@@ -537,10 +647,7 @@ class DocumentRenderer(BaseRenderer):
 
                 # Check for mixed inline formatting
                 runs = block.runs
-                has_mixed = (
-                    len(runs) > 1
-                    and any(r.bold or r.italic for r in runs if r.text)
-                )
+                has_mixed = len(runs) > 1 and any(r.bold or r.italic for r in runs if r.text)
 
                 if has_mixed:
                     # Per-run coloring in horizontal group
@@ -627,10 +734,7 @@ class DocumentRenderer(BaseRenderer):
                         dpg.add_spacer(height=4)
                         for i, row in enumerate(shape.table.rows):
                             line = " | ".join(row)
-                            color = (
-                                table_header_color if i == 0
-                                else table_cell_color
-                            )
+                            color = table_header_color if i == 0 else table_cell_color
                             dpg.add_text(line, wrap=0, color=color)
                         dpg.add_spacer(height=4)
                         continue
@@ -638,7 +742,8 @@ class DocumentRenderer(BaseRenderer):
                     # Image
                     if shape.image_blob is not None and _PILImage is not None:
                         try:
-                            pil_img = _PILImage.open(io.BytesIO(shape.image_blob))
+                            pil = require_optional(_PILImage, "Pillow")
+                            pil_img = pil.open(io.BytesIO(shape.image_blob))
                             img_rgba = pil_img.convert("RGBA")
                             pil_img.close()
                             img_w, img_h = img_rgba.size
@@ -646,10 +751,9 @@ class DocumentRenderer(BaseRenderer):
                             disp_w = int(img_w * scale)
                             disp_h = int(img_h * scale)
                             if _np is not None:
-                                arr = (
-                                    _np.frombuffer(img_rgba.tobytes(), dtype=_np.uint8)
-                                    .astype(_np.float32)
-                                    / _np.float32(255.0)
+                                np = require_optional(_np, "numpy")
+                                arr = np.frombuffer(img_rgba.tobytes(), dtype=np.uint8).astype(np.float32) / np.float32(
+                                    255.0
                                 )
                                 raw = array.array("f", arr.tobytes())
                             else:
@@ -658,10 +762,7 @@ class DocumentRenderer(BaseRenderer):
                                     (b / 255.0 for b in img_rgba.tobytes()),
                                 )
                             img_rgba.close()
-                            pptx_tex_tag = (
-                                f"_pptx_tex_{self._ctx.config_tag}"
-                                f"_{pptx_tex_idx}"
-                            )
+                            pptx_tex_tag = f"_pptx_tex_{self._ctx.config_tag}_{pptx_tex_idx}"
                             pptx_tex_idx += 1
                             self._ctx.pptx_texture_tags.append(pptx_tex_tag)
                             if dpg.does_item_exist(pptx_tex_tag):
@@ -700,13 +801,7 @@ class DocumentRenderer(BaseRenderer):
                         prefix = f"{indent}- " if level > 0 else ""
 
                         runs = paragraph.runs
-                        has_mixed = (
-                            len(runs) > 1
-                            and any(
-                                r.bold or r.italic
-                                for r in runs if r.text
-                            )
-                        )
+                        has_mixed = len(runs) > 1 and any(r.bold or r.italic for r in runs if r.text)
 
                         if has_mixed:
                             with dpg.group(horizontal=True):
@@ -725,18 +820,16 @@ class DocumentRenderer(BaseRenderer):
                                         rc = normal_color
                                     dpg.add_text(run.text, color=rc)
                         else:
-                            if runs and all(
-                                r.bold for r in runs if r.text.strip()
-                            ):
+                            if runs and all(r.bold for r in runs if r.text.strip()):
                                 color = bold_color
-                            elif runs and all(
-                                r.italic for r in runs if r.text.strip()
-                            ):
+                            elif runs and all(r.italic for r in runs if r.text.strip()):
                                 color = italic_color
                             else:
                                 color = normal_color
                             dpg.add_text(
-                                prefix + text, wrap=0, color=color,
+                                prefix + text,
+                                wrap=0,
+                                color=color,
                             )
 
                 # Speaker notes

@@ -4,6 +4,10 @@
 **Wersja projektu:** 1.0.0b3  
 **Zakres:** analiza statyczna kodu, struktury repozytorium, testów, konfiguracji CI/CD, dokumentacji i zależności
 
+> **Dokument historyczny.** Ten audyt opisuje wcześniejszy stan projektu i zachowuje
+> ówczesne rozmiary modułów oraz rekomendacje. Bieżącą architekturę opisują
+> `README.md`, `CLAUDE.md` i `docs/ROADMAP.md`.
+
 ## 1. Streszczenie zarządcze
 
 Projekt wykazuje znaczną poprawę od czasu poprzedniego audytu (2026-07-10). Większość krytycznych problemów z audyt1.md została rozwiązana w wersji 1.0.0b3. Kluczowe sukcesy:

@@ -11,15 +11,117 @@ from __future__ import annotations
 
 import os
 import time
-from unittest.mock import patch, MagicMock
+import zipfile
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from dpg_navigator._filesystem import validate_folder_name, build_selection_list, DirectoryLister
-from dpg_navigator._types import DialogConfig, FileEntry
-from dpg_navigator.vfs import VFSRegistry
 from dpg_navigator._dialog import FileDialog
-from dpg_navigator._preview import PreviewPanel
+from dpg_navigator._filesystem import (
+    DirectoryIndex,
+    DirectoryLister,
+    build_selection_list,
+    validate_folder_name,
+)
+from dpg_navigator._types import DialogConfig, FileEntry
+from dpg_navigator.dialog._state import DialogState
+from dpg_navigator.dialog._ui import DialogUIBuilder
+from dpg_navigator.vfs import VFSRegistry
+
+
+class TestSidebarDriveLoading:
+    def test_sidebar_build_defers_drive_enumeration(self):
+        builder = DialogUIBuilder.__new__(DialogUIBuilder)
+        builder.dialog = MagicMock()
+        builder.dialog._sidebar.get_width.return_value = 200
+        builder.dialog._destroyed = False
+        builder.logic = MagicMock()
+        builder.config = MagicMock(
+            show_shortcuts=True,
+            custom_dirs=[],
+        )
+
+        with patch("dpg_navigator.dialog._ui.dpg") as mock_dpg, patch(
+            "dpg_navigator.dialog._ui.get_special_dirs", return_value={}
+        ), patch("dpg_navigator.dialog._ui.get_drives") as get_drives, patch(
+            "dpg_navigator.dialog._ui.JobManager.submit"
+        ) as submit:
+            mock_dpg.child_window.return_value = MagicMock()
+            builder._build_sidebar("dialog", 56)
+
+        get_drives.assert_not_called()
+        submit.assert_called_once_with(
+            builder._load_sidebar_drives,
+            "dialog_shortcut_menu",
+        )
+        builder.dialog._arm_sidebar_drive_poll.assert_called_once()
+        builder.dialog._sidebar.render.assert_called_once()
+        assert builder.dialog._sidebar.render.call_args.kwargs["drives"] == []
+
+    def test_delayed_drive_result_is_stored_not_applied(self):
+        builder = DialogUIBuilder.__new__(DialogUIBuilder)
+        builder.dialog = MagicMock()
+        builder.dialog._destroyed = False
+        builder.dialog._sidebar = MagicMock()
+
+        def delayed_drives():
+            time.sleep(0.01)
+            return ["/slow-network-mount"]
+
+        with patch(
+            "dpg_navigator.dialog._ui.get_drives",
+            side_effect=delayed_drives,
+        ), patch("dpg_navigator.dialog._ui.dpg") as mock_dpg:
+            builder._load_sidebar_drives("dialog_shortcut_menu")
+
+        mock_dpg.mutex.assert_not_called()
+        builder.dialog._sidebar.update_drives.assert_not_called()
+        assert builder.dialog._pending_sidebar_drives == (
+            "dialog_shortcut_menu",
+            ["/slow-network-mount"],
+        )
+
+
+class TestSidebarDrivePoll:
+    def teardown_method(self):
+        FileDialog._sidebar_poll_targets = []
+        FileDialog._sidebar_poll_armed = False
+
+    def test_apply_updates_sidebar_on_main_thread(self):
+        dialog = FileDialog.__new__(FileDialog)
+        dialog._destroyed = False
+        dialog._pending_sidebar_drives = ("tag", ["/mnt"])
+        dialog._awaiting_sidebar_drives = True
+        dialog._sidebar = MagicMock()
+        with patch("dpg_navigator._dialog.dpg") as mock_dpg:
+            mock_dpg.does_item_exist.return_value = True
+            dialog._apply_pending_sidebar_drives()
+        dialog._sidebar.update_drives.assert_called_once_with(["/mnt"])
+        assert dialog._awaiting_sidebar_drives is False
+        assert dialog._pending_sidebar_drives is None
+
+    def test_poll_reschedules_while_waiting(self):
+        dialog = FileDialog.__new__(FileDialog)
+        dialog._destroyed = False
+        dialog._pending_sidebar_drives = None
+        dialog._awaiting_sidebar_drives = True
+        FileDialog._sidebar_poll_targets = [dialog]
+        FileDialog._sidebar_poll_armed = True
+        with patch("dpg_navigator._dialog.dpg") as mock_dpg:
+            mock_dpg.get_frame_count.return_value = 4
+            FileDialog._poll_sidebar_drives()
+        mock_dpg.set_frame_callback.assert_called_once()
+        assert FileDialog._sidebar_poll_targets == [dialog]
+        assert FileDialog._sidebar_poll_armed is True
+
+    def test_arm_is_a_no_op_when_already_scheduled(self):
+        dialog = FileDialog.__new__(FileDialog)
+        dialog._destroyed = False
+        FileDialog._sidebar_poll_armed = True
+        with patch("dpg_navigator._dialog.dpg") as mock_dpg:
+            dialog._arm_sidebar_drive_poll()
+        mock_dpg.set_frame_callback.assert_not_called()
+        assert dialog in FileDialog._sidebar_poll_targets
 
 
 # ── Path traversal validation ───────────────────────────────────
@@ -76,16 +178,15 @@ class TestPathTraversalValidation:
             assert validate_folder_name("folder/sub", str(tmp_path)) is not None
 
     def test_empty_name(self, tmp_path):
-        """Empty name passes validation (other checks handle it)."""
-        assert validate_folder_name("", str(tmp_path)) is None
+        """Empty name is rejected."""
+        assert validate_folder_name("", str(tmp_path)) is not None
 
     def test_whitespace_name(self, tmp_path):
-        assert validate_folder_name("   ", str(tmp_path)) is None
+        assert validate_folder_name("   ", str(tmp_path)) is not None
 
-    def test_single_dot_valid(self, tmp_path):
-        """Single dot is not '..' so passes the first check, but realpath
-        resolves it to current_dir, which starts with current_dir."""
-        assert validate_folder_name(".", str(tmp_path)) is None
+    def test_single_dot_rejected(self, tmp_path):
+        """Bare '.' is not a valid new folder name."""
+        assert validate_folder_name(".", str(tmp_path)) is not None
 
     def test_error_message_contains_name(self, tmp_path):
         """Error messages from validate_folder_name include the offending name."""
@@ -141,6 +242,74 @@ class TestReturnSelectionLogic:
         assert result == original
         assert result is not original
 
+    def test_typed_name_rejects_parent_traversal(self, tmp_path):
+        result = build_selection_list([], "..", str(tmp_path))
+        assert result == []
+
+    def test_typed_name_rejects_path_separators(self, tmp_path):
+        result = build_selection_list([], f"sub{os.sep}file.txt", str(tmp_path))
+        assert result == []
+
+    def test_typed_name_rejects_dotdot_segment(self, tmp_path):
+        result = build_selection_list([], f"..{os.sep}escape.txt", str(tmp_path))
+        assert result == []
+
+
+class TestFileDialogArchiveSelection:
+    """FileDialog._return_selection extracts archive members and surfaces failures."""
+
+    def _dialog(self, tmp_path, selected):
+        dialog = FileDialog.__new__(FileDialog)
+        dialog.state = DialogState()
+        dialog.state.selected_files = selected
+        dialog.state.current_dir = str(tmp_path)
+        dialog._callback = MagicMock()
+        dialog._filename_input = 1
+        dialog._status_label = 2
+        dialog._config = DialogConfig(modal=True, tag="sel_archive_test")
+        dialog.hide = MagicMock()
+        return dialog
+
+    def test_oversized_member_shows_error_and_keeps_dialog_open(self, tmp_path):
+        archive_path = tmp_path / "large.zip"
+        with zipfile.ZipFile(archive_path, "w") as zf:
+            zf.writestr("docs/large.txt", "x" * 32)
+        dialog = self._dialog(tmp_path, [f"{archive_path}|/docs/large.txt"])
+        dialog._MAX_ARCHIVE_EXTRACT_SIZE = 8
+        try:
+            with patch("dpg_navigator._dialog.dpg") as mock_dpg:
+                mock_dpg.get_value.return_value = ""
+                mock_dpg.does_item_exist.return_value = True
+                mock_dpg.get_item_label.return_value = "File Dialog"
+                dialog._return_selection()
+                status = mock_dpg.set_value.call_args[0][1]
+            dialog._callback.assert_not_called()
+            dialog.hide.assert_not_called()
+            assert "Extraction Error" in status
+            assert "large.txt" in status
+        finally:
+            DirectoryLister.cleanup_temp_files()
+
+    def test_member_within_limit_invokes_callback(self, tmp_path):
+        archive_path = tmp_path / "ok.zip"
+        with zipfile.ZipFile(archive_path, "w") as zf:
+            zf.writestr("docs/readme.txt", "hello")
+        dialog = self._dialog(tmp_path, [f"{archive_path}|/docs/readme.txt"])
+        dialog._MAX_ARCHIVE_EXTRACT_SIZE = 1024
+        try:
+            with patch("dpg_navigator._dialog.dpg") as mock_dpg:
+                mock_dpg.get_value.return_value = ""
+                mock_dpg.does_item_exist.return_value = True
+                mock_dpg.get_item_label.return_value = "File Dialog"
+                dialog._return_selection()
+            dialog.hide.assert_called_once()
+            dialog._callback.assert_called_once()
+            resolved = dialog._callback.call_args[0][0]
+            assert len(resolved) == 1
+            assert os.path.isfile(resolved[0])
+        finally:
+            DirectoryLister.cleanup_temp_files()
+
 
 # ── Double-click detection logic ────────────────────────────────
 
@@ -164,13 +333,10 @@ class TestDoubleClickLogic:
         threshold: float = 0.5,
     ) -> bool:
         """Reproduce the double-click detection logic."""
-        return (
-            current_time - last_click_time < threshold
-            and last_sender == current_sender
-        )
+        return current_time - last_click_time < threshold and last_sender == current_sender
 
     def test_fast_same_element_is_double(self):
-        assert self._is_double_click(1.2, 1.0, sender_id := 42, 42) is True
+        assert self._is_double_click(1.2, 1.0, 42, 42) is True
 
     def test_slow_same_element_not_double(self):
         assert self._is_double_click(2.0, 1.0, 42, 42) is False
@@ -390,12 +556,8 @@ class TestSizeCacheLogic:
             "/tmp/small": (10, time.time()),
         }
 
-        entry_big = MagicMock(
-            is_dir=True, size_bytes=None, full_path="/tmp/big", name="big"
-        )
-        entry_small = MagicMock(
-            is_dir=True, size_bytes=None, full_path="/tmp/small", name="small"
-        )
+        entry_big = MagicMock(is_dir=True, size_bytes=None, full_path="/tmp/big", name="big")
+        entry_small = MagicMock(is_dir=True, size_bytes=None, full_path="/tmp/small", name="small")
 
         def get_sort_size(entry):
             size = entry.size_bytes
@@ -477,23 +639,59 @@ class TestPolishCharactersValidation:
 # ── Preview image extension tests ──────────────────────────────
 
 
+class TestDialogCompatibilityAdapters:
+    def test_keyboard_mixin_adapters_share_dialog_state(self):
+        dialog = FileDialog.__new__(FileDialog)
+        dialog.state = DialogState()
+        dialog.logic = MagicMock()
+
+        size_cache: dict[str, tuple[int | None, float]] = {"file.txt": (4, 1.0)}
+        directory_index = DirectoryIndex()
+        selected_files = ["/tmp/file.txt"]
+        selected_elements = [11]
+        row_entries = {
+            12: FileEntry("file.txt", "/tmp/file.txt", False, 4, 1.0, False),
+        }
+
+        dialog._size_cache = size_cache
+        dialog._dir_index = directory_index
+        dialog._selected_files = selected_files
+        dialog._selected_elements = selected_elements
+        dialog._row_entries = row_entries
+        dialog._current_dir = "/tmp"
+        dialog._focused_row_index = 2
+        dialog._last_clicked_element = 11
+
+        assert dialog.state.size_cache is size_cache
+        assert dialog.logic._dir_index is directory_index
+        assert dialog.state.selected_files is selected_files
+        assert dialog.state.selected_elements is selected_elements
+        assert dialog.state.row_entries is row_entries
+        assert dialog.state.current_dir == "/tmp"
+        assert dialog.state.focused_row_index == 2
+        assert dialog.state.last_clicked_element == 11
+
+
 class TestCsvParsing:
     """Test CSV delimiter detection logic."""
 
     def test_sniffer_detects_semicolon(self):
         import csv as csv_mod
+
         sample = "a;b;c\n1;2;3\n"
         dialect = csv_mod.Sniffer().sniff(sample)
         assert dialect.delimiter == ";"
 
     def test_sniffer_detects_comma(self):
         import csv as csv_mod
+
         sample = "a,b,c\n1,2,3\n"
         dialect = csv_mod.Sniffer().sniff(sample)
         assert dialect.delimiter == ","
 
     def test_sniffer_detects_tab(self):
         import csv as csv_mod
+
         sample = "a\tb\tc\n1\t2\t3\n"
         dialect = csv_mod.Sniffer().sniff(sample)
         assert dialect.delimiter == "\t"
@@ -501,6 +699,7 @@ class TestCsvParsing:
     def test_sniffer_fallback_on_single_column(self):
         """Sniffer may fail on single-column data; code falls back to comma."""
         import csv as csv_mod
+
         sample = "value\n1\n2\n"
         try:
             csv_mod.Sniffer().sniff(sample)

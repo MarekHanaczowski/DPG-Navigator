@@ -6,17 +6,14 @@ is NOT tested (requires DPG context).
 
 from __future__ import annotations
 
-import os
-
 import pytest
 
 from dpg_navigator._icons import (
-    ICON_NAMES,
-    EXTENSION_MAP,
     _EXT_LOOKUP,
+    EXTENSION_MAP,
+    ICON_NAMES,
     IconRegistry,
 )
-
 
 # ── ICON_NAMES ──────────────────────────────────────────────────
 
@@ -39,12 +36,30 @@ class TestIconNames:
     def test_no_duplicates(self):
         assert len(ICON_NAMES) == len(set(ICON_NAMES))
 
-    @pytest.mark.parametrize("name", [
-        "folder", "mini_folder", "mini_document", "python", "script",
-        "home", "desktop", "downloads", "documents", "hd",
-        "pdf", "spreadsheet", "presentation",
-        "web", "database", "word", "text", "config", "markdown",
-    ])
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "folder",
+            "mini_folder",
+            "mini_document",
+            "python",
+            "script",
+            "home",
+            "desktop",
+            "downloads",
+            "documents",
+            "hd",
+            "pdf",
+            "spreadsheet",
+            "presentation",
+            "web",
+            "database",
+            "word",
+            "text",
+            "config",
+            "markdown",
+        ],
+    )
     def test_essential_icons_present(self, name):
         assert name in ICON_NAMES
 
@@ -60,7 +75,7 @@ class TestExtensionMap:
         assert len(EXTENSION_MAP) > 0
 
     def test_keys_are_tuples_of_strings(self):
-        for key in EXTENSION_MAP.keys():
+        for key in EXTENSION_MAP:
             assert isinstance(key, tuple)
             for ext in key:
                 assert isinstance(ext, str)
@@ -71,34 +86,37 @@ class TestExtensionMap:
             assert icon_name in ICON_NAMES, f"Icon {icon_name!r} not in ICON_NAMES"
 
     def test_all_extensions_lowercase(self):
-        for exts in EXTENSION_MAP.keys():
+        for exts in EXTENSION_MAP:
             for ext in exts:
                 assert ext == ext.lower(), f"Extension {ext!r} is not lowercase"
 
-    @pytest.mark.parametrize("ext,expected_icon", [
-        (".py", "python"),
-        (".exe", "app"),
-        (".zip", "zip"),
-        (".png", "picture"),
-        (".mp3", "music_note"),
-        (".mp4", "video"),
-        (".txt", "text"),
-        (".c", "script"),
-        (".iso", "iso"),
-        (".url", "url"),
-        (".lnk", "link"),
-        (".svg", "vector"),
-        (".obj", "object"),
-        (".dll", "gears"),
-        (".pdf", "pdf"),
-        (".xlsx", "spreadsheet"),
-        (".pptx", "presentation"),
-        (".html", "web"),
-        (".sql", "database"),
-        (".docx", "word"),
-        (".json", "config"),
-        (".md", "markdown"),
-    ])
+    @pytest.mark.parametrize(
+        "ext,expected_icon",
+        [
+            (".py", "python"),
+            (".exe", "app"),
+            (".zip", "zip"),
+            (".png", "picture"),
+            (".mp3", "music_note"),
+            (".mp4", "video"),
+            (".txt", "text"),
+            (".c", "script"),
+            (".iso", "iso"),
+            (".url", "url"),
+            (".lnk", "link"),
+            (".svg", "vector"),
+            (".obj", "object"),
+            (".dll", "gears"),
+            (".pdf", "pdf"),
+            (".xlsx", "spreadsheet"),
+            (".pptx", "presentation"),
+            (".html", "web"),
+            (".sql", "database"),
+            (".docx", "word"),
+            (".json", "config"),
+            (".md", "markdown"),
+        ],
+    )
     def test_specific_extension_mapping(self, ext, expected_icon):
         found_icon = None
         for exts, icon in EXTENSION_MAP.items():
@@ -119,7 +137,7 @@ class TestExtLookup:
         assert len(_EXT_LOOKUP) > 0
 
     def test_all_keys_start_with_dot(self):
-        for ext in _EXT_LOOKUP.keys():
+        for ext in _EXT_LOOKUP:
             assert ext.startswith("."), f"Key {ext!r} doesn't start with '.'"
 
     def test_all_values_in_icon_names(self):
@@ -128,28 +146,31 @@ class TestExtLookup:
 
     def test_covers_all_extension_map_entries(self):
         """Every extension from EXTENSION_MAP should be in _EXT_LOOKUP."""
-        for exts in EXTENSION_MAP.keys():
+        for exts in EXTENSION_MAP:
             for ext in exts:
                 assert ext in _EXT_LOOKUP, f"{ext} missing from _EXT_LOOKUP"
 
     def test_total_count_matches_extension_map(self):
-        total = sum(len(exts) for exts in EXTENSION_MAP.keys())
+        total = sum(len(exts) for exts in EXTENSION_MAP)
         assert len(_EXT_LOOKUP) == total
 
-    @pytest.mark.parametrize("ext,expected", [
-        (".py", "python"),
-        (".txt", "text"),
-        (".mp3", "music_note"),
-        (".exe", "app"),
-        (".tar.gz", "zip"),
-        (".jpg", "picture"),
-        (".js", "script"),
-        (".pdf", "pdf"),
-        (".html", "web"),
-        (".sql", "database"),
-        (".json", "config"),
-        (".md", "markdown"),
-    ])
+    @pytest.mark.parametrize(
+        "ext,expected",
+        [
+            (".py", "python"),
+            (".txt", "text"),
+            (".mp3", "music_note"),
+            (".exe", "app"),
+            (".tar.gz", "zip"),
+            (".jpg", "picture"),
+            (".js", "script"),
+            (".pdf", "pdf"),
+            (".html", "web"),
+            (".sql", "database"),
+            (".json", "config"),
+            (".md", "markdown"),
+        ],
+    )
     def test_direct_lookup(self, ext, expected):
         assert _EXT_LOOKUP[ext] == expected
 
@@ -396,10 +417,7 @@ class TestExtensionMapIntegrity:
         for exts, icon in EXTENSION_MAP.items():
             for ext in exts:
                 if ext in seen:
-                    pytest.fail(
-                        f"Duplicate extension {ext!r}: in both "
-                        f"{seen[ext]!r} and {icon!r}"
-                    )
+                    pytest.fail(f"Duplicate extension {ext!r}: in both {seen[ext]!r} and {icon!r}")
                 seen[ext] = icon
 
     def test_all_extension_map_icons_match_icon_names(self):

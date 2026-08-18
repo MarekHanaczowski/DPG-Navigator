@@ -4,8 +4,8 @@ Extracts slide content without depending on DearPyGui or Pillow.
 """
 
 from __future__ import annotations
-# MIT licensed
 
+# MIT licensed
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -78,7 +78,7 @@ def _load_notes(slide: Any) -> str:
     try:
         notes_slide = slide.notes_slide
         if notes_slide and notes_slide.notes_text_frame:
-            return notes_slide.notes_text_frame.text.strip()
+            return str(notes_slide.notes_text_frame.text.strip())
     except Exception:
         pass
     return ""
@@ -87,10 +87,7 @@ def _load_notes(slide: Any) -> str:
 def _load_shape(shape: Any) -> PresentationShape:
     if shape.has_table:
         return PresentationShape(
-            table=PresentationTable([
-                [cell.text.strip() for cell in row.cells]
-                for row in shape.table.rows
-            ]),
+            table=PresentationTable([[cell.text.strip() for cell in row.cells] for row in shape.table.rows]),
             image_blob=None,
             paragraphs=[],
         )
@@ -105,18 +102,20 @@ def _load_shape(shape: Any) -> PresentationShape:
     paragraphs = []
     if shape.has_text_frame:
         for paragraph in shape.text_frame.paragraphs:
-            paragraphs.append(PresentationParagraph(
-                text=paragraph.text,
-                level=paragraph.level or 0,
-                runs=[
-                    PresentationRun(
-                        run.text,
-                        bool(run.font.bold),
-                        bool(run.font.italic),
-                    )
-                    for run in paragraph.runs
-                ],
-            ))
+            paragraphs.append(
+                PresentationParagraph(
+                    text=paragraph.text,
+                    level=paragraph.level or 0,
+                    runs=[
+                        PresentationRun(
+                            run.text,
+                            bool(run.font.bold),
+                            bool(run.font.italic),
+                        )
+                        for run in paragraph.runs
+                    ],
+                )
+            )
 
     return PresentationShape(
         table=None,

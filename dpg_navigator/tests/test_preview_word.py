@@ -24,12 +24,16 @@ class TestLoadWordDocument:
                 SimpleNamespace(text="ing", bold=False, italic=True),
             ],
         )
-        table = SimpleNamespace(rows=[
-            SimpleNamespace(cells=[
-                SimpleNamespace(text=" A "),
-                SimpleNamespace(text=" B "),
-            ]),
-        ])
+        table = SimpleNamespace(
+            rows=[
+                SimpleNamespace(
+                    cells=[
+                        SimpleNamespace(text=" A "),
+                        SimpleNamespace(text=" B "),
+                    ]
+                ),
+            ]
+        )
         document = SimpleNamespace(iter_inner_content=lambda: [paragraph, table])
 
         result = load_word_document(

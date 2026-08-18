@@ -43,7 +43,7 @@ class VFSProvider(ABC):
         allow_large_extensions: Collection[str] = (),
     ) -> str | None:
         """Extract a single file (if applicable) and return physical path.
-        
+
         For LocalVFSProvider, this should just return the path if it's already physical.
         """
         pass

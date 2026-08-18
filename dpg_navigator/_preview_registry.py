@@ -5,22 +5,44 @@ the routing contract can be tested without a GUI context.
 """
 
 from __future__ import annotations
-# MIT licensed
 
+# MIT licensed
 import os
 from dataclasses import dataclass
 from enum import Enum, auto
 
+STB_IMAGE_EXTS: frozenset[str] = frozenset(
+    {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".bmp",
+        ".tga",
+        ".gif",
+        ".psd",
+        ".hdr",
+        ".pic",
+        ".pgm",
+        ".ppm",
+        ".pnm",
+    }
+)
 
-STB_IMAGE_EXTS: frozenset[str] = frozenset({
-    ".png", ".jpg", ".jpeg", ".bmp", ".tga",
-    ".gif", ".psd", ".hdr", ".pic", ".pgm", ".ppm", ".pnm",
-})
-
-PILLOW_EXTRA_EXTS: frozenset[str] = frozenset({
-    ".webp", ".tiff", ".tif", ".ico", ".heic", ".heif",
-    ".avif", ".svg", ".dds", ".pcx", ".eps",
-})
+PILLOW_EXTRA_EXTS: frozenset[str] = frozenset(
+    {
+        ".webp",
+        ".tiff",
+        ".tif",
+        ".ico",
+        ".heic",
+        ".heif",
+        ".avif",
+        ".svg",
+        ".dds",
+        ".pcx",
+        ".eps",
+    }
+)
 
 PDF_EXTS: frozenset[str] = frozenset({".pdf"})
 WORD_EXTS: frozenset[str] = frozenset({".docx"})
@@ -28,36 +50,103 @@ PPTX_EXTS: frozenset[str] = frozenset({".pptx"})
 MD_EXTS: frozenset[str] = frozenset({".md", ".markdown"})
 HTML_EXTS: frozenset[str] = frozenset({".html", ".htm"})
 CSV_EXTS: frozenset[str] = frozenset({".csv", ".tsv"})
-EXCEL_EXTS: frozenset[str] = frozenset({".xlsx"})
+EXCEL_EXTS: frozenset[str] = frozenset({".xlsx", ".xlsm"})
 XML_EXTS: frozenset[str] = frozenset({".xml", ".ui", ".uvprojx", ".vcxproj", ".csproj"})
 ZIP_EXTS: frozenset[str] = frozenset({".zip", ".whl", ".egg", ".jar", ".apk"})
 SEVEN_Z_EXTS: frozenset[str] = frozenset({".7z"})
 FONT_EXTS: frozenset[str] = frozenset({".ttf", ".otf"})
 DB_EXTS: frozenset[str] = frozenset({".db", ".sqlite", ".sqlite3", ".dat"})
 
-CODE_EXTS: frozenset[str] = frozenset({
-    ".py", ".pyw", ".pyi", ".pyl",
-    ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
-    ".json", ".jsonl", ".json5",
-    ".css", ".scss", ".sass", ".less",
-    ".yaml", ".yml", ".toml", ".env",
-    ".c", ".h", ".cpp", ".hpp", ".cc", ".cxx",
-    ".cs", ".java", ".kt", ".kts", ".scala", ".groovy",
-    ".go", ".rs", ".swift", ".dart", ".lua",
-    ".rb", ".pl", ".pm", ".r", ".jl", ".ex", ".exs",
-    ".sql", ".graphql", ".gql",
-    ".dockerfile", ".makefile", ".cmake",
-    ".diff", ".patch",
-})
+CODE_EXTS: frozenset[str] = frozenset(
+    {
+        ".py",
+        ".pyw",
+        ".pyi",
+        ".pyl",
+        ".js",
+        ".jsx",
+        ".ts",
+        ".tsx",
+        ".mjs",
+        ".cjs",
+        ".json",
+        ".jsonl",
+        ".json5",
+        ".css",
+        ".scss",
+        ".sass",
+        ".less",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".env",
+        ".c",
+        ".h",
+        ".cpp",
+        ".hpp",
+        ".cc",
+        ".cxx",
+        ".cs",
+        ".java",
+        ".kt",
+        ".kts",
+        ".scala",
+        ".groovy",
+        ".go",
+        ".rs",
+        ".swift",
+        ".dart",
+        ".lua",
+        ".rb",
+        ".pl",
+        ".pm",
+        ".r",
+        ".jl",
+        ".ex",
+        ".exs",
+        ".sql",
+        ".graphql",
+        ".gql",
+        ".dockerfile",
+        ".makefile",
+        ".cmake",
+        ".diff",
+        ".patch",
+    }
+)
 
-TEXT_PREVIEW_EXTS: frozenset[str] = frozenset({
-    ".txt", ".log", ".csv", ".tsv", ".ini", ".cfg", ".conf",
-    ".bat", ".cmd", ".sh", ".bash", ".zsh", ".ps1",
-    ".xml", ".html", ".htm", ".xhtml",
-    ".md", ".rst", ".adoc", ".tex",
-    ".gitignore", ".gitattributes", ".editorconfig",
-    ".lock",
-}) | CODE_EXTS
+TEXT_PREVIEW_EXTS: frozenset[str] = (
+    frozenset(
+        {
+            ".txt",
+            ".log",
+            ".csv",
+            ".tsv",
+            ".ini",
+            ".cfg",
+            ".conf",
+            ".bat",
+            ".cmd",
+            ".sh",
+            ".bash",
+            ".zsh",
+            ".ps1",
+            ".xml",
+            ".html",
+            ".htm",
+            ".xhtml",
+            ".md",
+            ".rst",
+            ".adoc",
+            ".tex",
+            ".gitignore",
+            ".gitattributes",
+            ".editorconfig",
+            ".lock",
+        }
+    )
+    | CODE_EXTS
+)
 
 
 class PreviewKind(Enum):
@@ -96,14 +185,15 @@ class PreviewCapabilities:
 
 
 def html_active_extensions(capabilities: PreviewCapabilities) -> frozenset[str]:
-    """Return extensions that keep an active HTML renderer open."""
+    """Return extensions that keep an active HTML renderer open.
+
+    Source-code files are not included: they use the text preview, not Chrome.
+    """
     extensions = HTML_EXTS
     if capabilities.mammoth:
         extensions |= WORD_EXTS
     if capabilities.markdown:
         extensions |= MD_EXTS
-    if capabilities.pygments:
-        extensions |= CODE_EXTS
     return extensions
 
 
@@ -132,9 +222,7 @@ def resolve_preview_kind(
         return PreviewKind.XML
     # Source code: extension-based, or well-known extensionless filenames
     # (e.g. "Dockerfile", "Makefile") resolved via their dotted registry entry.
-    if capabilities.pygments and (
-        ext in CODE_EXTS or (not ext and f".{filename.lower()}" in CODE_EXTS)
-    ):
+    if capabilities.pygments and (ext in CODE_EXTS or (not ext and f".{filename.lower()}" in CODE_EXTS)):
         return PreviewKind.CODE
     if ext in TEXT_PREVIEW_EXTS:
         return PreviewKind.TEXT

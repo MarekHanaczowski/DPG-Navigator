@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "dpg-navigator"
 dynamic = ["version"]
-description = "File dialog with rich preview panel for DearPyGui — images, PDF, Word, Excel, code highlighting, archives, and more"
+description = "File dialog with rich preview panel for DearPyGui — images, PDF, Word, Excel, archives, and more"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.8"
@@ -28,6 +28,7 @@ dependencies = [
     "dearpygui>=1.9.1",
     "psutil>=5.9.0",
     "bleach>=6.0",
+    "defusedxml>=0.7.1",
 ]
 
 [project.optional-dependencies]
@@ -39,7 +40,7 @@ html = ["html2image>=2.0", "numpy>=1.24", "Pillow>=9.0"]
 markdown = ["markdown>=3.4", "html2image>=2.0", "numpy>=1.24", "Pillow>=9.0"]
 excel = ["openpyxl>=3.0"]
 archive = ["py7zr>=0.20.0"]
-code = ["Pygments>=2.15.0", "html2image>=2.0", "numpy>=1.24", "Pillow>=9.0"]
+code = ["Pygments>=2.15.0"]
 all = [
     "Pillow>=9.0",
     "pypdfium2>=4.0",
@@ -56,15 +57,18 @@ all = [
 dev = [
     "pytest>=7.0",
     "pytest-github-actions-annotate-failures>=0.2",
+    "pytest-cov>=4.1",
     "ruff>=0.6",
     "mypy>=1.10",
-    # Type stubs for optional backends imported in the mypy-checked modules —
-    # without these the "Type check pure modules" CI step reports
-    # import-untyped for markdown/openpyxl/pygments.
+    # Type stubs for optional backends imported in mypy-checked modules —
+    # without these CI reports import-untyped for markdown/openpyxl/pygments/bleach.
     "types-Markdown",
     "types-openpyxl",
     "types-Pygments",
+    "types-bleach",
     "dpg-navigator[all]",
+    # Local git hook runner; omitted on 3.8 so the CI matrix can still install [dev].
+    "pre-commit>=3.5; python_version>='3.9'",
 ]
 
 [project.urls]
@@ -79,6 +83,9 @@ path = "dpg_navigator/__init__.py"
 packages = ["dpg_navigator"]
 exclude = ["dpg_navigator/tests/"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"THIRD_PARTY_NOTICES.md" = "dpg_navigator/THIRD_PARTY_NOTICES.md"
+
 [tool.hatch.build.targets.sdist]
 include = [
     "dpg_navigator/",
@@ -87,6 +94,8 @@ include = [
     "CHANGELOG.md",
     "LICENSE",
     "README.md",
+    "THIRD_PARTY_NOTICES.md",
+    ".pre-commit-config.yaml",
 ]
 exclude = ["dpg_navigator/tests/"]
 
@@ -101,16 +110,69 @@ markers = [
 [tool.ruff]
 target-version = "py38"
 line-length = 120
+extend-exclude = [".pytest_tmp", ".pytest_tmp_cache"]
+
+[tool.ruff.format]
+# Ruff 0.16+ formats Python fences in Markdown. Keep README examples and
+# historical audit notes out of the format gate.
+exclude = ["*.md"]
 
 [tool.ruff.lint]
-# Start with correctness checks that can be enforced on the existing codebase.
-select = ["E9", "F63", "F7", "F82"]
+select = [
+    "E9",
+    "F",
+    "W",
+    "I",
+    "B",
+    "UP",
+    "SIM",
+]
+ignore = [
+    # Optional-backend imports and best-effort cleanup use try/except-pass on purpose.
+    "SIM105",
+    # Long layout/preview branches stay as if/else rather than dense ternaries.
+    "SIM108",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["dpg_navigator"]
 
 [tool.mypy]
 # No python_version pin: mypy targets the interpreter it runs under, so each
 # CI matrix job type-checks against its own Python. This also avoids parse
 # errors from third-party stubs (e.g. numpy's PEP 695 `type` aliases) that only
 # install on the newer interpreters — the target then matches the stub syntax.
+files = ["dpg_navigator"]
+exclude = ["^dpg_navigator/tests/"]
 warn_unused_configs = true
 check_untyped_defs = true
 no_implicit_optional = true
+disallow_untyped_defs = true
+warn_return_any = true
+disallow_any_generics = true
+
+# Gate only GUI-free loaders / VFS / dialog logic (measured ~80% on 3.13).
+# Tracing still uses --cov=dpg_navigator; the report include list is what
+# fail_under applies to. Do not add PreviewPanel, renderers, or _dialog.py.
+[tool.coverage.run]
+source = ["dpg_navigator"]
+omit = ["dpg_navigator/tests/*"]
+
+[tool.coverage.report]
+fail_under = 75
+show_missing = true
+skip_covered = true
+include = [
+    "dpg_navigator/_preview_*.py",
+    "dpg_navigator/vfs/*.py",
+    "dpg_navigator/dialog/_logic.py",
+    "dpg_navigator/dialog/_state.py",
+]
+omit = [
+    "dpg_navigator/_preview.py",
+]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]

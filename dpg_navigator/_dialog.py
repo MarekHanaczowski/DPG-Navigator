@@ -6,40 +6,49 @@ recursive subfolder index, extension filtering, column sorting,
 multi-selection, new folder creation, archive browsing (ZIP/7z), and an
 optional preview panel supporting images, text, PDF, Word (.docx),
 PowerPoint (.pptx), Markdown, HTML, CSV/TSV, Excel (.xlsx), SQLite
-databases, fonts (.ttf/.otf), ZIP/7z archives, and syntax-highlighted
-source code (via Pygments).
+databases, fonts (.ttf/.otf), ZIP/7z archives, and source code as
+plain text.
 """
-from __future__ import annotations
-# MIT licensed
 
+from __future__ import annotations
+
+# MIT licensed
 import logging
 import os
-import threading
 import time
 import uuid
-from typing import Callable
+from copy import copy
+from typing import Any, overload
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
 _log = logging.getLogger(__name__)
 
-from ._types import DialogConfig, DialogMode, StyleVariant, FileEntry, DEFAULT_FILTER_LIST
-from ._icons import IconRegistry
-from ._filesystem import DirectoryLister, DirectoryIndex, validate_folder_name, build_selection_list
-from ._preview_registry import ZIP_EXTS, SEVEN_Z_EXTS
-from ._filesystem import DirectoryLister
-from ._preview import PreviewPanel
-from ._styles import STYLE_REGISTRY
-from ._keyboard import KeyboardMixin
-from ._job_manager import JobManager
 from . import _platform
-
-
-from .dialog._state import DialogState
+from ._filesystem import (
+    DirectoryIndex,
+    DirectoryLister,
+    build_selection_list,
+    resolve_archive_selection,
+)
+from ._icons import IconRegistry
+from ._job_manager import JobManager
+from ._keyboard import KeyboardMixin
+from ._preview import PreviewPanel
+from ._preview_registry import SEVEN_Z_EXTS, ZIP_EXTS
+from ._styles import STYLE_REGISTRY
+from ._types import (
+    DEFAULT_FILTER_LIST,
+    DialogConfig,
+    DialogMode,
+    FileEntry,
+    SelectionCallback,
+    StyleVariant,
+)
 from .dialog._logic import DialogLogic
+from .dialog._state import DialogState
 from .dialog._ui import DialogUIBuilder
 
-from ._types import FileEntry
 
 class FileDialog(KeyboardMixin):
     """Customizable file dialog for DearPyGui.
@@ -63,10 +72,10 @@ class FileDialog(KeyboardMixin):
     - SQLite databases (read-only table browsing)
     - Fonts .ttf/.otf (live glyph preview)
     - ZIP/7z archives (file list with compression ratios)
-    - Source code (Pygments syntax highlighting)
+    - Source code (monospace text preview)
 
     Args:
-        callback: Function called with list of selected file paths on OK.
+        callback: Called with a ``list[str]`` of selected paths on OK.
         config: DialogConfig instance for full configuration.
         **kwargs: Individual config options (alternative to passing config).
 
@@ -93,6 +102,8 @@ class FileDialog(KeyboardMixin):
     ui: DialogUIBuilder
     _preview_btn: int | str | None = None
     _new_folder_group: int | str | None = None
+    _pending_sidebar_drives: tuple[str, list[str]] | None
+    _awaiting_sidebar_drives: bool
 
     _DEFAULT_IMAGE_TRANSPARENCY: int = 100
     """Alpha value (0-255) for hidden file icon tinting."""
@@ -114,22 +125,44 @@ class FileDialog(KeyboardMixin):
     _shared_size_theme: int | None = None
     _shared_preview_active_theme: int | None = None
     _instance_count: int = 0
+    _selec_theme: Any = None
+    _size_theme: Any = None
+    _status_label: Any = None
+    _subfolder_checkbox: Any = None
+    # Drive lists computed on a worker; widget updates run on the DPG thread.
+    _sidebar_poll_targets: list[FileDialog] = []
+    _sidebar_poll_armed: bool = False
+
+    @overload
+    def __init__(
+        self,
+        config: DialogConfig,
+        callback: SelectionCallback | None = None,
+    ) -> None: ...
+
+    @overload
+    def __init__(
+        self,
+        config: SelectionCallback | None = None,
+        callback: SelectionCallback | None = None,
+        **kwargs: Any,
+    ) -> None: ...
 
     def __init__(
         self,
-        config: DialogConfig | Callable | None = None,
-        callback: Callable | None = None,
-        **kwargs,
-    ):
-        # Support old signature FileDialog(callback, config) or FileDialog(callback=on_select)
-        # by checking if the first positional argument is callable.
+        config: DialogConfig | SelectionCallback | None = None,
+        callback: SelectionCallback | None = None,
+        **kwargs: Any,
+    ) -> None:
+        # First positional may be the host callback (FileDialog(on_select)).
         if config is not None and (callable(config) or not isinstance(config, DialogConfig)):
             callback = config
             config = None
 
-        # Build config from kwargs if not provided directly
+        # Build config from kwargs if not provided directly.
+        # Copy shared configs so tag uniquification cannot mutate the caller's object.
         if config is not None:
-            self._config = config
+            self._config = copy(config)
         else:
             self._config = DialogConfig(**kwargs)
 
@@ -141,11 +174,13 @@ class FileDialog(KeyboardMixin):
 
         self._callback = callback
         self._destroyed = False
+        self._pending_sidebar_drives: tuple[str, list[str]] | None = None
+        self._awaiting_sidebar_drives = False
+        self.state = DialogState()
 
         # Resolve default_path at runtime (not at import time)
         self.state.current_dir = (
-            os.path.abspath(self._config.default_path)
-            if self._config.default_path else os.getcwd()
+            os.path.abspath(self._config.default_path) if self._config.default_path else os.getcwd()
         )
         self._home_dir = self.state.current_dir
 
@@ -157,17 +192,15 @@ class FileDialog(KeyboardMixin):
             self._filter_list = list(self._config.filter_list)
 
         # Modular State & Logic
-        self.state = DialogState()
-        self.state.current_dir = self.state.current_dir
         self.state.current_filter = self._config.file_filter
-        
+
         self.logic = DialogLogic(
             state=self.state,
             config=self._config,
-            refresh_ui_cb=lambda entries: self.ui._render_entries_list(entries),
+            refresh_ui_cb=self._safe_refresh_ui,
             show_error_cb=self._show_message,
-            update_path_input_cb=lambda path: dpg.configure_item(self._path_input, default_value=path) if hasattr(self, '_path_input') else None,
-            update_size_cell_cb=lambda path, txt: dpg.configure_item(self.state.pending_size_cells[path], label=txt) if path in self.state.pending_size_cells else None
+            update_path_input_cb=self._safe_update_path_input,
+            update_size_cell_cb=self._safe_update_size_cell,
         )
 
         self._preview = PreviewPanel(
@@ -200,22 +233,176 @@ class FileDialog(KeyboardMixin):
         self.ui = DialogUIBuilder(self, self.state, self.logic, self._config)
         self.ui._build_ui()
 
+    # ── Compatibility adapters for KeyboardMixin ────────────────
+
+    @property
+    def _size_cache(self) -> dict[str, tuple[int | None, float]]:
+        return self.state.size_cache
+
+    @_size_cache.setter
+    def _size_cache(self, value: dict[str, tuple[int | None, float]]) -> None:
+        self.state.size_cache = value
+
+    @property
+    def _dir_index(self) -> DirectoryIndex:
+        return self.logic._dir_index
+
+    @_dir_index.setter
+    def _dir_index(self, value: DirectoryIndex) -> None:
+        self.logic._dir_index = value
+
+    @property
+    def _selected_files(self) -> list[str]:
+        return self.state.selected_files
+
+    @_selected_files.setter
+    def _selected_files(self, value: list[str]) -> None:
+        self.state.selected_files = value
+
+    @property
+    def _selected_elements(self) -> list[int]:
+        return self.state.selected_elements
+
+    @_selected_elements.setter
+    def _selected_elements(self, value: list[int]) -> None:
+        self.state.selected_elements = value
+
+    @property
+    def _row_entries(self) -> dict[int, FileEntry]:
+        return self.state.row_entries
+
+    @_row_entries.setter
+    def _row_entries(self, value: dict[int, FileEntry]) -> None:
+        self.state.row_entries = value
+
+    @property
+    def _current_dir(self) -> str:
+        return self.state.current_dir
+
+    @_current_dir.setter
+    def _current_dir(self, value: str) -> None:
+        self.state.current_dir = value
+
+    @property
+    def _focused_row_index(self) -> int:
+        return self.state.focused_row_index
+
+    @_focused_row_index.setter
+    def _focused_row_index(self, value: int) -> None:
+        self.state.focused_row_index = value
+
+    @property
+    def _last_clicked_element(self) -> int | None:
+        return self.state.last_clicked_element
+
+    @_last_clicked_element.setter
+    def _last_clicked_element(self, value: int | None) -> None:
+        self.state.last_clicked_element = value
+
+    def _navigate_to(self, path: str) -> None:
+        self.logic.navigate_to(path)
+
+    def _refresh_listing(self, search_query: str = "") -> None:
+        self.logic.refresh_listing(search_query)
+
+    def _start_index_build(self) -> None:
+        self.logic.start_index_build()
+
+    def _safe_refresh_ui(self, entries: list[FileEntry]) -> None:
+        """Marshal UI refresh onto the DPG thread via mutex."""
+        if self._destroyed:
+            return
+        with dpg.mutex():
+            if self._destroyed or not hasattr(self, "ui"):
+                return
+            self.ui._render_entries_list(entries)
+
+    def _safe_update_path_input(self, path: str) -> None:
+        if self._destroyed or not hasattr(self, "_path_input"):
+            return
+        with dpg.mutex():
+            if self._destroyed or not dpg.does_item_exist(self._path_input):
+                return
+            dpg.configure_item(self._path_input, default_value=path)
+
+    def _safe_update_size_cell(self, path: str, txt: str) -> None:
+        if self._destroyed:
+            return
+        with dpg.mutex():
+            if self._destroyed:
+                return
+            cell = self.state.pending_size_cells.get(path)
+            if cell is not None and dpg.does_item_exist(cell):
+                dpg.configure_item(cell, label=txt)
+
     # ── Public API ──────────────────────────────────────────────
 
     def show(self) -> None:
         """Show the file dialog window and navigate to default directory."""
         self.logic.navigate_to(self.state.current_dir)
         dpg.show_item(self._config.tag)
+        self._apply_pending_sidebar_drives()
 
     def hide(self) -> None:
         """Hide the file dialog window."""
         dpg.hide_item(self._config.tag)
+
+    def _arm_sidebar_drive_poll(self) -> None:
+        """Schedule a main-thread poll so drive widgets are not built on a worker."""
+        self._awaiting_sidebar_drives = True
+        if self not in FileDialog._sidebar_poll_targets:
+            FileDialog._sidebar_poll_targets.append(self)
+        FileDialog._schedule_sidebar_poll()
+
+    def _apply_pending_sidebar_drives(self) -> None:
+        """Apply a worker-computed drive list. Must run on the DPG thread."""
+        if self._destroyed:
+            return
+        pending = self._pending_sidebar_drives
+        if pending is None:
+            return
+        self._pending_sidebar_drives = None
+        self._awaiting_sidebar_drives = False
+        sidebar_tag, drives = pending
+        if dpg.does_item_exist(sidebar_tag):
+            self._sidebar.update_drives(drives)
+
+    @classmethod
+    def _schedule_sidebar_poll(cls) -> None:
+        if cls._sidebar_poll_armed:
+            return
+        cls._sidebar_poll_armed = True
+        try:
+            dpg.set_frame_callback(int(dpg.get_frame_count()) + 1, cls._poll_sidebar_drives)
+        except Exception:
+            cls._sidebar_poll_armed = False
+
+    @classmethod
+    def _poll_sidebar_drives(cls) -> None:
+        """Drain pending sidebar updates between frames (DPG thread)."""
+        cls._sidebar_poll_armed = False
+        remaining: list[FileDialog] = []
+        for dialog in cls._sidebar_poll_targets:
+            if dialog._destroyed:
+                continue
+            dialog._apply_pending_sidebar_drives()
+            if not dialog._destroyed and dialog._awaiting_sidebar_drives:
+                remaining.append(dialog)
+        cls._sidebar_poll_targets = remaining
+        if remaining:
+            cls._schedule_sidebar_poll()
 
     def destroy(self) -> None:
         """Release all DPG resources (textures, handlers, windows, themes)."""
         if self._destroyed:
             return
         self._destroyed = True
+        self._awaiting_sidebar_drives = False
+        self._pending_sidebar_drives = None
+        try:
+            FileDialog._sidebar_poll_targets.remove(self)
+        except ValueError:
+            pass
         self.logic.cancel_background_tasks()
         self._preview.destroy()
         self._icons.destroy()
@@ -224,13 +411,19 @@ class FileDialog(KeyboardMixin):
         if dpg.does_item_exist(self._config.tag):
             dpg.delete_item(self._config.tag)
 
-        FileDialog._instance_count -= 1
+        FileDialog._instance_count = max(0, FileDialog._instance_count - 1)
         if FileDialog._instance_count <= 0:
             JobManager.shutdown(wait=True, timeout=2.0)
             # The extraction temp dir is shared across all dialogs, so only
             # wipe it once the last instance is gone — otherwise closing one
             # dialog would delete preview files another is still using.
             DirectoryLister.cleanup_temp_files()
+            try:
+                from ._html import HTMLRenderer
+
+                HTMLRenderer.shutdown_shared()
+            except Exception:
+                _log.debug("HTMLRenderer shutdown failed", exc_info=True)
             for attr in ("_shared_selec_theme", "_shared_size_theme", "_shared_preview_active_theme"):
                 theme_id = getattr(FileDialog, attr)
                 if theme_id is not None and dpg.does_item_exist(theme_id):
@@ -238,32 +431,27 @@ class FileDialog(KeyboardMixin):
                 setattr(FileDialog, attr, None)
             FileDialog._instance_count = 0
 
-    def change_callback(self, callback: Callable) -> None:
+    def change_callback(self, callback: SelectionCallback) -> None:
         """Change the callback function. Does NOT modify the OK button directly."""
         self._callback = callback
 
-    def __enter__(self):
+    def __enter__(self) -> FileDialog:
         """Enter context manager; returns the FileDialog instance."""
         return self
 
-    def __exit__(self, *args):
+    def __exit__(self, *args: object) -> None:
         """Exit context manager; calls destroy() to release DPG resources."""
         self.destroy()
 
-
-
     # ── Navigation ──────────────────────────────────────────────
 
-
-
-
-    def _on_path_enter(self, sender, app_data, user_data) -> None:
+    def _on_path_enter(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """Handle Enter key in the path input field."""
         path = dpg.get_value(sender)
         if path:
             self.logic.navigate_to(path)
 
-    def _on_back(self, sender, app_data, user_data) -> None:
+    def _on_back(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """Handle click on the '..' row (double-click navigates to parent)."""
         if _platform.is_mod_key_down():
             dpg.set_value(sender, False)
@@ -271,18 +459,7 @@ class FileDialog(KeyboardMixin):
 
         dpg.set_value(sender, False)
         if self._is_double_click(sender):
-            if "|" in self.state.current_dir:
-                parts = self.state.current_dir.split("|", 1)
-                archive = parts[0]
-                inner = parts[1].strip("/")
-                if not inner:
-                    # We are at the root of the archive, fallback to host folder
-                    self.logic.navigate_to(os.path.dirname(archive))
-                else:
-                    parent_inner = os.path.dirname(inner)
-                    self.logic.navigate_to(f"{archive}|/{parent_inner}" if parent_inner else f"{archive}|/")
-            else:
-                self.logic.navigate_to(os.path.dirname(self.state.current_dir))
+            self.logic.go_up()
 
     def _is_double_click(self, sender: int) -> bool:
         """Check if this click constitutes a double-click on the same element."""
@@ -301,8 +478,7 @@ class FileDialog(KeyboardMixin):
 
     # ── File listing ────────────────────────────────────────────
 
-
-    def _on_sort(self, sender, sort_specs, user_data) -> None:
+    def _on_sort(self, sender: Any, sort_specs: Any, user_data: Any) -> None:
         """Sort table rows by clicked column header.
 
         Directories are always kept above files. The ".." back row
@@ -326,7 +502,7 @@ class FileDialog(KeyboardMixin):
 
         reverse = direction < 0
 
-        def sort_key(row_id):
+        def sort_key(row_id: Any) -> tuple[Any, ...]:
             entry = self.state.row_entries.get(row_id)
             if entry is None:
                 return (0,)
@@ -350,7 +526,7 @@ class FileDialog(KeyboardMixin):
         if sep is not None and sep in data_rows:
             sep_idx = data_rows.index(sep)
             local_rows = data_rows[:sep_idx]
-            deep_rows = data_rows[sep_idx + 1:]
+            deep_rows = data_rows[sep_idx + 1 :]
             local_rows.sort(key=sort_key, reverse=reverse)
             deep_rows.sort(key=sort_key, reverse=reverse)
             ordered = [back_row] + local_rows + [sep] + deep_rows
@@ -362,7 +538,7 @@ class FileDialog(KeyboardMixin):
 
     # ── Click handling ──────────────────────────────────────────
 
-    def _on_entry_click(self, sender, app_data, user_data) -> None:
+    def _on_entry_click(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """Handle click on a file/directory entry (single and multi-select)."""
         entry: FileEntry = user_data
 
@@ -393,8 +569,7 @@ class FileDialog(KeyboardMixin):
                 if dpg.does_item_exist(elem):
                     dpg.set_value(elem, False)
             self.state.selected_elements.clear()
-        if (self.state.last_clicked_element is not None
-                and dpg.does_item_exist(self.state.last_clicked_element)):
+        if self.state.last_clicked_element is not None and dpg.does_item_exist(self.state.last_clicked_element):
             dpg.set_value(self.state.last_clicked_element, False)
 
         dpg.set_value(sender, True)
@@ -411,39 +586,14 @@ class FileDialog(KeyboardMixin):
         elif not entry.is_dir:
             ext = os.path.splitext(entry.name)[1].lower()
             is_archive = ext in (ZIP_EXTS | SEVEN_Z_EXTS)
-            
+
             if is_archive and is_double:
                 self.logic.navigate_to(entry.full_path + "|/")
                 return
-            
+
             self.state.selected_files = [entry.full_path]
             dpg.set_value(self._filename_input, entry.name)
             if is_double:
-                # If it's a virtual path (inside archive), extract it first
-                if "|" in entry.full_path:
-                    # Visual feedback that we are working
-                    original_title = dpg.get_item_label(self._config.tag)
-                    dpg.set_item_label(self._config.tag, f"{original_title} - Extracting...")
-                    try:
-                        temp_path = DirectoryLister.extract_from_archive(
-                            entry.full_path,
-                            max_size=self._MAX_ARCHIVE_EXTRACT_SIZE,
-                        )
-                    finally:
-                        if dpg.does_item_exist(self._config.tag):
-                            dpg.set_item_label(self._config.tag, original_title)
-
-                    if temp_path:
-                        self.state.selected_files = [temp_path]
-                    else:
-                        self._show_message(
-                            "Extraction Error",
-                            f"Could not extract '{entry.name}' from archive.\n"
-                            "It might be encrypted, corrupted, or larger than the "
-                            "extraction limit."
-                        )
-                        return
-                
                 self._return_selection()
                 return
 
@@ -461,29 +611,61 @@ class FileDialog(KeyboardMixin):
     # ── Selection & return ──────────────────────────────────────
 
     def _return_selection(self) -> None:
-        """Invoke callback with selected files and hide the dialog."""
+        """Invoke callback with selected files and hide the dialog.
+
+        Archive virtual paths (``archive|/inner``) are extracted to the
+        session temp dir first. Extraction failure leaves the dialog open.
+        """
         typed_name = dpg.get_value(self._filename_input)
         selection = build_selection_list(
-            self.state.selected_files, typed_name, self.state.current_dir,
+            self.state.selected_files,
+            typed_name,
+            self.state.current_dir,
         )
+
+        needs_extract = any("|" in path for path in selection)
+        original_title = None
+        if needs_extract and dpg.does_item_exist(self._config.tag):
+            original_title = dpg.get_item_label(self._config.tag)
+            dpg.set_item_label(
+                self._config.tag,
+                f"{original_title} - Extracting...",
+            )
+        try:
+            resolved, failed_name = resolve_archive_selection(
+                selection,
+                max_size=self._MAX_ARCHIVE_EXTRACT_SIZE,
+            )
+        finally:
+            if original_title is not None and dpg.does_item_exist(self._config.tag):
+                dpg.set_item_label(self._config.tag, original_title)
+
+        if failed_name is not None:
+            self._show_message(
+                "Extraction Error",
+                f"Could not extract '{failed_name}' from archive.\n"
+                "It might be encrypted, corrupted, or larger than the "
+                "extraction limit.",
+            )
+            return
 
         self.hide()
         if self._callback is not None:
-            self._callback(selection)
+            self._callback(resolved)
         self.state.selected_files.clear()
         self.state.selected_elements.clear()
 
-    def _on_ok(self, sender, app_data, user_data) -> None:
+    def _on_ok(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """Handle OK button click — returns current selection."""
         self._return_selection()
 
-    def _on_cancel(self, sender, app_data, user_data) -> None:
+    def _on_cancel(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """Handle Cancel button click — hides dialog without callback."""
         self.hide()
 
     # ── Search & filter ─────────────────────────────────────────
 
-    def _on_search(self, sender, app_data, user_data) -> None:
+    def _on_search(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """Handle search field input — debounced to avoid per-keystroke rescans.
 
         Listing the directory (os.scandir + stat per entry) on every keystroke
@@ -492,13 +674,11 @@ class FileDialog(KeyboardMixin):
         """
         self.logic.trigger_search(dpg.get_value(sender))
 
-    def _on_subfolder_toggle(self, sender, app_data, user_data) -> None:
+    def _on_subfolder_toggle(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """Handle subfolder search checkbox toggle."""
-        enabled = dpg.get_value(sender)
-        if enabled and not self._dir_index.ready:
-            self.logic.start_index_build()
+        self.logic.set_search_subfolders(bool(dpg.get_value(sender)))
 
-    def _on_filter_change(self, sender, app_data, user_data) -> None:
+    def _on_filter_change(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """Handle file type filter combo selection change."""
         self.state.current_filter = dpg.get_value(sender)
         self.logic.refresh_listing()
@@ -557,7 +737,7 @@ class FileDialog(KeyboardMixin):
             dpg.show_item(self._new_folder_group)
             dpg.focus_item(self._new_folder_input)
 
-    def _on_new_folder_confirm(self, sender, app_data, user_data) -> None:
+    def _on_new_folder_confirm(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """Handle new folder input confirmation."""
         name = dpg.get_value(self._new_folder_input)
         dpg.hide_item(self._new_folder_group)

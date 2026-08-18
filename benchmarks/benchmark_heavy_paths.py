@@ -94,10 +94,7 @@ def _measure(
 
 def _make_csv(rows: int) -> str:
     lines = ["id,name,value,category"]
-    lines.extend(
-        f"{index},item-{index},{index * 3},group-{index % 10}"
-        for index in range(rows)
-    )
+    lines.extend(f"{index},item-{index},{index * 3},group-{index % 10}" for index in range(rows))
     return "\n".join(lines)
 
 
@@ -123,10 +120,7 @@ def _make_sqlite(path: Path, rows: int) -> None:
         )
         connection.executemany(
             'INSERT INTO "data" VALUES (?, ?, ?, ?)',
-            (
-                (index, f"item-{index}", index * 3, f"group-{index % 10}")
-                for index in range(rows)
-            ),
+            ((index, f"item-{index}", index * 3, f"group-{index % 10}") for index in range(rows)),
         )
         connection.commit()
 
@@ -163,40 +157,46 @@ def run_benchmarks(profile: str, iterations: int) -> list[BenchmarkResult]:
 
         excel_path = root / "data.xlsx"
         if _make_excel(excel_path, workload.excel_rows):
-            results.append(_measure(
-                "excel_load",
-                lambda: load_excel_table(
-                    str(excel_path),
-                    sheet_name=None,
+            results.append(
+                _measure(
+                    "excel_load",
+                    lambda: load_excel_table(
+                        str(excel_path),
+                        sheet_name=None,
+                        max_rows=200,
+                        max_cols=50,
+                    ),
+                    iterations=iterations,
+                    details=f"{workload.excel_rows} data rows",
+                )
+            )
+
+        sqlite_path = root / "data.sqlite"
+        _make_sqlite(sqlite_path, workload.sqlite_rows)
+        results.append(
+            _measure(
+                "sqlite_load",
+                lambda: load_sqlite_table(
+                    str(sqlite_path),
+                    table_name="data",
                     max_rows=200,
                     max_cols=50,
                 ),
                 iterations=iterations,
-                details=f"{workload.excel_rows} data rows",
-            ))
-
-        sqlite_path = root / "data.sqlite"
-        _make_sqlite(sqlite_path, workload.sqlite_rows)
-        results.append(_measure(
-            "sqlite_load",
-            lambda: load_sqlite_table(
-                str(sqlite_path),
-                table_name="data",
-                max_rows=200,
-                max_cols=50,
-            ),
-            iterations=iterations,
-            details=f"{workload.sqlite_rows} data rows",
-        ))
+                details=f"{workload.sqlite_rows} data rows",
+            )
+        )
 
         zip_path = root / "data.zip"
         _make_zip(zip_path, workload.zip_members)
-        results.append(_measure(
-            "zip_load",
-            lambda: load_zip_table(str(zip_path), max_rows=200),
-            iterations=iterations,
-            details=f"{workload.zip_members} members",
-        ))
+        results.append(
+            _measure(
+                "zip_load",
+                lambda: load_zip_table(str(zip_path), max_rows=200),
+                iterations=iterations,
+                details=f"{workload.zip_members} members",
+            )
+        )
 
         tree_path = root / "tree"
         tree_path.mkdir()
@@ -212,12 +212,14 @@ def run_benchmarks(profile: str, iterations: int) -> list[BenchmarkResult]:
             index.search("item")
 
         total_files = workload.directory_count * workload.files_per_directory
-        results.append(_measure(
-            "directory_index",
-            build_and_search_index,
-            iterations=iterations,
-            details=f"{workload.directory_count} dirs, {total_files} files",
-        ))
+        results.append(
+            _measure(
+                "directory_index",
+                build_and_search_index,
+                iterations=iterations,
+                details=f"{workload.directory_count} dirs, {total_files} files",
+            )
+        )
 
     return results
 
@@ -241,8 +243,7 @@ def main() -> None:
     print(f"{'benchmark':<20} {'median ms':>12} {'minimum ms':>12}  details")
     for result in results:
         print(
-            f"{result.name:<20} {result.median_ms:>12.3f} "
-            f"{result.minimum_ms:>12.3f}  {result.details}",
+            f"{result.name:<20} {result.median_ms:>12.3f} {result.minimum_ms:>12.3f}  {result.details}",
         )
 
 

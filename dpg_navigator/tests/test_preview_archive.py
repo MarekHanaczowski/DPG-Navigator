@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import zipfile
-from unittest.mock import patch
+from typing import cast
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -12,6 +13,8 @@ from dpg_navigator._preview_archive import (
     load_7z_table,
     load_zip_table,
 )
+from dpg_navigator.renderers._base import PreviewContext
+from dpg_navigator.renderers.archive import ArchiveRenderer
 
 
 class TestLoadZipTable:
@@ -58,8 +61,25 @@ class TestLoadZipTable:
             load_zip_table(str(archive_path), max_rows=10)
 
 
+class TestArchiveRenderer:
+    def test_failed_extraction_shows_error(self):
+        renderer = ArchiveRenderer(lambda entry: None)
+        ctx = cast(PreviewContext, MagicMock())
+        renderer._ctx = ctx
+
+        with patch(
+            "dpg_navigator.renderers.archive.DirectoryLister.extract_from_archive",
+            return_value=None,
+        ):
+            renderer._preview_archive_member("sample.zip", "missing.txt")
+
+        ctx.show_error.assert_called_once_with(
+            "Preview unavailable",
+            "Could not extract 'missing.txt'",
+        )
+
+
 class TestLoad7zTable:
     def test_missing_backend_raises_preview_error(self):
-        with patch("dpg_navigator._preview_archive._py7zr", None):
-            with pytest.raises(ArchivePreviewError):
-                load_7z_table("archive.7z", max_rows=10)
+        with patch("dpg_navigator._preview_archive._py7zr", None), pytest.raises(ArchivePreviewError):
+            load_7z_table("archive.7z", max_rows=10)
