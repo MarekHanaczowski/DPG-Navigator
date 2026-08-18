@@ -19,6 +19,10 @@ All notable changes to this project will be documented in this file.
 - `THIRD_PARTY_NOTICES.md` lists bundled Icons8 assets and SPDX licenses for
   packages declared in `pyproject.toml`. The file ships in the sdist and is
   force-included in the wheel.
+- `.pre-commit-config.yaml` runs ruff, `ruff format`, and mypy from the
+  active `[dev]` environment. `pre-commit` is a `[dev]` extra on Python >= 3.9.
+- CI enforces 75% coverage on GUI-free preview loaders, VFS, and dialog logic
+  (Ubuntu 3.13 job only).
 
 ### Changed
 

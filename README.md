@@ -227,6 +227,10 @@ python -m ruff check .
 python -m ruff format --check .
 python -m mypy
 pytest
+python -m pytest -q --cov=dpg_navigator --cov-report=term-missing
+# same ruff/mypy checks as a git hook (Python >= 3.9, venv must be active)
+pre-commit install
+pre-commit run --all-files
 # opt-in real DearPyGui smoke (needs a display)
 DPG_INTEGRATION=1 pytest -m integration
 # headless Linux:

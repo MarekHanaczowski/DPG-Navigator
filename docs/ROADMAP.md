@@ -65,9 +65,15 @@ can trail the first stable release.
   excluded); CI runs `python -m mypy` on Python != 3.8/3.9. Optional-backend
   `cast(Any, None)` shims and stricter flags (`warn_return_any`,
   `disallow_any_generics`, `disallow_untyped_defs`) remain for a later pass.
-- **`pre-commit`** as the single local entry point (ruff, ruff-format, mypy),
-  and a **coverage gate** (`pytest-cov`) with a threshold for the pure-data
-  modules only — do not force a high GUI number.
+- **`pre-commit`:** **DONE.** `.pre-commit-config.yaml` runs ruff check (with
+  `--fix`), `ruff format`, and `python -m mypy` from the active `[dev]`
+  environment (`language: system`, so versions match CI). Install with
+  `pre-commit install` after `pip install -e ".[dev]"` (Python >= 3.9).
+- **Coverage gate** (`pytest-cov`): **DONE.** Report is limited to preview
+  loaders (`_preview_*.py`, not `PreviewPanel`), `vfs/`, and
+  `dialog/_logic.py` + `_state.py`. `fail_under = 75` (measured ~80% on
+  3.13). CI runs `--cov` only on the Ubuntu 3.13 job; other matrix legs stay
+  `pytest -q`. Do not raise this into a GUI/renderer target.
 
 ### 6. Supply chain & release provenance — **DONE**
 - GitHub Actions are pinned to commit SHAs, CI generates a CycloneDX SBOM, and

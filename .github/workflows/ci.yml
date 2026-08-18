@@ -57,7 +57,12 @@ jobs:
         run: python -m mypy
 
       - name: Test
+        if: ${{ matrix.python-version != '3.13' }}
         run: python -m pytest -q
+
+      - name: Test with coverage
+        if: ${{ matrix.python-version == '3.13' }}
+        run: python -m pytest -q --cov=dpg_navigator --cov-report=term-missing
 
   test-cross-platform:
     # Windows (2x) and macOS (10x) are the expensive runners. A push to main
