@@ -47,8 +47,8 @@ All notable changes to this project will be documented in this file.
   before deleting the session profile. The 30s subprocess timeout remains a
   backstop.
 - CI runs the opt-in DearPyGui smoke tests under xvfb (`continue-on-error`),
-  including Chrome HTML preview (skipped without a browser), Word HTML/text
-  switch, and oversize-archive selection.
+  installing Chrome and setting `DPG_CHROME_NO_SANDBOX=1` so HTML/Word-HTML
+  screenshots can start. Cases still skip when no browser is resolvable.
 - `requirements.txt` no longer duplicates dependency pins; it installs this
   project from `pyproject.toml`.
 - Ruff lint covers pyflakes, whitespace, isort, bugbear, pyupgrade, and

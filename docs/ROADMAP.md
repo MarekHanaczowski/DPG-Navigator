@@ -41,7 +41,9 @@ can trail the first stable release.
   - Word `.docx` HTML path vs python-docx text fallback
   - oversize archive member on OK: error status, dialog stays open, no callback
   Unit tests cover the same Word switch and archive-OK glue without DPG.
-  CI runs the suite under xvfb + software GL with `continue-on-error`.
+  CI runs the suite under xvfb + software GL with `continue-on-error`,
+  installs Chrome (`browser-actions/setup-chrome`, SHA-pinned), and sets
+  `DPG_CHROME_NO_SANDBOX=1` so headless Chrome can start on the runner.
 - **Remaining:** treat the xvfb job as a required gate once it is stable.
 - **Run locally:** `DPG_INTEGRATION=1 pytest -m integration`.
 

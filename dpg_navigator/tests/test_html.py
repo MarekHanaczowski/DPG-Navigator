@@ -79,7 +79,22 @@ class TestChromeFlags:
         assert "--disable-javascript" in flags
         assert any(item.startswith("--proxy-server=") for item in flags)
         assert "--block-new-web-contents" in flags
+        assert "--no-sandbox" not in flags
         assert ctor.call_args.kwargs["output_path"] == profile
+
+    def test_no_sandbox_when_env_set(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("DPG_CHROME_NO_SANDBOX", "1")
+        fake_hti = MagicMock()
+        fake_hti.browser._subprocess_run_kwargs = {}
+        profile = str(tmp_path / "chrome")
+        with patch.object(HTMLRenderer, "_hti", None), patch.object(HTMLRenderer, "_chrome_profile_dir", None), patch(
+            "dpg_navigator._html.tempfile.mkdtemp", return_value=profile
+        ), patch.object(htmlmod, "_Html2Image", return_value=fake_hti) as ctor:
+            HTMLRenderer._get_hti()
+        flags = ctor.call_args.kwargs["custom_flags"]
+        assert "--no-sandbox" in flags
+        assert "--disable-dev-shm-usage" in flags
+        assert "--disable-javascript" in flags
 
 
 class TestInjectHelpers:

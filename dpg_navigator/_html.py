@@ -106,6 +106,30 @@ _chrome_owner = threading.local()
 _chromium_run_patched = False
 
 
+def _chrome_custom_flags(profile_dir: str) -> list[str]:
+    """Flags for untrusted HTML: JS off, no network, isolated profile.
+
+    ``DPG_CHROME_NO_SANDBOX=1`` adds ``--no-sandbox`` and
+    ``--disable-dev-shm-usage`` for CI/containers where the sandbox cannot
+    start. Not the default — those flags weaken process isolation.
+    """
+    flags = [
+        "--hide-scrollbars",
+        "--force-device-scale-factor=1",
+        "--disable-gpu",
+        "--log-level=3",
+        # JS off: untrusted HTML must not run. The injected
+        # overflow marker is therefore a no-op (see A06).
+        "--disable-javascript",
+        '--proxy-server="http://127.0.0.1:0"',
+        "--block-new-web-contents",
+        f"--user-data-dir={profile_dir}",
+    ]
+    if os.environ.get("DPG_CHROME_NO_SANDBOX") == "1":
+        flags.extend(["--no-sandbox", "--disable-dev-shm-usage"])
+    return flags
+
+
 class _ChromeCancelled(Exception):
     """Raised when a screenshot is aborted because the preview closed."""
 
@@ -463,18 +487,7 @@ class HTMLRenderer:
                     cls._chrome_profile_dir = profile_dir
                     cls._hti = html2image(
                         output_path=profile_dir,
-                        custom_flags=[
-                            "--hide-scrollbars",
-                            "--force-device-scale-factor=1",
-                            "--disable-gpu",
-                            "--log-level=3",
-                            # JS off: untrusted HTML must not run. The injected
-                            # overflow marker is therefore a no-op (see A06).
-                            "--disable-javascript",
-                            '--proxy-server="http://127.0.0.1:0"',
-                            "--block-new-web-contents",
-                            f"--user-data-dir={profile_dir}",
-                        ],
+                        custom_flags=_chrome_custom_flags(profile_dir),
                         disable_logging=True,
                     )
                     # html2image has no timeout; our Popen hook honors this
