@@ -47,9 +47,10 @@ All notable changes to this project will be documented in this file.
   before deleting the session profile. The 30s subprocess timeout remains a
   backstop.
 - CI runs the opt-in DearPyGui smoke tests under xvfb (`continue-on-error`),
-  installing Chrome and setting `DPG_CHROME_NO_SANDBOX=1` so HTML/Word-HTML
-  screenshots can start. Cases still skip when no browser is resolvable.
-  The xvfb job passes `DPG_CHROME_BIN` from `setup-chrome`'s `chrome-path`.
+  installing Chrome and `chrome-headless-shell`, and setting
+  `DPG_CHROME_NO_SANDBOX=1` so HTML/Word-HTML screenshots can start. Cases still
+  skip when no browser is resolvable. The xvfb job points html2image at
+  `chrome-headless-shell` via `DPG_CHROME_BIN`.
 - `requirements.txt` no longer duplicates dependency pins; it installs this
   project from `pyproject.toml`.
 - Ruff lint covers pyflakes, whitespace, isort, bugbear, pyupgrade, and
@@ -65,9 +66,12 @@ All notable changes to this project will be documented in this file.
 
 - HTML preview Chrome flags: the dead proxy is unquoted
   `--proxy-server=http://127.0.0.1:1` (quoted `127.0.0.1:0` can hang the
-  screenshot on POSIX). CI/`DPG_CHROME_NO_SANDBOX` also passes `--no-zygote`
-  and `--disable-setuid-sandbox`. html2image is forced to `--headless=new`.
-  Integration smokes wait past the 30s Chrome subprocess timeout.
+  screenshot on POSIX). `file://` HTML bypasses that proxy
+  (`--proxy-bypass-list=<-loopback>`). CI/`DPG_CHROME_NO_SANDBOX` adds
+  `--no-zygote` and skips `--disable-gpu`. The xvfb job runs
+  `chrome-headless-shell` because full Chrome for Testing hangs on
+  html2image's `--screenshot` CLI. Integration smokes wait past the 30s
+  Chrome subprocess timeout.
 - Sidebar drive lists are applied on the DearPyGui thread via a frame
   callback, not from a worker inside `dpg.mutex()`, so two dialogs no longer
   segfault under xvfb during `render_dearpygui_frame`.

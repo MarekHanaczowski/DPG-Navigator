@@ -17,6 +17,7 @@ from dpg_navigator._html import (
     _CHROME_TIMEOUT,
     HTMLRenderer,
     _inject_helpers,
+    _is_headless_shell,
     _resolve_chrome_executable,
     chrome_available,
     html_available,
@@ -82,13 +83,15 @@ class TestChromeFlags:
         flags = ctor.call_args.kwargs["custom_flags"]
         assert "--disable-javascript" in flags
         assert "--proxy-server=http://127.0.0.1:1" in flags
+        assert "--proxy-bypass-list=<-loopback>" in flags
         assert not any('"' in item for item in flags if item.startswith("--proxy-server="))
         assert "--block-new-web-contents" in flags
+        assert "--disable-gpu" in flags
         assert "--no-sandbox" not in flags
         assert "--no-zygote" not in flags
         assert "browser_executable" not in ctor.call_args.kwargs
         assert ctor.call_args.kwargs["output_path"] == profile
-        assert fake_hti.browser.use_new_headless is True
+        assert ctor.call_args.kwargs["disable_logging"] is True
 
     def test_no_sandbox_when_env_set(self, tmp_path, monkeypatch):
         monkeypatch.setenv("DPG_CHROME_NO_SANDBOX", "1")
@@ -104,7 +107,10 @@ class TestChromeFlags:
         assert "--disable-setuid-sandbox" in flags
         assert "--disable-dev-shm-usage" in flags
         assert "--no-zygote" in flags
+        assert "--virtual-time-budget=10000" in flags
+        assert "--disable-gpu" not in flags
         assert "--disable-javascript" in flags
+        assert ctor.call_args.kwargs["disable_logging"] is False
 
     def test_browser_executable_from_env(self, tmp_path, monkeypatch):
         chrome = tmp_path / "chrome-bin"
@@ -118,6 +124,20 @@ class TestChromeFlags:
         ), patch.object(htmlmod, "_Html2Image", return_value=fake_hti) as ctor:
             HTMLRenderer._get_hti()
         assert ctor.call_args.kwargs["browser_executable"] == str(chrome)
+
+    def test_headless_shell_keeps_plain_headless_flag(self, tmp_path, monkeypatch):
+        chrome = tmp_path / "chrome-headless-shell"
+        chrome.write_bytes(b"")
+        monkeypatch.setenv("DPG_CHROME_BIN", str(chrome))
+        fake_hti = MagicMock()
+        fake_hti.browser._subprocess_run_kwargs = {}
+        fake_hti.browser.use_new_headless = True
+        profile = str(tmp_path / "profile")
+        with patch.object(HTMLRenderer, "_hti", None), patch.object(HTMLRenderer, "_chrome_profile_dir", None), patch(
+            "dpg_navigator._html.tempfile.mkdtemp", return_value=profile
+        ), patch.object(htmlmod, "_Html2Image", return_value=fake_hti):
+            HTMLRenderer._get_hti()
+        assert fake_hti.browser.use_new_headless is None
 
 
 class TestResolveChromeExecutable:
@@ -135,6 +155,13 @@ class TestResolveChromeExecutable:
         monkeypatch.delenv("CHROME_BIN", raising=False)
         monkeypatch.delenv("CHROME_PATH", raising=False)
         assert _resolve_chrome_executable() is None
+
+
+class TestIsHeadlessShell:
+    def test_matches_basename(self):
+        assert _is_headless_shell("/opt/chrome-headless-shell") is True
+        assert _is_headless_shell("/opt/hostedtoolcache/chrome") is False
+        assert _is_headless_shell(None) is False
 
 
 class TestInjectHelpers:

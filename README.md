@@ -178,8 +178,9 @@ fd = FileDialog(callback=on_select, config=config)
 - **Memory efficiency** — LRU texture caching and background indexing for deep searches.
 - **Untrusted HTML** — HTML, Markdown, and Word HTML previews are rendered by a
   headless Chrome subprocess. JavaScript is disabled (`--disable-javascript`)
-  and outbound network access is blocked (`--proxy-server=http://127.0.0.1:1`,
-  `--block-new-web-contents`). Width overflow detection still injects a JS
+  and outbound network access is blocked (`--proxy-server=http://127.0.0.1:1`
+  with `--proxy-bypass-list=<-loopback>` so `file://` preview HTML is not
+  proxied, `--block-new-web-contents`). Width overflow detection still injects a JS
   marker, which does not run while JS is off, so very wide documents may not
   trigger a second screenshot. Local `file:` URLs are stripped from HTML before
   render. Preview only content you trust.

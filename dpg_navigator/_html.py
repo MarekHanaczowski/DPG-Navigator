@@ -126,26 +126,36 @@ def _resolve_chrome_executable() -> str | None:
     return None
 
 
+def _is_headless_shell(executable: str | None) -> bool:
+    """Return True if *executable* is Chrome's old-headless screenshot binary."""
+    if not executable:
+        return False
+    return "headless-shell" in os.path.basename(executable).lower()
+
+
 def _chrome_custom_flags(profile_dir: str) -> list[str]:
     """Flags for untrusted HTML: JS off, no network, isolated profile.
 
     The dead proxy is ``127.0.0.1:1`` without extra quotes: a quoted value
     becomes part of argv on POSIX, and port 0 can stall connect(). Port 1
     is almost always connection-refused, so subresource loads fail fast.
+    ``--proxy-bypass-list=<-loopback>`` keeps ``file://`` (html2image temp
+    HTML) off that proxy; otherwise Linux can wait the full TCP timeout.
 
     ``DPG_CHROME_NO_SANDBOX=1`` adds container flags (``--no-sandbox``,
     ``--no-zygote``, …) for CI where the sandbox cannot start. Not the
-    default — those flags weaken process isolation.
+    default — those flags weaken process isolation. ``--disable-gpu`` is
+    omitted there: it hangs ``--screenshot`` on Chrome for Testing + xvfb.
     """
     flags = [
         "--hide-scrollbars",
         "--force-device-scale-factor=1",
-        "--disable-gpu",
         "--log-level=3",
         # JS off: untrusted HTML must not run. The injected
         # overflow marker is therefore a no-op (see A06).
         "--disable-javascript",
         "--proxy-server=http://127.0.0.1:1",
+        "--proxy-bypass-list=<-loopback>",
         "--block-new-web-contents",
         f"--user-data-dir={profile_dir}",
         f"--crash-dumps-dir={profile_dir}",
@@ -158,8 +168,11 @@ def _chrome_custom_flags(profile_dir: str) -> list[str]:
                 "--disable-dev-shm-usage",
                 "--no-zygote",
                 "--no-first-run",
+                "--virtual-time-budget=10000",
             ]
         )
+    else:
+        flags.insert(2, "--disable-gpu")
     return flags
 
 
@@ -244,7 +257,11 @@ def _chrome_popen_run(
         try:
             stdout, stderr = proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
-            _log.warning("Chrome screenshot timed out after %.0fs", timeout)
+            _log.warning(
+                "Chrome screenshot timed out after %.0fs (%s)",
+                timeout,
+                command[0] if isinstance(command, list) and command else command,
+            )
             _kill_process_tree(proc)
             try:
                 proc.communicate(timeout=2.0)
@@ -525,18 +542,22 @@ class HTMLRenderer:
                     hti_kwargs: dict[str, Any] = {
                         "output_path": profile_dir,
                         "custom_flags": _chrome_custom_flags(profile_dir),
-                        "disable_logging": True,
+                        # CI: keep Chrome stderr so a hung screenshot is diagnosable.
+                        "disable_logging": os.environ.get("DPG_CHROME_NO_SANDBOX") != "1",
                     }
                     chrome_bin = _resolve_chrome_executable()
                     if chrome_bin is not None:
                         hti_kwargs["browser_executable"] = chrome_bin
                     cls._hti = html2image(**hti_kwargs)
-                    # Old ``--headless`` can hang on Chrome for Testing; html2image
-                    # defaults to that unless use_new_headless is set.
-                    try:
-                        cls._hti.browser.use_new_headless = True
-                    except (AttributeError, TypeError):  # pragma: no cover
-                        pass
+                    # html2image drives the ``--screenshot`` CLI (old headless).
+                    # ``--headless=new`` on full Chrome for Testing hangs; the
+                    # chrome-headless-shell binary wants plain ``--headless``.
+                    exe = chrome_bin or str(getattr(cls._hti.browser, "executable", "") or "")
+                    if _is_headless_shell(exe):
+                        try:
+                            cls._hti.browser.use_new_headless = None
+                        except (AttributeError, TypeError):  # pragma: no cover
+                            pass
                     # html2image has no timeout; our Popen hook honors this
                     # value and close()/shutdown_shared() can kill earlier.
                     try:

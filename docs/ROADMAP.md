@@ -44,8 +44,9 @@ can trail the first stable release.
   CI runs the suite under xvfb + software GL with `continue-on-error`,
   installs Chrome (`browser-actions/setup-chrome`, SHA-pinned), sets
   `DPG_CHROME_NO_SANDBOX=1` (including `--no-zygote`) so headless Chrome can
-  start on the runner, and points html2image at that binary via
-  `DPG_CHROME_BIN`. Sidebar drive widgets are applied on the DPG thread
+  start on the runner, and points html2image at `chrome-headless-shell`
+  (Chrome for Testing package; the full `chrome` binary hangs on the
+  `--screenshot` CLI). Sidebar drive widgets are applied on the DPG thread
   (frame callback) so two live dialogs do not segfault under xvfb.
 - **Remaining:** treat the xvfb job as a required gate once it is stable.
 - **Run locally:** `DPG_INTEGRATION=1 pytest -m integration`.

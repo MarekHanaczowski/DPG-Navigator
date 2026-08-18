@@ -135,6 +135,26 @@ jobs:
           chrome-version: stable
           install-dependencies: true
 
+      # html2image uses Chrome's ``--screenshot`` CLI (old headless). Full
+      # Chrome for Testing hangs on that path; chrome-headless-shell is the
+      # matching binary from Chrome for Testing.
+      - name: Install chrome-headless-shell
+        env:
+          CHROME_VERSION: ${{ steps.setup-chrome.outputs.chrome-version }}
+        run: |
+          set -euo pipefail
+          ver=$(echo "$CHROME_VERSION" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
+          dest="${RUNNER_TEMP}/chrome-headless-shell"
+          mkdir -p "$dest"
+          curl -fsSL -o "${RUNNER_TEMP}/chrome-headless-shell.zip" \
+            "https://storage.googleapis.com/chrome-for-testing-public/${ver}/linux64/chrome-headless-shell-linux64.zip"
+          unzip -q "${RUNNER_TEMP}/chrome-headless-shell.zip" -d "$dest"
+          bin=$(find "$dest" -type f -name chrome-headless-shell | head -n 1)
+          test -n "$bin"
+          chmod +x "$bin"
+          echo "DPG_CHROME_BIN=${bin}" >> "$GITHUB_ENV"
+          "$bin" --version
+
       - name: Install development dependencies
         run: python -m pip install -e ".[dev]"
 
@@ -143,7 +163,6 @@ jobs:
           DPG_INTEGRATION: "1"
           LIBGL_ALWAYS_SOFTWARE: "1"
           DPG_CHROME_NO_SANDBOX: "1"
-          DPG_CHROME_BIN: ${{ steps.setup-chrome.outputs.chrome-path }}
         run: xvfb-run -a python -m pytest -m integration -q --tb=short
 
   audit:
