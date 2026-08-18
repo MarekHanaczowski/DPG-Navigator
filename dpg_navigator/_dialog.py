@@ -102,6 +102,8 @@ class FileDialog(KeyboardMixin):
     ui: DialogUIBuilder
     _preview_btn: int | str | None = None
     _new_folder_group: int | str | None = None
+    _pending_sidebar_drives: tuple[str, list[str]] | None
+    _awaiting_sidebar_drives: bool
 
     _DEFAULT_IMAGE_TRANSPARENCY: int = 100
     """Alpha value (0-255) for hidden file icon tinting."""
@@ -127,6 +129,9 @@ class FileDialog(KeyboardMixin):
     _size_theme: Any = None
     _status_label: Any = None
     _subfolder_checkbox: Any = None
+    # Drive lists computed on a worker; widget updates run on the DPG thread.
+    _sidebar_poll_targets: list[FileDialog] = []
+    _sidebar_poll_armed: bool = False
 
     @overload
     def __init__(
@@ -169,6 +174,8 @@ class FileDialog(KeyboardMixin):
 
         self._callback = callback
         self._destroyed = False
+        self._pending_sidebar_drives: tuple[str, list[str]] | None = None
+        self._awaiting_sidebar_drives = False
         self.state = DialogState()
 
         # Resolve default_path at runtime (not at import time)
@@ -334,16 +341,68 @@ class FileDialog(KeyboardMixin):
         """Show the file dialog window and navigate to default directory."""
         self.logic.navigate_to(self.state.current_dir)
         dpg.show_item(self._config.tag)
+        self._apply_pending_sidebar_drives()
 
     def hide(self) -> None:
         """Hide the file dialog window."""
         dpg.hide_item(self._config.tag)
+
+    def _arm_sidebar_drive_poll(self) -> None:
+        """Schedule a main-thread poll so drive widgets are not built on a worker."""
+        self._awaiting_sidebar_drives = True
+        if self not in FileDialog._sidebar_poll_targets:
+            FileDialog._sidebar_poll_targets.append(self)
+        FileDialog._schedule_sidebar_poll()
+
+    def _apply_pending_sidebar_drives(self) -> None:
+        """Apply a worker-computed drive list. Must run on the DPG thread."""
+        if self._destroyed:
+            return
+        pending = self._pending_sidebar_drives
+        if pending is None:
+            return
+        self._pending_sidebar_drives = None
+        self._awaiting_sidebar_drives = False
+        sidebar_tag, drives = pending
+        if dpg.does_item_exist(sidebar_tag):
+            self._sidebar.update_drives(drives)
+
+    @classmethod
+    def _schedule_sidebar_poll(cls) -> None:
+        if cls._sidebar_poll_armed:
+            return
+        cls._sidebar_poll_armed = True
+        try:
+            dpg.set_frame_callback(int(dpg.get_frame_count()) + 1, cls._poll_sidebar_drives)
+        except Exception:
+            cls._sidebar_poll_armed = False
+
+    @classmethod
+    def _poll_sidebar_drives(cls) -> None:
+        """Drain pending sidebar updates between frames (DPG thread)."""
+        cls._sidebar_poll_armed = False
+        remaining: list[FileDialog] = []
+        for dialog in cls._sidebar_poll_targets:
+            if dialog._destroyed:
+                continue
+            dialog._apply_pending_sidebar_drives()
+            if not dialog._destroyed and dialog._awaiting_sidebar_drives:
+                remaining.append(dialog)
+        cls._sidebar_poll_targets = remaining
+        if remaining:
+            cls._schedule_sidebar_poll()
 
     def destroy(self) -> None:
         """Release all DPG resources (textures, handlers, windows, themes)."""
         if self._destroyed:
             return
         self._destroyed = True
+        self._awaiting_sidebar_drives = False
+        self._pending_sidebar_drives = None
+        try:
+            FileDialog._sidebar_poll_targets.remove(self)
+        except ValueError:
+            pass
         self.logic.cancel_background_tasks()
         self._preview.destroy()
         self._icons.destroy()

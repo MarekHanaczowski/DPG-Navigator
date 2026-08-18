@@ -54,10 +54,11 @@ class TestSidebarDriveLoading:
             builder._load_sidebar_drives,
             "dialog_shortcut_menu",
         )
+        builder.dialog._arm_sidebar_drive_poll.assert_called_once()
         builder.dialog._sidebar.render.assert_called_once()
         assert builder.dialog._sidebar.render.call_args.kwargs["drives"] == []
 
-    def test_delayed_drive_result_updates_sidebar(self):
+    def test_delayed_drive_result_is_stored_not_applied(self):
         builder = DialogUIBuilder.__new__(DialogUIBuilder)
         builder.dialog = MagicMock()
         builder.dialog._destroyed = False
@@ -71,11 +72,56 @@ class TestSidebarDriveLoading:
             "dpg_navigator.dialog._ui.get_drives",
             side_effect=delayed_drives,
         ), patch("dpg_navigator.dialog._ui.dpg") as mock_dpg:
-            mock_dpg.does_item_exist.return_value = True
-            mock_dpg.mutex.return_value = MagicMock()
             builder._load_sidebar_drives("dialog_shortcut_menu")
 
-        builder.dialog._sidebar.update_drives.assert_called_once_with(["/slow-network-mount"])
+        mock_dpg.mutex.assert_not_called()
+        builder.dialog._sidebar.update_drives.assert_not_called()
+        assert builder.dialog._pending_sidebar_drives == (
+            "dialog_shortcut_menu",
+            ["/slow-network-mount"],
+        )
+
+
+class TestSidebarDrivePoll:
+    def teardown_method(self):
+        FileDialog._sidebar_poll_targets = []
+        FileDialog._sidebar_poll_armed = False
+
+    def test_apply_updates_sidebar_on_main_thread(self):
+        dialog = FileDialog.__new__(FileDialog)
+        dialog._destroyed = False
+        dialog._pending_sidebar_drives = ("tag", ["/mnt"])
+        dialog._awaiting_sidebar_drives = True
+        dialog._sidebar = MagicMock()
+        with patch("dpg_navigator._dialog.dpg") as mock_dpg:
+            mock_dpg.does_item_exist.return_value = True
+            dialog._apply_pending_sidebar_drives()
+        dialog._sidebar.update_drives.assert_called_once_with(["/mnt"])
+        assert dialog._awaiting_sidebar_drives is False
+        assert dialog._pending_sidebar_drives is None
+
+    def test_poll_reschedules_while_waiting(self):
+        dialog = FileDialog.__new__(FileDialog)
+        dialog._destroyed = False
+        dialog._pending_sidebar_drives = None
+        dialog._awaiting_sidebar_drives = True
+        FileDialog._sidebar_poll_targets = [dialog]
+        FileDialog._sidebar_poll_armed = True
+        with patch("dpg_navigator._dialog.dpg") as mock_dpg:
+            mock_dpg.get_frame_count.return_value = 4
+            FileDialog._poll_sidebar_drives()
+        mock_dpg.set_frame_callback.assert_called_once()
+        assert FileDialog._sidebar_poll_targets == [dialog]
+        assert FileDialog._sidebar_poll_armed is True
+
+    def test_arm_is_a_no_op_when_already_scheduled(self):
+        dialog = FileDialog.__new__(FileDialog)
+        dialog._destroyed = False
+        FileDialog._sidebar_poll_armed = True
+        with patch("dpg_navigator._dialog.dpg") as mock_dpg:
+            dialog._arm_sidebar_drive_poll()
+        mock_dpg.set_frame_callback.assert_not_called()
+        assert dialog in FileDialog._sidebar_poll_targets
 
 
 # ── Path traversal validation ───────────────────────────────────

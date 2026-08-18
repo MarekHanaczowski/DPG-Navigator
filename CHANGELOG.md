@@ -68,6 +68,9 @@ All notable changes to this project will be documented in this file.
   screenshot on POSIX). CI/`DPG_CHROME_NO_SANDBOX` also passes `--no-zygote`
   and `--disable-setuid-sandbox`. html2image is forced to `--headless=new`.
   Integration smokes wait past the 30s Chrome subprocess timeout.
+- Sidebar drive lists are applied on the DearPyGui thread via a frame
+  callback, not from a worker inside `dpg.mutex()`, so two dialogs no longer
+  segfault under xvfb during `render_dearpygui_frame`.
 - Text preview binary/UTF-16 detection now inspects real BOM and NUL bytes
   instead of escaped ASCII lookalikes, so UTF-16 files decode and binary files
   are no longer shown as cp1250 garbage.

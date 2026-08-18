@@ -177,8 +177,14 @@ class DialogUIBuilder:
                 custom_dirs=self.config.custom_dirs,
             )
         JobManager.submit(self._load_sidebar_drives, sidebar_tag)
+        self.dialog._arm_sidebar_drive_poll()
 
     def _load_sidebar_drives(self, sidebar_tag: str) -> None:
+        """Enumerate drives off the DPG thread; only store a plain Python result.
+
+        Rebuilding sidebar tables from a worker (even inside ``dpg.mutex()``)
+        races ``render_dearpygui_frame`` and can segfault under xvfb.
+        """
         try:
             drives = get_drives()
         except Exception:
@@ -186,10 +192,7 @@ class DialogUIBuilder:
             drives = []
         if self.dialog._destroyed:
             return
-        with dpg.mutex():
-            if self.dialog._destroyed or not dpg.does_item_exist(sidebar_tag):
-                return
-            self.dialog._sidebar.update_drives(drives)
+        self.dialog._pending_sidebar_drives = (sidebar_tag, drives)
 
     def _build_explorer_area(self, info_px: int) -> None:
         """Build the main explorer area: toolbar, search, table, preview."""
