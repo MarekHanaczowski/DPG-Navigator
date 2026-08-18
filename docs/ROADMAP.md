@@ -29,7 +29,7 @@ can trail the first stable release.
 - **Remaining (optional):** an explicit HTML/Office pixel budget beyond the
   existing `_MAX_RENDER_W`/`_RENDER_H` caps, if a real case needs it.
 
-### 3. Integration smoke tests (real DPG + optional backends) — **PARTIAL**
+### 3. Integration smoke tests (real DPG + optional backends) — **DONE**
 - **Done:** verified lifecycle/concurrency tests that drive the real
   `DirectoryIndex` build + `FileDialog` background-index thread against a real
   temp filesystem (generation cancellation, thread settle, no leak) —
@@ -37,18 +37,18 @@ can trail the first stable release.
   the `integration` marker, an env-gated `tests/integration/` (not collected
   unless `DPG_INTEGRATION=1`). Coverage:
   - construct → render frames → destroy (window gone, threads settle)
+  - two default dialogs get distinct tags without segfault
   - Chrome HTML preview (skipped when no browser binary)
   - Word `.docx` HTML path vs python-docx text fallback
   - oversize archive member on OK: error status, dialog stays open, no callback
   Unit tests cover the same Word switch and archive-OK glue without DPG.
-  CI runs the suite under xvfb + software GL with `continue-on-error`,
-  installs Chrome (`browser-actions/setup-chrome`, SHA-pinned), sets
+  CI runs the suite under xvfb + software GL as a **required** job, installs
+  Chrome (`browser-actions/setup-chrome`, SHA-pinned), sets
   `DPG_CHROME_NO_SANDBOX=1` (including `--no-zygote`) so headless Chrome can
   start on the runner, and points html2image at `chrome-headless-shell`
   (Chrome for Testing package; the full `chrome` binary hangs on the
   `--screenshot` CLI). Sidebar drive widgets are applied on the DPG thread
   (frame callback) so two live dialogs do not segfault under xvfb.
-- **Remaining:** treat the xvfb job as a required gate once it is stable.
 - **Run locally:** `DPG_INTEGRATION=1 pytest -m integration`.
 
 ## P2 — quality / maturity

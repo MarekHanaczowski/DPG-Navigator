@@ -46,7 +46,7 @@ All notable changes to this project will be documented in this file.
   preview's browser tree, and last `FileDialog.destroy()` kills any leftover
   before deleting the session profile. The 30s subprocess timeout remains a
   backstop.
-- CI runs the opt-in DearPyGui smoke tests under xvfb (`continue-on-error`),
+- CI runs the opt-in DearPyGui smoke tests under xvfb as a required PR gate,
   installing Chrome and `chrome-headless-shell`, and setting
   `DPG_CHROME_NO_SANDBOX=1` so HTML/Word-HTML screenshots can start. Cases still
   skip when no browser is resolvable. The xvfb job points html2image at

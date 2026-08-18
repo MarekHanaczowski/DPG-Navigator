@@ -106,13 +106,10 @@ jobs:
         run: python -m pytest -q
 
   integration:
-    # Real DearPyGui needs a display. xvfb + software GL is the Linux stand-in;
-    # import can still segfault in a sandboxed runner, so this job is
-    # informational and must not block the unit-test gate.
+    # Real DearPyGui needs a display. xvfb + software GL is the Linux stand-in.
     name: DearPyGui smoke (xvfb)
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    continue-on-error: true
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
 
