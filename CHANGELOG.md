@@ -49,6 +49,7 @@ All notable changes to this project will be documented in this file.
 - CI runs the opt-in DearPyGui smoke tests under xvfb (`continue-on-error`),
   installing Chrome and setting `DPG_CHROME_NO_SANDBOX=1` so HTML/Word-HTML
   screenshots can start. Cases still skip when no browser is resolvable.
+  The xvfb job passes `DPG_CHROME_BIN` from `setup-chrome`'s `chrome-path`.
 - `requirements.txt` no longer duplicates dependency pins; it installs this
   project from `pyproject.toml`.
 - Ruff lint covers pyflakes, whitespace, isort, bugbear, pyupgrade, and
@@ -62,6 +63,11 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- HTML preview Chrome flags: the dead proxy is unquoted
+  `--proxy-server=http://127.0.0.1:1` (quoted `127.0.0.1:0` can hang the
+  screenshot on POSIX). CI/`DPG_CHROME_NO_SANDBOX` also passes `--no-zygote`
+  and `--disable-setuid-sandbox`. html2image is forced to `--headless=new`.
+  Integration smokes wait past the 30s Chrome subprocess timeout.
 - Text preview binary/UTF-16 detection now inspects real BOM and NUL bytes
   instead of escaped ASCII lookalikes, so UTF-16 files decode and binary files
   are no longer shown as cp1250 garbage.

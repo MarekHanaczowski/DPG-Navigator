@@ -106,12 +106,36 @@ _chrome_owner = threading.local()
 _chromium_run_patched = False
 
 
+def _resolve_chrome_executable() -> str | None:
+    """Return an explicit Chrome binary from the environment, if set.
+
+    html2image only honors ``CHROME_BIN`` when a separate toggle var is set.
+    CI and hosts can pass ``DPG_CHROME_BIN`` (preferred), ``CHROME_BIN``, or
+    ``CHROME_PATH`` instead.
+    """
+    for key in ("DPG_CHROME_BIN", "CHROME_BIN", "CHROME_PATH"):
+        raw = os.environ.get(key)
+        if not raw:
+            continue
+        path = os.path.expanduser(raw.strip())
+        if os.path.isfile(path):
+            return path
+        located = shutil.which(path)
+        if located:
+            return located
+    return None
+
+
 def _chrome_custom_flags(profile_dir: str) -> list[str]:
     """Flags for untrusted HTML: JS off, no network, isolated profile.
 
-    ``DPG_CHROME_NO_SANDBOX=1`` adds ``--no-sandbox`` and
-    ``--disable-dev-shm-usage`` for CI/containers where the sandbox cannot
-    start. Not the default — those flags weaken process isolation.
+    The dead proxy is ``127.0.0.1:1`` without extra quotes: a quoted value
+    becomes part of argv on POSIX, and port 0 can stall connect(). Port 1
+    is almost always connection-refused, so subresource loads fail fast.
+
+    ``DPG_CHROME_NO_SANDBOX=1`` adds container flags (``--no-sandbox``,
+    ``--no-zygote``, …) for CI where the sandbox cannot start. Not the
+    default — those flags weaken process isolation.
     """
     flags = [
         "--hide-scrollbars",
@@ -121,12 +145,21 @@ def _chrome_custom_flags(profile_dir: str) -> list[str]:
         # JS off: untrusted HTML must not run. The injected
         # overflow marker is therefore a no-op (see A06).
         "--disable-javascript",
-        '--proxy-server="http://127.0.0.1:0"',
+        "--proxy-server=http://127.0.0.1:1",
         "--block-new-web-contents",
         f"--user-data-dir={profile_dir}",
+        f"--crash-dumps-dir={profile_dir}",
     ]
     if os.environ.get("DPG_CHROME_NO_SANDBOX") == "1":
-        flags.extend(["--no-sandbox", "--disable-dev-shm-usage"])
+        flags.extend(
+            [
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--no-zygote",
+                "--no-first-run",
+            ]
+        )
     return flags
 
 
@@ -211,8 +244,12 @@ def _chrome_popen_run(
         try:
             stdout, stderr = proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
+            _log.warning("Chrome screenshot timed out after %.0fs", timeout)
             _kill_process_tree(proc)
-            stdout, stderr = proc.communicate()
+            try:
+                proc.communicate(timeout=2.0)
+            except Exception:
+                pass
             raise
         return subprocess.CompletedProcess(command, proc.returncode, stdout, stderr)
     finally:
@@ -485,11 +522,21 @@ class HTMLRenderer:
                 if cls._hti is None:
                     profile_dir = tempfile.mkdtemp(prefix="dpg_nav_chrome_")
                     cls._chrome_profile_dir = profile_dir
-                    cls._hti = html2image(
-                        output_path=profile_dir,
-                        custom_flags=_chrome_custom_flags(profile_dir),
-                        disable_logging=True,
-                    )
+                    hti_kwargs: dict[str, Any] = {
+                        "output_path": profile_dir,
+                        "custom_flags": _chrome_custom_flags(profile_dir),
+                        "disable_logging": True,
+                    }
+                    chrome_bin = _resolve_chrome_executable()
+                    if chrome_bin is not None:
+                        hti_kwargs["browser_executable"] = chrome_bin
+                    cls._hti = html2image(**hti_kwargs)
+                    # Old ``--headless`` can hang on Chrome for Testing; html2image
+                    # defaults to that unless use_new_headless is set.
+                    try:
+                        cls._hti.browser.use_new_headless = True
+                    except (AttributeError, TypeError):  # pragma: no cover
+                        pass
                     # html2image has no timeout; our Popen hook honors this
                     # value and close()/shutdown_shared() can kill earlier.
                     try:

@@ -12,13 +12,17 @@ from unittest.mock import patch
 import dearpygui.dearpygui as dpg
 import pytest
 
-from dpg_navigator._html import chrome_available
+from dpg_navigator._html import _CHROME_TIMEOUT, chrome_available
 from dpg_navigator._preview_registry import PreviewKind
 from dpg_navigator._preview_word import word_available
 
 from .dpg_harness import entry_named, make_dialog, pump, wait_until
 
 pytestmark = pytest.mark.integration
+
+# Allow the 30s Chrome Popen timeout to fire and the worker to set status
+# before the wait expires (previous 25s wait lost the race to the hang).
+_HTML_RENDER_WAIT = _CHROME_TIMEOUT + 15.0
 
 
 def _document_renderer(dialog, kind=PreviewKind.HTML):
@@ -40,7 +44,7 @@ class TestChromeHtmlPreview:
             dialog._preview.update(entry_named(dialog, "page.html"))
             html = _document_renderer(dialog)._html
             assert html is not None
-            assert wait_until(lambda: not html.is_rendering, timeout=25)
+            assert wait_until(lambda: not html.is_rendering, timeout=_HTML_RENDER_WAIT)
             assert "fail" not in html.status_text.lower()
             assert html.tex_id is not None
         finally:
@@ -92,7 +96,7 @@ class TestWordPreviewSwitch:
             html = renderer._html
             if html is None:
                 pytest.skip("mammoth+Chrome Word path not selected in this environment")
-            assert wait_until(lambda: not html.is_rendering, timeout=25)
+            assert wait_until(lambda: not html.is_rendering, timeout=_HTML_RENDER_WAIT)
             assert html.is_open
             assert "fail" not in html.status_text.lower()
         finally:

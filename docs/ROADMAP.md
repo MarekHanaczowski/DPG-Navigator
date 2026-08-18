@@ -42,8 +42,10 @@ can trail the first stable release.
   - oversize archive member on OK: error status, dialog stays open, no callback
   Unit tests cover the same Word switch and archive-OK glue without DPG.
   CI runs the suite under xvfb + software GL with `continue-on-error`,
-  installs Chrome (`browser-actions/setup-chrome`, SHA-pinned), and sets
-  `DPG_CHROME_NO_SANDBOX=1` so headless Chrome can start on the runner.
+  installs Chrome (`browser-actions/setup-chrome`, SHA-pinned), sets
+  `DPG_CHROME_NO_SANDBOX=1` (including `--no-zygote`) so headless Chrome can
+  start on the runner, and points html2image at that binary via
+  `DPG_CHROME_BIN`.
 - **Remaining:** treat the xvfb job as a required gate once it is stable.
 - **Run locally:** `DPG_INTEGRATION=1 pytest -m integration`.
 

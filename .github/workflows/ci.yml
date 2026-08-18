@@ -129,6 +129,7 @@ jobs:
 
       # html2image needs a real Chrome/Chromium, not the Ubuntu snap stub.
       - name: Install Chrome for HTML preview smoke
+        id: setup-chrome
         uses: browser-actions/setup-chrome@48ad923757ca74d66703209fe939badbdf80f2f4  # v2.2.0
         with:
           chrome-version: stable
@@ -138,10 +139,12 @@ jobs:
         run: python -m pip install -e ".[dev]"
 
       - name: Integration smoke
-        run: |
-          xvfb-run -a env DPG_INTEGRATION=1 LIBGL_ALWAYS_SOFTWARE=1 \
-            DPG_CHROME_NO_SANDBOX=1 \
-            python -m pytest -m integration -q --tb=short
+        env:
+          DPG_INTEGRATION: "1"
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          DPG_CHROME_NO_SANDBOX: "1"
+          DPG_CHROME_BIN: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: xvfb-run -a python -m pytest -m integration -q --tb=short
 
   audit:
     name: Dependency audit

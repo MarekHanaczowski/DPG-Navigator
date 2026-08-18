@@ -17,6 +17,7 @@ from dpg_navigator._html import (
     _CHROME_TIMEOUT,
     HTMLRenderer,
     _inject_helpers,
+    _resolve_chrome_executable,
     chrome_available,
     html_available,
 )
@@ -67,7 +68,10 @@ class TestChromeAvailable:
 class TestChromeFlags:
     """Production Chrome flags disable JS and block network."""
 
-    def test_disable_javascript_and_dead_proxy(self, tmp_path):
+    def test_disable_javascript_and_dead_proxy(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("DPG_CHROME_BIN", raising=False)
+        monkeypatch.delenv("CHROME_BIN", raising=False)
+        monkeypatch.delenv("CHROME_PATH", raising=False)
         fake_hti = MagicMock()
         fake_hti.browser._subprocess_run_kwargs = {}
         profile = str(tmp_path / "chrome")
@@ -77,10 +81,14 @@ class TestChromeFlags:
             HTMLRenderer._get_hti()
         flags = ctor.call_args.kwargs["custom_flags"]
         assert "--disable-javascript" in flags
-        assert any(item.startswith("--proxy-server=") for item in flags)
+        assert "--proxy-server=http://127.0.0.1:1" in flags
+        assert not any('"' in item for item in flags if item.startswith("--proxy-server="))
         assert "--block-new-web-contents" in flags
         assert "--no-sandbox" not in flags
+        assert "--no-zygote" not in flags
+        assert "browser_executable" not in ctor.call_args.kwargs
         assert ctor.call_args.kwargs["output_path"] == profile
+        assert fake_hti.browser.use_new_headless is True
 
     def test_no_sandbox_when_env_set(self, tmp_path, monkeypatch):
         monkeypatch.setenv("DPG_CHROME_NO_SANDBOX", "1")
@@ -93,8 +101,40 @@ class TestChromeFlags:
             HTMLRenderer._get_hti()
         flags = ctor.call_args.kwargs["custom_flags"]
         assert "--no-sandbox" in flags
+        assert "--disable-setuid-sandbox" in flags
         assert "--disable-dev-shm-usage" in flags
+        assert "--no-zygote" in flags
         assert "--disable-javascript" in flags
+
+    def test_browser_executable_from_env(self, tmp_path, monkeypatch):
+        chrome = tmp_path / "chrome-bin"
+        chrome.write_bytes(b"")
+        monkeypatch.setenv("DPG_CHROME_BIN", str(chrome))
+        fake_hti = MagicMock()
+        fake_hti.browser._subprocess_run_kwargs = {}
+        profile = str(tmp_path / "profile")
+        with patch.object(HTMLRenderer, "_hti", None), patch.object(HTMLRenderer, "_chrome_profile_dir", None), patch(
+            "dpg_navigator._html.tempfile.mkdtemp", return_value=profile
+        ), patch.object(htmlmod, "_Html2Image", return_value=fake_hti) as ctor:
+            HTMLRenderer._get_hti()
+        assert ctor.call_args.kwargs["browser_executable"] == str(chrome)
+
+
+class TestResolveChromeExecutable:
+    def test_prefers_dpg_chrome_bin(self, tmp_path, monkeypatch):
+        chrome = tmp_path / "dpg-chrome"
+        chrome.write_bytes(b"")
+        other = tmp_path / "other-chrome"
+        other.write_bytes(b"")
+        monkeypatch.setenv("DPG_CHROME_BIN", str(chrome))
+        monkeypatch.setenv("CHROME_BIN", str(other))
+        assert _resolve_chrome_executable() == str(chrome)
+
+    def test_missing_path_is_ignored(self, monkeypatch):
+        monkeypatch.setenv("DPG_CHROME_BIN", "/no/such/chrome-binary")
+        monkeypatch.delenv("CHROME_BIN", raising=False)
+        monkeypatch.delenv("CHROME_PATH", raising=False)
+        assert _resolve_chrome_executable() is None
 
 
 class TestInjectHelpers:
