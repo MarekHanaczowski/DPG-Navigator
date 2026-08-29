@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from ._preview_registry import ooxml_exceeds_preview_limit
+
 _Presentation: Any
 try:
     from pptx import Presentation as _Presentation  # type: ignore[import-untyped]
@@ -132,6 +134,8 @@ def load_presentation(
     """Load slides, shapes, and speaker notes in display order."""
     if presentation_loader is None:
         raise PresentationPreviewError("python-pptx is not installed")
+    if ooxml_exceeds_preview_limit(path):
+        raise PresentationPreviewError("File too large for preview")
 
     try:
         presentation = presentation_loader(path)

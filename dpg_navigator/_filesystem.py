@@ -25,6 +25,7 @@ from collections.abc import Callable, Collection
 _log = logging.getLogger(__name__)
 
 from . import _platform
+from ._preview_registry import SEVEN_Z_EXTS, ZIP_EXTS
 from ._types import FileEntry
 from .vfs import VFSRegistry
 
@@ -74,12 +75,7 @@ class DirectoryLister:
     def _get_session_temp_dir() -> str:
         """Create and return a session-unique temporary directory."""
         if DirectoryLister._session_temp_dir is None:
-            base_temp = tempfile.gettempdir()
-            # Use PID and time to ensure uniqueness
-            session_id = _short_md5(f"{os.getpid()}_{time.time()}".encode())
-            temp_path = os.path.join(base_temp, f"dpg_navigator_extracted_{session_id}")
-            os.makedirs(temp_path, exist_ok=True)
-            DirectoryLister._session_temp_dir = temp_path
+            DirectoryLister._session_temp_dir = tempfile.mkdtemp(prefix="dpg_navigator_extracted_")
         return DirectoryLister._session_temp_dir
 
     @staticmethod
@@ -168,6 +164,14 @@ class DirectoryLister:
         )
 
 
+def is_archive_virtual_path(path: str) -> bool:
+    """True when *path* uses ``archive|inner`` and the left side is a zip/7z."""
+    if "|" not in path:
+        return False
+    archive = path.split("|", 1)[0]
+    return os.path.splitext(archive)[1].lower() in ZIP_EXTS | SEVEN_Z_EXTS
+
+
 def validate_folder_name(name: str, current_dir: str) -> str | None:
     """Validate a folder name against path traversal attacks.
 
@@ -235,7 +239,7 @@ def resolve_archive_selection(
     """
     resolved: list[str] = []
     for path in paths:
-        if "|" not in path:
+        if not is_archive_virtual_path(path):
             resolved.append(path)
             continue
         extracted = DirectoryLister.extract_from_archive(
@@ -373,6 +377,9 @@ class DirectoryIndex:
                 INDEX_MAX_ENTRIES,
                 root,
             )
+
+        if get_generation() != generation:
+            return
 
         with self._lock:
             self._entries = entries

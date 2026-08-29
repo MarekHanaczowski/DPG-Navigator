@@ -29,6 +29,7 @@ from ._filesystem import (
     DirectoryIndex,
     DirectoryLister,
     build_selection_list,
+    is_archive_virtual_path,
     resolve_archive_selection,
 )
 from ._icons import IconRegistry
@@ -104,6 +105,7 @@ class FileDialog(KeyboardMixin):
     _new_folder_group: int | str | None = None
     _pending_sidebar_drives: tuple[str, list[str]] | None
     _awaiting_sidebar_drives: bool
+    _pending_listing: list[FileEntry] | None
 
     _DEFAULT_IMAGE_TRANSPARENCY: int = 100
     """Alpha value (0-255) for hidden file icon tinting."""
@@ -176,6 +178,7 @@ class FileDialog(KeyboardMixin):
         self._destroyed = False
         self._pending_sidebar_drives: tuple[str, list[str]] | None = None
         self._awaiting_sidebar_drives = False
+        self._pending_listing: list[FileEntry] | None = None
         self.state = DialogState()
 
         # Resolve default_path at runtime (not at import time)
@@ -232,6 +235,7 @@ class FileDialog(KeyboardMixin):
         # Build UI (does NOT navigate — that happens in show())
         self.ui = DialogUIBuilder(self, self.state, self.logic, self._config)
         self.ui._build_ui()
+        FileDialog._instance_count += 1
 
     # ── Compatibility adapters for KeyboardMixin ────────────────
 
@@ -309,13 +313,11 @@ class FileDialog(KeyboardMixin):
         self.logic.start_index_build()
 
     def _safe_refresh_ui(self, entries: list[FileEntry]) -> None:
-        """Marshal UI refresh onto the DPG thread via mutex."""
+        """Queue a listing for the DearPyGui thread (never rebuild from a worker)."""
         if self._destroyed:
             return
-        with dpg.mutex():
-            if self._destroyed or not hasattr(self, "ui"):
-                return
-            self.ui._render_entries_list(entries)
+        self._pending_listing = list(entries)
+        self._schedule_ui_poll()
 
     def _safe_update_path_input(self, path: str) -> None:
         if self._destroyed or not hasattr(self, "_path_input"):
@@ -341,18 +343,23 @@ class FileDialog(KeyboardMixin):
         """Show the window, navigate to the default directory, apply pending drives."""
         self.logic.navigate_to(self.state.current_dir)
         dpg.show_item(self._config.tag)
+        self._apply_pending_listing()
         self._apply_pending_sidebar_drives()
 
     def hide(self) -> None:
         """Hide the file dialog window."""
         dpg.hide_item(self._config.tag)
 
-    def _arm_sidebar_drive_poll(self) -> None:
-        """Schedule a main-thread poll so drive widgets are not built on a worker."""
-        self._awaiting_sidebar_drives = True
+    def _schedule_ui_poll(self) -> None:
+        """Ask the DearPyGui thread to apply queued listing or sidebar updates."""
         if self not in FileDialog._sidebar_poll_targets:
             FileDialog._sidebar_poll_targets.append(self)
         FileDialog._schedule_sidebar_poll()
+
+    def _arm_sidebar_drive_poll(self) -> None:
+        """Schedule a main-thread poll so drive widgets are not built on a worker."""
+        self._awaiting_sidebar_drives = True
+        self._schedule_ui_poll()
 
     def _apply_pending_sidebar_drives(self) -> None:
         """Apply a worker-computed drive list. Must run on the DPG thread."""
@@ -366,6 +373,21 @@ class FileDialog(KeyboardMixin):
         sidebar_tag, drives = pending
         if dpg.does_item_exist(sidebar_tag):
             self._sidebar.update_drives(drives)
+
+    def _apply_pending_listing(self) -> None:
+        """Apply a worker-queued directory listing. Must run on the DPG thread."""
+        if self._destroyed:
+            return
+        pending = getattr(self, "_pending_listing", None)
+        if pending is None:
+            return
+        self._pending_listing = None
+        if not hasattr(self, "ui"):
+            return
+        with dpg.mutex():
+            if self._destroyed or not hasattr(self, "ui"):
+                return
+            self.ui._render_entries_list(pending)
 
     @classmethod
     def _schedule_sidebar_poll(cls) -> None:
@@ -385,8 +407,11 @@ class FileDialog(KeyboardMixin):
         for dialog in cls._sidebar_poll_targets:
             if dialog._destroyed:
                 continue
+            dialog._apply_pending_listing()
             dialog._apply_pending_sidebar_drives()
-            if not dialog._destroyed and dialog._awaiting_sidebar_drives:
+            if not dialog._destroyed and (
+                dialog._awaiting_sidebar_drives or getattr(dialog, "_pending_listing", None) is not None
+            ):
                 remaining.append(dialog)
         cls._sidebar_poll_targets = remaining
         if remaining:
@@ -404,6 +429,7 @@ class FileDialog(KeyboardMixin):
         self._destroyed = True
         self._awaiting_sidebar_drives = False
         self._pending_sidebar_drives = None
+        self._pending_listing = None
         try:
             FileDialog._sidebar_poll_targets.remove(self)
         except ValueError:
@@ -411,10 +437,11 @@ class FileDialog(KeyboardMixin):
         self.logic.cancel_background_tasks()
         self._preview.destroy()
         self._icons.destroy()
-        if hasattr(self, "_key_handler") and dpg.does_item_exist(self._key_handler):
-            dpg.delete_item(self._key_handler)
-        if dpg.does_item_exist(self._config.tag):
-            dpg.delete_item(self._config.tag)
+        with dpg.mutex():
+            if hasattr(self, "_key_handler") and dpg.does_item_exist(self._key_handler):
+                dpg.delete_item(self._key_handler)
+            if dpg.does_item_exist(self._config.tag):
+                dpg.delete_item(self._config.tag)
 
         FileDialog._instance_count = max(0, FileDialog._instance_count - 1)
         if FileDialog._instance_count <= 0:
@@ -628,7 +655,7 @@ class FileDialog(KeyboardMixin):
             self.state.current_dir,
         )
 
-        needs_extract = any("|" in path for path in selection)
+        needs_extract = any(is_archive_virtual_path(path) for path in selection)
         original_title = None
         if needs_extract and dpg.does_item_exist(self._config.tag):
             original_title = dpg.get_item_label(self._config.tag)

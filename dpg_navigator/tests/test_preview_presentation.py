@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
@@ -81,3 +82,9 @@ class TestLoadPresentation:
     def test_missing_backend_raises_preview_error(self):
         with pytest.raises(PresentationPreviewError):
             load_presentation("sample.pptx", presentation_loader=None)
+
+    def test_rejects_oversized_file(self):
+        with patch("dpg_navigator._preview_presentation.ooxml_exceeds_preview_limit", return_value=True), pytest.raises(
+            PresentationPreviewError, match="too large"
+        ):
+            load_presentation("huge.pptx", presentation_loader=lambda path: None)

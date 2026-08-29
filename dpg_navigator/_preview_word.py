@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Union
 
+from ._preview_registry import ooxml_exceeds_preview_limit
+
 _DocxDocument: Any
 try:
     from docx import Document as _DocxDocument  # type: ignore[import-untyped]
@@ -71,6 +73,8 @@ def load_word_document(
     """Load Word document blocks in display order."""
     if document_loader is None:
         raise WordPreviewError("python-docx is not installed")
+    if ooxml_exceeds_preview_limit(path):
+        raise WordPreviewError("File too large for preview")
 
     try:
         document = document_loader(path)

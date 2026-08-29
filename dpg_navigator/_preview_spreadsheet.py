@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from ._optional import OptionalCallable, as_optional
+from ._preview_registry import ooxml_exceeds_preview_limit
 
 _load_workbook: OptionalCallable | None
 try:
@@ -51,6 +52,8 @@ def load_excel_table(
     """Load one worksheet into bounded table-ready data."""
     if workbook_loader is None:
         raise ExcelPreviewError("openpyxl is not installed")
+    if ooxml_exceeds_preview_limit(path):
+        raise ExcelPreviewError("File too large for preview")
 
     try:
         workbook = workbook_loader(path, read_only=True, data_only=True)

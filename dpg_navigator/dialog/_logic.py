@@ -11,7 +11,7 @@ import os
 import time
 from typing import Callable
 
-from .._filesystem import DirectoryIndex, DirectoryLister, validate_folder_name
+from .._filesystem import DirectoryIndex, DirectoryLister, is_archive_virtual_path, validate_folder_name
 from .._job_manager import JobManager
 from .._types import DialogConfig, DialogMode, FileEntry
 from ._state import DialogState
@@ -57,7 +57,7 @@ class DialogLogic:
 
     def go_up(self) -> None:
         """Navigate to the parent directory or archive member directory."""
-        if "|" in self.state.current_dir:
+        if is_archive_virtual_path(self.state.current_dir):
             parts = self.state.current_dir.split("|", 1)
             archive_path = parts[0]
             virtual_path = parts[1].strip("/")
@@ -75,14 +75,18 @@ class DialogLogic:
 
     def navigate_to(self, path: str) -> None:
         """Validate a path, update navigation state, and refresh the listing."""
-        if "|" in path:
+        if is_archive_virtual_path(path):
             parts = path.split("|", 1)
             archive_path = parts[0]
             virtual_inner = parts[1].replace("\\", "/").strip("/")
             if os.path.isabs(archive_path):
                 resolved_archive = os.path.normpath(archive_path)
             else:
-                base = self.state.current_dir.split("|")[0]
+                base = (
+                    self.state.current_dir.split("|", 1)[0]
+                    if is_archive_virtual_path(self.state.current_dir)
+                    else self.state.current_dir
+                )
                 resolved_archive = os.path.normpath(os.path.join(base, archive_path))
             if not os.path.isfile(resolved_archive):
                 self.show_error(
@@ -136,7 +140,7 @@ class DialogLogic:
             self.show_error("Invalid name", "Folder name cannot be empty.")
             return
 
-        if "|" in self.state.current_dir:
+        if is_archive_virtual_path(self.state.current_dir):
             self.show_error("Not supported", "Cannot create folders inside an archive.")
             return
 
@@ -218,7 +222,11 @@ class DialogLogic:
             self.start_size_computation()
 
     def _perform_deep_search(self, query: str, gen: int) -> None:
-        if gen != self.state.index_generation or not self._dir_index.ready:
+        if (
+            gen != self.state.index_generation
+            or not self._dir_index.ready
+            or self._dir_index.root != self.state.current_dir
+        ):
             return
         deep_results = self._dir_index.search(
             query,
@@ -248,7 +256,7 @@ class DialogLogic:
         """Build the recursive search index in a cancellable background task."""
         gen = self.state.index_generation
         root = self.state.current_dir
-        if "|" in root:
+        if is_archive_virtual_path(root):
             return
 
         def _build() -> None:
