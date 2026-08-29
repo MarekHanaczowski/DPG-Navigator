@@ -60,7 +60,7 @@ The publish workflow builds and validates distributions automatically. Local
 builds are still useful for pre-release checks:
 
 ```bash
-python -m pip install "build==1.2.2" "twine==6.1.0"
+python -m pip install "build==1.2.2" "twine==7.0.0"
 python -m build
 python -m twine check dist/*
 ```

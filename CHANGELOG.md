@@ -45,7 +45,8 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Minimum Python is now 3.9. Publish verifies the git tag against
-  `__version__` and pins `build`/`twine`.
+  `__version__` and pins `build`/`twine`. Twine 7.0 and
+  `gh-action-pypi-publish` 1.14.2 accept hatchling Metadata-Version 2.5.
 
 ## [1.0.0b5] - 2026-08-29
 

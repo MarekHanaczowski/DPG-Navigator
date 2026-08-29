@@ -45,7 +45,7 @@ jobs:
           PY
 
       - name: Install build dependencies
-        run: python -m pip install --upgrade pip "build==1.2.2" "twine==6.1.0"
+        run: python -m pip install --upgrade pip "build==1.2.2" "twine==7.0.0"
 
       - name: Build wheel and sdist
         run: python -m build
@@ -80,8 +80,8 @@ jobs:
           path: dist/
 
       - name: Publish package distributions to TestPyPI
-        # pypa/gh-action-pypi-publish@release/v1 resolved to this commit
-        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b
+        # pypa/gh-action-pypi-publish@v1.14.2 (Metadata-Version 2.5)
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33
         with:
           repository-url: https://test.pypi.org/legacy/
 
@@ -105,4 +105,4 @@ jobs:
           path: dist/
 
       - name: Publish package distributions to PyPI
-        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33
