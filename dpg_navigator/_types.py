@@ -90,6 +90,9 @@ class DialogConfig:
         show_preview: Show the right-side preview panel (images, text, PDF,
             HTML, Word, PPTX, Markdown, CSV, Excel, SQLite, fonts, archives,
             source code as text).
+        trusted_html_preview: Allow raw .html/.htm previews to execute scripts
+            and load referenced resources. Disabled by default; Markdown and
+            Word previews always use the safe HTML policy.
         preview_width: Initial preview panel width in pixels (user-resizable).
         search_subfolders: Enable "Subfolders" checkbox for recursive search
             via background DirectoryIndex.
@@ -117,6 +120,7 @@ class DialogConfig:
     modal: bool = True
     show_hidden: bool = False
     show_preview: bool = False
+    trusted_html_preview: bool = False
     preview_width: int = 300
     search_subfolders: bool = True
     style: StyleVariant = StyleVariant.LABELED

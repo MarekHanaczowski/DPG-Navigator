@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `DialogConfig.trusted_html_preview` provides an explicit opt-in for raw
+  `.html`/`.htm` fidelity. Markdown and Word previews always remain in safe mode.
+- HTML preview status reports when content reaches the 8000 px vertical render
+  ceiling.
+
 ### Fixed
 
 - `FileDialog` increments the class instance counter so closing the first of
@@ -21,11 +28,27 @@ All notable changes to this project will be documented in this file.
   `max_size` (encrypted 7z uses `needs_password()`).
 - Image preview thumbnails oversized pixel dimensions before `convert("RGBA")`.
 - Word, Excel, and PowerPoint loaders reject files larger than 32 MB.
+- Raw HTML, Markdown, and mammoth output use one structural sanitizer and a
+  controlled CSP wrapper. Safe previews cannot execute script or load local or
+  network resources; only validated embedded raster `data:image` sources remain.
+- HTML render and resize workers no longer call DearPyGui. Immutable results are
+  applied by a generation-guarded frame poll under the DPG mutex, including
+  failures.
+- Trusted overflow markers use a signed 10x10 area, and auto-trim preserves dark
+  or sparse content rows.
 
 ### Changed
 
+- DearPyGui 2.2 is now the minimum supported version.
+- Every HTML render uses a fresh temporary Chrome output, temp, profile, and
+  crash-dump directory; the directory is removed after success, failure, or
+  cancellation. Safe and trusted mode receive separate Chrome flag sets.
+- Safe mode no longer relies on Chromium's obsolete `--disable-javascript`
+  switch; parser sanitization and CSP are the authoritative controls.
 - Session extract directory is created with `tempfile.mkdtemp`.
 - `.eps` is no longer routed as a Pillow image preview (Ghostscript).
+- Chrome `<-loopback>` docs: the token forces loopback HTTP through the dead
+  proxy; `file://` is not an HTTP proxy hop.
 - Module and class docstrings, README, CLAUDE.md, and the release checklist
   match post-1.0.0b4 behavior: VFS facade, bounded `JobManager`, Chrome
   `DPG_CHROME_BIN` / `chrome-headless-shell`, sidebar drive updates on the

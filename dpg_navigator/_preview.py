@@ -108,7 +108,11 @@ class PreviewPanel:
         self._text_encoding: str | None = None
 
         self.ctx = PreviewContext(
-            panel_id=0, table_wrapper=0, config_tag=self._config_tag, capabilities=self._preview_capabilities()
+            panel_id=0,
+            table_wrapper=0,
+            config_tag=self._config_tag,
+            capabilities=self._preview_capabilities(),
+            trusted_html_preview=config.trusted_html_preview,
         )
 
         self._renderers: dict[PreviewKind, BaseRenderer] = {

@@ -136,8 +136,8 @@ Preview features are organized into installable extras:
 > is the reliable CLI. If none is found (or a preview extra is not installed),
 > HTML files fall back to raw-text rendering, and Markdown/Word degrade to
 > their text extractors. Chrome is launched with JavaScript disabled and
-> network access blocked through a dead proxy (`file://` preview HTML is
-> bypassed so the screenshot is not delayed by that proxy).
+> network access blocked through a dead proxy (`--proxy-bypass-list=<-loopback>`
+> sends loopback HTTP through that proxy; `file://` is not an HTTP proxy hop).
 > Containers/CI that cannot start the sandbox may set `DPG_CHROME_NO_SANDBOX=1`
 > (weakens isolation; not the default).
 
@@ -156,6 +156,7 @@ fd = FileDialog(
     multi_selection=True,
     show_hidden=False,
     show_preview=True,
+    trusted_html_preview=False,
     file_filter=".*",
     allow_drag=True,
     show_dir_size=False,
@@ -183,14 +184,20 @@ fd = FileDialog(callback=on_select, config=config)
 - **ZipSlip protection** — safe extraction of archive entries with path validation.
 - **Graceful degradation** — missing optional libraries are logged, never crash the dialog.
 - **Memory efficiency** — LRU texture caching and background indexing for deep searches.
-- **Untrusted HTML** — HTML, Markdown, and Word HTML previews are rendered by a
-  headless Chrome subprocess. JavaScript is disabled (`--disable-javascript`)
-  and outbound network access is blocked (`--proxy-server=http://127.0.0.1:1`
-  with `--proxy-bypass-list=<-loopback>` so `file://` preview HTML is not
-  proxied, `--block-new-web-contents`). Width overflow detection still injects a JS
-  marker, which does not run while JS is off, so very wide documents may not
-  trigger a second screenshot. Local `file:` URLs are stripped from HTML before
-  render. Preview only content you trust.
+- **Safe HTML by default** — raw HTML, Markdown, and Word HTML are parsed with
+  a structural allow-list and wrapped in a restrictive CSP before Chrome sees
+  them. Scripts, event handlers, forms, frames, author CSS, local/network URLs,
+  and all non-embedded resources are removed or blocked. Safe mode permits only
+  verified `data:image` raster sources and also routes network requests through
+  a dead proxy.
+- **Trusted HTML is explicit** — set `trusted_html_preview=True` only when raw
+  `.html`/`.htm` fidelity is required. That mode can execute scripts and load
+  local or remote resources. It still uses the Chrome sandbox, a 2 MiB input
+  limit, a 30-second subprocess timeout, and a fresh temporary profile per
+  render. Markdown and Word never inherit this option.
+- **Thread-safe previews** — Chrome and image processing run in bounded workers;
+  DearPyGui texture, widget, and callback work is applied by a frame callback
+  under the DPG mutex. This requires DearPyGui 2.2 or newer.
 
 ## HiDPI / 4K Displays (Windows)
 
@@ -222,7 +229,7 @@ dpg.bind_font(ui_font)
 ## Requirements
 
 - Python >= 3.8
-- [DearPyGui](https://pypi.org/project/dearpygui/) >= 1.9.1
+- [DearPyGui](https://pypi.org/project/dearpygui/) >= 2.2
 - [psutil](https://pypi.org/project/psutil/) >= 5.9.0
 - [bleach](https://pypi.org/project/bleach/) >= 6.0
 - [defusedxml](https://pypi.org/project/defusedxml/) >= 0.7.1

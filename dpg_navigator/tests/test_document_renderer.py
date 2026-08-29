@@ -82,7 +82,25 @@ def test_render_html(mock_backends):
         600 - 42,
         on_complete=renderer._on_html_render_done,
         on_resize_complete=renderer._on_html_resize_done,
+        trusted=False,
     )
+
+
+def test_render_html_plumbs_trusted_opt_in(mock_backends):
+    renderer = DocumentRenderer(MagicMock())
+    entry = FileEntry("index.html", "index.html", is_dir=False, size_bytes=100, modified_time=0.0, is_hidden=False)
+    ctx = PreviewContext(
+        panel_id=1,
+        table_wrapper=2,
+        config_tag="test_tag",
+        capabilities=PreviewCapabilities(),
+        trusted_html_preview=True,
+    )
+
+    renderer.render(entry, ctx)
+
+    assert renderer._html is not None
+    assert renderer._html.open.call_args.kwargs["trusted"] is True
 
 
 def test_render_pdf(mock_backends):
@@ -116,6 +134,70 @@ def test_render_word_mammoth(mock_backends):
             renderer.render(entry, ctx)
 
     renderer._html.open_string.assert_called_once()
+    html = renderer._html.open_string.call_args[0][0]
+    assert "<p>hello</p>" in html
+    assert renderer._html.open_string.call_args.kwargs["wrapper_class"] == "mammoth-wrapper"
+
+
+def test_render_word_html_always_uses_safe_string_entrypoint(mock_backends):
+    load_text_cb = MagicMock()
+    renderer = DocumentRenderer(load_text_cb)
+    entry = FileEntry("doc.docx", "doc.docx", is_dir=False, size_bytes=2000, modified_time=0.0, is_hidden=False)
+    ctx = PreviewContext(
+        panel_id=1,
+        table_wrapper=2,
+        config_tag="test_tag",
+        capabilities=PreviewCapabilities(mammoth=True),
+        trusted_html_preview=True,
+    )
+    with patch("dpg_navigator.renderers.document._mammoth") as mock_mam:
+        mock_mam.convert_to_html.return_value = MagicMock(value="<p>hello<script>x</script></p>")
+        with patch("builtins.open", mock_open(read_data=b"mock-docx-data")):
+            renderer.render(entry, ctx)
+    call = renderer._html.open_string.call_args
+    assert "<script>x</script>" in call.args[0]
+    assert call.kwargs["wrapper_class"] == "mammoth-wrapper"
+    assert "trusted" not in call.kwargs
+
+
+def test_render_word_html_handles_safe_preparation_failure(mock_backends, mock_dpg):
+    load_text_cb = MagicMock()
+    renderer = DocumentRenderer(load_text_cb)
+    entry = FileEntry("doc.docx", "doc.docx", is_dir=False, size_bytes=2000, modified_time=0.0, is_hidden=False)
+    ctx = PreviewContext(
+        panel_id=1,
+        table_wrapper=2,
+        config_tag="test_tag",
+        capabilities=PreviewCapabilities(mammoth=True),
+    )
+    mock_backends[0].return_value.open_string.return_value = False
+    with patch("dpg_navigator.renderers.document._mammoth") as mock_mam:
+        mock_mam.convert_to_html.return_value = MagicMock(value="<p>hello</p>")
+        with patch("builtins.open", mock_open(read_data=b"mock-docx-data")):
+            renderer.render(entry, ctx)
+    mock_backends[0].return_value.open_string.assert_called_once()
+    mock_dpg.add_text.assert_called()
+
+
+def test_render_markdown_ignores_trusted_mode(mock_backends):
+    load_text_cb = MagicMock(return_value=("# Hi", False))
+    renderer = DocumentRenderer(load_text_cb)
+    entry = FileEntry("README.md", "README.md", is_dir=False, size_bytes=20, modified_time=0.0, is_hidden=False)
+    ctx = PreviewContext(
+        panel_id=1,
+        table_wrapper=2,
+        config_tag="test_tag",
+        capabilities=PreviewCapabilities(markdown=True),
+        trusted_html_preview=True,
+    )
+    fake_md = MagicMock()
+    fake_md.markdown.return_value = "<h1>Hi</h1>"
+    with patch("dpg_navigator.renderers.document.require_optional", return_value=fake_md):
+        renderer.render(entry, ctx)
+    call = renderer._html.open_string.call_args
+    assert call.args[0] == "<h1>Hi</h1>"
+    assert call.kwargs["wrapper_class"] == "md-wrapper"
+    assert "trusted" not in call.kwargs
 
 
 def test_render_word_text_when_chrome_unavailable(mock_dpg):
@@ -172,6 +254,25 @@ def test_render_html_text_when_chrome_unavailable(mock_dpg):
         renderer.render(entry, ctx)
     mock_html.return_value.open.assert_not_called()
     load_text_cb.assert_called()
+    mock_dpg.add_text.assert_called()
+
+
+def test_render_markdown_text_when_chrome_unavailable(mock_dpg):
+    """Markdown also degrades to text instead of starting a doomed worker."""
+    load_text_cb = MagicMock(return_value=("# Heading", False))
+    renderer = DocumentRenderer(load_text_cb)
+    entry = FileEntry("README.md", "README.md", is_dir=False, size_bytes=20, modified_time=0.0, is_hidden=False)
+    ctx = PreviewContext(
+        panel_id=1,
+        table_wrapper=2,
+        config_tag="test_tag",
+        capabilities=PreviewCapabilities(markdown=True),
+    )
+    with patch("dpg_navigator.renderers.document.chrome_available", return_value=False), patch(
+        "dpg_navigator.renderers.document.HTMLRenderer"
+    ) as mock_html:
+        renderer.render(entry, ctx)
+    mock_html.assert_not_called()
     mock_dpg.add_text.assert_called()
 
 
