@@ -103,6 +103,14 @@ class TestFileEntry:
         b = FileEntry("f2", "/f2", False, 10, 1.0, False)
         assert a != b
 
+    def test_rejects_empty_name(self):
+        with pytest.raises(ValueError, match="name"):
+            FileEntry("", "/x", False, 0, 0.0, False)
+
+    def test_rejects_negative_size(self):
+        with pytest.raises(ValueError, match="size_bytes"):
+            FileEntry("f", "/f", False, -1, 0.0, False)
+
 
 # ── DialogConfig ────────────────────────────────────────────────
 
@@ -200,6 +208,14 @@ class TestDialogConfig:
     def test_rejects_bad_min_size(self):
         with pytest.raises(ValueError, match="min_size"):
             DialogConfig(min_size=(0, 100))
+
+    def test_rejects_width_below_min_size(self):
+        with pytest.raises(ValueError, match="min_size"):
+            DialogConfig(width=100, min_size=(200, 200))
+
+    def test_rejects_glob_metacharacters_in_filter(self):
+        with pytest.raises(ValueError, match="metacharacters"):
+            DialogConfig(file_filter=".p*")
 
     def test_rejects_non_enum_mode(self):
         with pytest.raises(TypeError, match="DialogMode"):

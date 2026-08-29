@@ -6,6 +6,8 @@ is NOT tested (requires DPG context).
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from dpg_navigator._icons import (
@@ -35,6 +37,16 @@ class TestIconNames:
 
     def test_no_duplicates(self):
         assert len(ICON_NAMES) == len(set(ICON_NAMES))
+
+    def test_icon_files_exist(self):
+        images = os.path.join(os.path.dirname(os.path.dirname(__file__)), "images")
+        for name in ICON_NAMES:
+            assert os.path.isfile(os.path.join(images, f"{name}.png")), name
+
+    def test_no_unreferenced_icon_files(self):
+        images = os.path.join(os.path.dirname(os.path.dirname(__file__)), "images")
+        on_disk = {name[:-4] for name in os.listdir(images) if name.lower().endswith(".png")}
+        assert on_disk == set(ICON_NAMES)
 
     @pytest.mark.parametrize(
         "name",

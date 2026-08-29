@@ -66,6 +66,25 @@ class TestJobManagerPool:
             for future in futures:
                 future.result(timeout=2)
 
+    def test_submit_is_rejected_during_shutdown(self):
+        started = threading.Event()
+        release = threading.Event()
+
+        def blocker() -> None:
+            started.set()
+            release.wait(timeout=2)
+
+        with patch.object(jobmod, "_MAX_WORKERS", 1):
+            JobManager.shutdown(wait=True, timeout=2.0)
+            JobManager.submit(blocker)
+            assert started.wait(timeout=2)
+            JobManager._shutting_down = True
+            rejected = JobManager.submit(lambda: "no")
+            assert rejected.cancelled()
+            JobManager._shutting_down = False
+            release.set()
+            _join_workers()
+
     def test_submit_works_after_shutdown(self):
         JobManager.submit(lambda: None).result(timeout=2)
         JobManager.shutdown(wait=True, timeout=2.0)

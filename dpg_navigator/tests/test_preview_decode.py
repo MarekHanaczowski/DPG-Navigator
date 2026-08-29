@@ -25,6 +25,13 @@ class TestDecodePreviewBytes:
         assert text == "hello"
         assert encoding == "utf-8-sig"
 
+    def test_utf32_be_bom(self):
+        raw = b"\x00\x00\xfe\xff" + "ab".encode("utf-32-be")
+        text, is_bin, encoding = decode_preview_bytes(raw)
+        assert is_bin is False
+        assert text == "ab"
+        assert encoding == "utf-32-be"
+
     def test_utf16_le_bom(self):
         raw = "ab".encode("utf-16")
         text, is_bin, encoding = decode_preview_bytes(raw)

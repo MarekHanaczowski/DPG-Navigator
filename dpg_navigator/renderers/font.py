@@ -10,6 +10,7 @@ from typing import Any
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
+from .._preview_limits import FONT_PREVIEW_MAX_BYTES, exceeds_bytes, font_magic_ok
 from .._types import FileEntry
 from ._base import BaseRenderer, PreviewContext
 
@@ -135,6 +136,13 @@ class FontRenderer(BaseRenderer):
             parent=ctx.panel_id,
         )
         dpg.add_separator(parent=ctx.panel_id)
+
+        if exceeds_bytes(entry.full_path, FONT_PREVIEW_MAX_BYTES):
+            ctx.show_error("Font preview failed", "File too large for preview")
+            return
+        if not font_magic_ok(entry.full_path):
+            ctx.show_error("Font preview failed", "Unrecognized font format")
+            return
 
         try:
             with dpg.font_registry():

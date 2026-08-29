@@ -4,6 +4,47 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Shared preview limits module gates image pixels, decompressed OOXML,
+  font magic/size, archive write budgets, and safe-mode `data:image` size.
+- HTML preview limits (`DPG_HTML_RENDER_H`, `DPG_HTML_MAX_RENDER_W`,
+  `DPG_HTML_MAX_BYTES`, `DPG_CHROME_TIMEOUT`, `DPG_HTML_RESIZE_DEBOUNCE`)
+  can be overridden from the environment.
+
+### Fixed
+
+- Directory sizes fill in after deferred listing; subfolder index restarts
+  after filter/refresh. Shared UI poll isolates per-dialog errors and no
+  longer calls DearPyGui from workers.
+- `destroy()` always decrements the instance counter. Ctrl+A is ignored
+  while typing in search/path/filename. Mammoth Word and STB image paths
+  honor the same preview limits as the loaders.
+- Archive extract streams with a byte budget; listings honor `show_hidden`;
+  relative sibling archives resolve against the host directory.
+- HTML Chrome sessions retry locked-profile cleanup, skip reused PIDs,
+  keep the first screenshot if a wider second capture fails, and unpatch
+  html2image on last-dialog shutdown (kept installed while a render
+  worker is still in flight).
+- Listings queued by background search carry the generation they were
+  built under, so a stale search result can no longer overwrite a fresh
+  navigation listing. `JobManager.submit()` is atomic against
+  `shutdown()`, and shared-theme teardown can't make `destroy()` raise.
+- ZIP members stored with backslash separators list as nested paths and
+  extract via their normalized names; members with `..` segments are
+  refused up front. A stream failure mid-extract unlinks the partial
+  write, and the 7z fallback relocates raw-named payloads before the
+  budget check. `allow_large_extensions` raises a small cap to the
+  bounded large-preview budget instead of being a silent no-op.
+- Image preview draws onto a drawlist so the first view fits the pane
+  without cropping. Mouse wheel zooms toward the cursor; left-button
+  drag pans.
+
+### Changed
+
+- Minimum Python is now 3.9. Publish verifies the git tag against
+  `__version__` and pins `build`/`twine`.
+
 ## [1.0.0b5] - 2026-08-29
 
 ### Added

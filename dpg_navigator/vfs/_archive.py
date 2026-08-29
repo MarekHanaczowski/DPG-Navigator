@@ -8,8 +8,10 @@ import hashlib
 import logging
 import os
 import zipfile
-from typing import Any, Collection
+from collections.abc import Collection
+from typing import Any
 
+from .._preview_limits import PDF_PREVIEW_MAX_BYTES
 from .._preview_registry import SEVEN_Z_EXTS, ZIP_EXTS
 from .._types import FileEntry
 from ._base import VFSProvider
@@ -25,11 +27,7 @@ except Exception:
 
 def _short_md5(data: bytes) -> str:
     """Return an 8-char MD5 hex digest for non-cryptographic naming."""
-    try:
-        return hashlib.md5(data, usedforsecurity=False).hexdigest()[:8]
-    except TypeError:
-        # Python 3.8 fallback; used only for non-cryptographic temp-dir naming.
-        return hashlib.md5(data).hexdigest()[:8]  # nosec B324
+    return hashlib.md5(data, usedforsecurity=False).hexdigest()[:8]
 
 
 class ArchiveVFSProvider(VFSProvider):
@@ -77,6 +75,9 @@ class ArchiveVFSProvider(VFSProvider):
         def _add_entry(item_name: str, is_d: bool, size: int | None, mtime: float) -> None:
             if item_name in seen_names:
                 return
+            hidden = item_name.startswith(".")
+            if hidden and not show_hidden:
+                return
             if not is_d and dirs_only:
                 return
             if search_query and search_query.lower() not in item_name.lower():
@@ -101,7 +102,7 @@ class ArchiveVFSProvider(VFSProvider):
                     is_dir=is_d,
                     size_bytes=size,
                     modified_time=mtime,
-                    is_hidden=False,
+                    is_hidden=hidden,
                 )
             )
 
@@ -109,7 +110,12 @@ class ArchiveVFSProvider(VFSProvider):
             if is_zip:
                 with zipfile.ZipFile(archive_path, "r") as zf:
                     for info in zf.infolist():
-                        p = info.filename.strip("/")
+                        # Normalize like the 7z branch so members stored with
+                        # backslash separators list (and later extract) as
+                        # nested paths instead of flat unextractable names.
+                        p = info.filename.replace("\\", "/").strip("/")
+                        if _has_dotdot_segment(p):
+                            continue
                         if internal_dir and not p.startswith(internal_dir + "/"):
                             continue
                         rel_p = p[len(internal_dir) + 1 :] if internal_dir else p
@@ -117,7 +123,12 @@ class ArchiveVFSProvider(VFSProvider):
                             continue
                         if "/" in rel_p:
                             child_dir_name = rel_p.split("/")[0]
-                            _add_entry(child_dir_name, True, None, 0.0)
+                            dt = info.date_time
+                            try:
+                                ts = datetime.datetime(*dt).timestamp()
+                            except Exception:
+                                ts = 0.0
+                            _add_entry(child_dir_name, True, None, ts)
                         else:
                             is_d = info.is_dir()
                             dt = info.date_time
@@ -134,6 +145,8 @@ class ArchiveVFSProvider(VFSProvider):
                 with _py7zr.SevenZipFile(archive_path, "r") as z:
                     for info in z.list():
                         p = info.filename.replace("\\", "/").strip("/")
+                        if _has_dotdot_segment(p):
+                            continue
                         if internal_dir and not p.startswith(internal_dir + "/"):
                             continue
                         rel_p = p[len(internal_dir) + 1 :] if internal_dir else p
@@ -141,7 +154,8 @@ class ArchiveVFSProvider(VFSProvider):
                             continue
                         if "/" in rel_p:
                             child_dir_name = rel_p.split("/")[0]
-                            _add_entry(child_dir_name, True, None, 0.0)
+                            ts = info.creationtime.timestamp() if info.creationtime else 0.0
+                            _add_entry(child_dir_name, True, None, ts)
                         else:
                             is_d = info.is_directory
                             ts = info.creationtime.timestamp() if info.creationtime else 0.0
@@ -171,6 +185,9 @@ class ArchiveVFSProvider(VFSProvider):
             parts = virtual_path.split("|", 1)
             archive_path = parts[0]
             internal_path = parts[1].replace("\\", "/").strip("/")
+            if _has_dotdot_segment(internal_path):
+                _log.warning("Refusing archive member with '..' segment: %s", internal_path)
+                return None
 
             if not os.path.isfile(archive_path):
                 return None
@@ -183,15 +200,10 @@ class ArchiveVFSProvider(VFSProvider):
                 return None
 
             allowed_large_exts = {item.lower() for item in allow_large_extensions}
+            budget = _extract_budget(internal_path, max_size, allowed_large_exts)
 
             def _is_oversized(size: int | None) -> bool:
-                member_ext = os.path.splitext(internal_path)[1].lower()
-                return (
-                    max_size is not None
-                    and size is not None
-                    and size > max_size
-                    and member_ext not in allowed_large_exts
-                )
+                return budget is not None and size is not None and size > budget
 
             archive_hash = _short_md5(archive_path.encode())
             archive_temp_root = os.path.join(temp_root, archive_hash)
@@ -202,7 +214,9 @@ class ArchiveVFSProvider(VFSProvider):
 
             if is_zip:
                 with zipfile.ZipFile(archive_path, "r") as zf:
-                    info = zf.getinfo(internal_path)
+                    info = _zip_member_info(zf, internal_path)
+                    if info is None:
+                        return None
                     if info.flag_bits & 0x1:
                         _log.warning("Encrypted ZIP not supported for preview: %s", archive_path)
                         return None
@@ -215,7 +229,7 @@ class ArchiveVFSProvider(VFSProvider):
                     if not target.startswith(real_root + os.sep) and target != real_root:
                         _log.warning("ZipSlip attempt blocked: %s", info.filename)
                         return None
-                    extracted_path = zf.extract(info, path=archive_temp_root)
+                    extracted_path = _extract_zip_member(zf, info, archive_temp_root, budget)
             elif is_7z:
                 if _py7zr is None:
                     _log.warning("py7zr is not installed, cannot extract from .7z")
@@ -232,7 +246,7 @@ class ArchiveVFSProvider(VFSProvider):
                         _log.warning("Encrypted 7z not supported for preview: %s", archive_path)
                         return None
                     target_info = next(
-                        (info for info in z.list() if info.filename == internal_path),
+                        (info for info in z.list() if info.filename.replace("\\", "/").strip("/") == internal_path),
                         None,
                     )
                     if target_info is None:
@@ -244,15 +258,19 @@ class ArchiveVFSProvider(VFSProvider):
                     if not target.startswith(real_root + os.sep) and target != real_root:
                         _log.warning("ZipSlip attempt blocked: %s", internal_path)
                         return None
-                    z.extract(targets=[internal_path], path=archive_temp_root)
-                    extracted_path = os.path.join(archive_temp_root, internal_path)
+                    extracted_path = _extract_7z_member(
+                        z,
+                        target_info.filename,
+                        internal_path,
+                        archive_temp_root,
+                        budget,
+                    )
 
             return _finalize_extracted_member(
                 extracted_path,
                 real_root,
                 internal_path,
-                max_size,
-                allowed_large_exts,
+                budget,
             )
         except Exception as e:
             _log.error("Failed to extract from archive %s: %s", virtual_path, e)
@@ -260,42 +278,175 @@ class ArchiveVFSProvider(VFSProvider):
         return None
 
 
+def _extract_budget(internal_path: str, max_size: int | None, allowed_large_exts: set[str]) -> int | None:
+    """Return the write budget for a member; large-allowlist still has a hard cap.
+
+    An allowlisted extension raises a small *max_size* to the bounded
+    large-preview cap (``PDF_PREVIEW_MAX_BYTES``) — it never removes the
+    budget entirely, so a crafted member cannot bypass the cap (audit A4-10).
+    """
+    ext = os.path.splitext(internal_path)[1].lower()
+    if ext in allowed_large_exts:
+        if max_size is None:
+            return PDF_PREVIEW_MAX_BYTES
+        return max(max_size, PDF_PREVIEW_MAX_BYTES)
+    return max_size
+
+
+def _has_dotdot_segment(normalized_path: str) -> bool:
+    """True when a normalized (forward-slash) member path contains a ``..`` segment."""
+    return any(segment == ".." for segment in normalized_path.split("/"))
+
+
+def _zip_member_info(zf: zipfile.ZipFile, internal_path: str) -> zipfile.ZipInfo | None:
+    """Look up a ZIP member by its normalized (forward-slash) name.
+
+    Listing normalizes ``\\`` to ``/``, so a member stored with backslash
+    separators must be found by comparing normalized names — a plain
+    ``getinfo`` would raise ``KeyError`` for it.
+    """
+    try:
+        return zf.getinfo(internal_path)
+    except KeyError:
+        pass
+    for info in zf.infolist():
+        if info.filename.replace("\\", "/").strip("/") == internal_path:
+            return info
+    return None
+
+
+def _unlink_quiet(path: str) -> None:
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
+def _extract_zip_member(zf: zipfile.ZipFile, info: zipfile.ZipInfo, dest_root: str, budget: int | None) -> str:
+    """Stream a ZIP member to disk and abort if the write budget is exceeded."""
+    dest = os.path.join(dest_root, info.filename)
+    parent = os.path.dirname(dest)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    if os.path.islink(dest) or os.path.isdir(dest):
+        raise OSError("Refusing to extract over a non-regular path")
+    written = 0
+    try:
+        with zf.open(info, "r") as src, open(dest, "wb") as out:
+            while True:
+                chunk = src.read(64 * 1024)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if budget is not None and written > budget:
+                    raise OSError("Archive member exceeds extract budget")
+                out.write(chunk)
+    except BaseException:
+        # Covers the budget abort *and* stream failures (bad CRC, truncated
+        # data, disk errors): never leave a partial write behind. The ``with``
+        # has already closed both handles, so the unlink works on Windows.
+        _unlink_quiet(dest)
+        raise
+    return dest
+
+
+def _extract_7z_member(
+    archive: Any,
+    archive_name: str,
+    internal_path: str,
+    dest_root: str,
+    budget: int | None,
+) -> str:
+    """Extract one 7z member, aborting if the write budget is exceeded."""
+    dest = os.path.join(dest_root, internal_path.replace("/", os.sep))
+    parent = os.path.dirname(dest)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+
+    class _BudgetWriter:
+        def __init__(self) -> None:
+            self._fp = open(dest, "wb")  # noqa: SIM115 — py7zr owns the writer lifetime
+            self._written = 0
+
+        def write(self, data: bytes) -> int:
+            self._written += len(data)
+            if budget is not None and self._written > budget:
+                self._fp.close()
+                _unlink_quiet(dest)
+                raise OSError("Archive member exceeds extract budget")
+            return self._fp.write(data)
+
+        def close(self) -> None:
+            self._fp.close()
+
+        def __enter__(self) -> _BudgetWriter:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            self.close()
+
+    factory = getattr(archive, "extract", None)
+    writer_factory = None
+    try:
+        from py7zr.io import WriterFactory as _WriterFactory
+
+        class _Factory(_WriterFactory):  # type: ignore[misc]
+            def create(self, filename: str) -> Any:  # noqa: ANN401
+                return _BudgetWriter()
+
+        writer_factory = _Factory()
+    except Exception:
+        writer_factory = None
+
+    if writer_factory is not None and callable(factory):
+        try:
+            archive.extract(targets=[archive_name], path=dest_root, factory=writer_factory)
+            return dest
+        except TypeError:
+            pass
+
+    archive.extract(targets=[archive_name], path=dest_root)
+    if not os.path.exists(dest):
+        # py7zr writes under the member's *raw* stored name; a name that
+        # normalizes differently (e.g. a literal backslash on POSIX) lands
+        # elsewhere under dest_root. Move it to the computed dest so the
+        # budget check below and the finalize checks always see the payload.
+        raw_dest = os.path.join(dest_root, archive_name)
+        if os.path.lexists(raw_dest):
+            os.replace(raw_dest, dest)
+    if budget is not None and os.path.isfile(dest) and os.path.getsize(dest) > budget:
+        _unlink_quiet(dest)
+        raise OSError("Archive member exceeds extract budget")
+    return dest
+
+
 def _finalize_extracted_member(
     extracted_path: str,
     real_root: str,
     internal_path: str,
     max_size: int | None,
-    allowed_large_exts: set[str],
 ) -> str | None:
     """Reject symlinks, escaped paths, and members larger than *max_size*."""
-    if not extracted_path or not os.path.exists(extracted_path) or os.path.isdir(extracted_path):
+    if not extracted_path:
         return None
     if os.path.islink(extracted_path):
         _log.warning("Archive member is a symlink: %s", internal_path)
-        try:
-            os.unlink(extracted_path)
-        except OSError:
-            pass
+        _unlink_quiet(extracted_path)
+        return None
+    if not os.path.exists(extracted_path) or os.path.isdir(extracted_path):
         return None
     final = os.path.realpath(extracted_path)
     if not final.startswith(real_root + os.sep) and final != real_root:
         _log.warning("Extracted path escaped archive temp root: %s", internal_path)
-        try:
-            os.unlink(extracted_path)
-        except OSError:
-            pass
+        _unlink_quiet(extracted_path)
         return None
     if max_size is not None:
-        member_ext = os.path.splitext(internal_path)[1].lower()
         try:
             actual = os.path.getsize(final)
         except OSError:
             return None
-        if actual > max_size and member_ext not in allowed_large_exts:
+        if actual > max_size:
             _log.warning("Archive member exceeds preview size limit after extract: %s", internal_path)
-            try:
-                os.unlink(final)
-            except OSError:
-                pass
+            _unlink_quiet(final)
             return None
     return os.path.abspath(final)

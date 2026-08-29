@@ -72,7 +72,7 @@ def _make_logic(root: str, *, search_subfolders: bool = True):
     logic = DialogLogic(
         state=state,
         config=config,
-        refresh_ui_cb=lambda entries: listings.append(list(entries)),
+        refresh_ui_cb=lambda entries, gen=None: listings.append(list(entries)),
         show_error_cb=lambda *_args: None,
         update_path_input_cb=lambda *_args: None,
         update_size_cell_cb=lambda *_args: None,
@@ -104,6 +104,12 @@ class TestSearchSubfoldersToggle:
         logic, _listings = _make_logic(str(tmp_path), search_subfolders=False)
         logic.set_search_subfolders(True)
         assert logic.config.search_subfolders is True
+
+    def test_refresh_listing_restarts_index(self, tmp_path):
+        logic, _listings = _make_logic(str(tmp_path), search_subfolders=True)
+        with patch.object(logic, "start_index_build") as start:
+            logic.refresh_listing()
+        start.assert_called_once()
 
     def test_deep_search_ignores_index_from_other_root(self, tmp_path):
         other = tmp_path / "other"
@@ -163,6 +169,42 @@ class TestSafeUiCallbacks:
         mock_dpg.mutex.assert_called()
         dialog.ui._render_entries_list.assert_called_once_with([])
         assert dialog._pending_listing is None
+
+    def test_stale_generation_listing_is_dropped(self):
+        """A worker stamps the generation its listing was built under, so a
+        listing produced before a navigation bump never overwrites the fresh
+        one — even if the worker's callback runs after the bump."""
+        dialog = FileDialog.__new__(FileDialog)
+        dialog._destroyed = False
+        dialog.ui = MagicMock()
+        dialog.state = DialogState()
+        dialog.state.index_generation = 7
+        with patch.object(FileDialog, "_schedule_ui_poll"):
+            dialog._safe_refresh_ui([], generation=6)
+        assert dialog._pending_listing_gen == 6
+        with patch("dpg_navigator._dialog.dpg"):
+            dialog._apply_pending_listing()
+        dialog.ui._render_entries_list.assert_not_called()
+        assert dialog._pending_listing is None
+
+    def test_matching_generation_listing_is_applied(self):
+        dialog = FileDialog.__new__(FileDialog)
+        dialog._destroyed = False
+        dialog.ui = MagicMock()
+        dialog.state = DialogState()
+        dialog.state.index_generation = 7
+        with patch.object(FileDialog, "_schedule_ui_poll"):
+            dialog._safe_refresh_ui([], generation=7)
+        with patch("dpg_navigator._dialog.dpg"):
+            dialog._apply_pending_listing()
+        dialog.ui._render_entries_list.assert_called_once_with([])
+
+    def test_schedule_ui_poll_ignores_destroyed_dialog(self):
+        dialog = FileDialog.__new__(FileDialog)
+        dialog._destroyed = True
+        before = list(FileDialog._sidebar_poll_targets)
+        dialog._schedule_ui_poll()
+        assert FileDialog._sidebar_poll_targets == before
 
     def test_path_input_skipped_when_destroyed(self):
         dialog = FileDialog.__new__(FileDialog)
@@ -262,9 +304,12 @@ class TestInstanceCount:
     def test_first_of_two_destroy_skips_shared_teardown(self):
         FileDialog._instance_count = 2
         dialog = self._bare_dialog()
-        with patch("dpg_navigator._dialog.dpg") as mock_dpg, patch("dpg_navigator._dialog.JobManager") as jobs, patch(
-            "dpg_navigator._dialog.DirectoryLister.cleanup_temp_files"
-        ) as cleanup, patch("dpg_navigator._html.HTMLRenderer.shutdown_shared"):
+        with (
+            patch("dpg_navigator._dialog.dpg") as mock_dpg,
+            patch("dpg_navigator._dialog.JobManager") as jobs,
+            patch("dpg_navigator._dialog.DirectoryLister.cleanup_temp_files") as cleanup,
+            patch("dpg_navigator._html.HTMLRenderer.shutdown_shared"),
+        ):
             mock_dpg.does_item_exist.return_value = False
             dialog.destroy()
         assert FileDialog._instance_count == 1
@@ -274,9 +319,28 @@ class TestInstanceCount:
     def test_last_destroy_runs_shared_teardown(self):
         FileDialog._instance_count = 1
         dialog = self._bare_dialog()
-        with patch("dpg_navigator._dialog.dpg") as mock_dpg, patch("dpg_navigator._dialog.JobManager") as jobs, patch(
-            "dpg_navigator._dialog.DirectoryLister.cleanup_temp_files"
-        ) as cleanup, patch("dpg_navigator._html.HTMLRenderer.shutdown_shared"):
+        with (
+            patch("dpg_navigator._dialog.dpg") as mock_dpg,
+            patch("dpg_navigator._dialog.JobManager") as jobs,
+            patch("dpg_navigator._dialog.DirectoryLister.cleanup_temp_files") as cleanup,
+            patch("dpg_navigator._html.HTMLRenderer.shutdown_shared"),
+        ):
+            mock_dpg.does_item_exist.return_value = False
+            dialog.destroy()
+        assert FileDialog._instance_count == 0
+        jobs.shutdown.assert_called_once()
+        cleanup.assert_called_once()
+
+    def test_destroy_decrements_when_preview_raises(self):
+        FileDialog._instance_count = 1
+        dialog = self._bare_dialog()
+        dialog._preview.destroy.side_effect = RuntimeError("preview boom")
+        with (
+            patch("dpg_navigator._dialog.dpg") as mock_dpg,
+            patch("dpg_navigator._dialog.JobManager") as jobs,
+            patch("dpg_navigator._dialog.DirectoryLister.cleanup_temp_files") as cleanup,
+            patch("dpg_navigator._html.HTMLRenderer.shutdown_shared"),
+        ):
             mock_dpg.does_item_exist.return_value = False
             dialog.destroy()
         assert FileDialog._instance_count == 0
@@ -319,6 +383,18 @@ class TestKeyboardFocusAndSelectAll:
             mock_dpg.get_active_window.return_value = "nav_test"
             dialog._on_key_escape(None, None, None)
         dialog.hide.assert_called_once()
+
+    def test_ctrl_a_ignored_when_search_input_active(self):
+        dialog = self._dialog()
+        dialog._search_input = 42
+        with patch("dpg_navigator._keyboard.dpg") as mock_dpg, patch("dpg_navigator._keyboard._platform") as plat:
+            mock_dpg.does_item_exist.return_value = True
+            mock_dpg.is_item_shown.return_value = True
+            mock_dpg.get_active_window.return_value = "nav_test"
+            mock_dpg.is_item_active.side_effect = lambda item: item == 42
+            plat.is_mod_key_down.return_value = True
+            dialog._on_key_a(None, None, None)
+        mock_dpg.get_item_children.assert_not_called()
 
     def test_ctrl_a_ignored_when_multi_selection_off(self):
         dialog = self._dialog(multi_selection=False)

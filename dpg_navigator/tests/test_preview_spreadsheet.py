@@ -139,8 +139,9 @@ class TestLoadExcelTable:
             )
 
     def test_rejects_oversized_file(self):
-        with patch("dpg_navigator._preview_spreadsheet.ooxml_exceeds_preview_limit", return_value=True), pytest.raises(
-            ExcelPreviewError, match="too large"
+        with (
+            patch("dpg_navigator._preview_spreadsheet.ooxml_exceeds_preview_limit", return_value=True),
+            pytest.raises(ExcelPreviewError, match="too large"),
         ):
             load_excel_table(
                 "huge.xlsx",

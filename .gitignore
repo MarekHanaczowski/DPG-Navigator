@@ -27,6 +27,7 @@ Desktop.ini
 .coverage
 .coverage.*
 htmlcov/
+.mypy_cache/
 
 # Pytest
 .pytest_cache/

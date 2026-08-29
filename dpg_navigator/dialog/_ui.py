@@ -194,9 +194,10 @@ class DialogUIBuilder:
         except Exception:
             _log.exception("Failed to enumerate mounted drives")
             drives = []
-        if self.dialog._destroyed:
-            return
-        self.dialog._pending_sidebar_drives = (sidebar_tag, drives)
+        with self.dialog._ui_lock:
+            if self.dialog._destroyed:
+                return
+            self.dialog._pending_sidebar_drives = (sidebar_tag, drives)
 
     def _build_explorer_area(self, info_px: int) -> None:
         """Build the main explorer area: toolbar, search, table, preview."""
@@ -316,23 +317,26 @@ class DialogUIBuilder:
         """Build the explorer table and optional preview panel."""
         with dpg.group(horizontal=True):
             table_width = -(self.config.preview_width + 8) if self.config.show_preview else -1
-            with dpg.child_window(
-                width=table_width,
-                height=-1,
-                resizable_x=self.config.show_preview,
-            ) as table_wrapper, dpg.table(
-                height=-1,
-                width=-1,
-                resizable=True,
-                policy=dpg.mvTable_SizingStretchProp,
-                borders_innerV=True,
-                reorderable=True,
-                hideable=True,
-                scrollX=True,
-                scrollY=True,
-                sortable=True,
-                callback=self.dialog._on_sort,
-            ) as self.dialog._explorer_table:
+            with (
+                dpg.child_window(
+                    width=table_width,
+                    height=-1,
+                    resizable_x=self.config.show_preview,
+                ) as table_wrapper,
+                dpg.table(
+                    height=-1,
+                    width=-1,
+                    resizable=True,
+                    policy=dpg.mvTable_SizingStretchProp,
+                    borders_innerV=True,
+                    reorderable=True,
+                    hideable=True,
+                    scrollX=True,
+                    scrollY=True,
+                    sortable=True,
+                    callback=self.dialog._on_sort,
+                ) as self.dialog._explorer_table,
+            ):
                 dpg.add_table_column(label="Name", init_width_or_weight=100)
                 dpg.add_table_column(label="Date", init_width_or_weight=50)
                 dpg.add_table_column(label="Type", init_width_or_weight=10)
@@ -359,7 +363,7 @@ class DialogUIBuilder:
                 callback=lambda s, ad, ud: self.dialog._on_ok(s, ad, ud),
                 width=-250,
             )
-            dpg.add_combo(
+            self.dialog._filter_combo = dpg.add_combo(
                 items=self.dialog._filter_list,
                 callback=self.dialog._on_filter_change,
                 default_value=self.state.current_filter,
@@ -400,6 +404,7 @@ class DialogUIBuilder:
         and search do not leak stale row ids.
         """
         self.state.row_entries.clear()
+        self.state.pending_size_cells.clear()
         status_label = getattr(self.dialog, "_status_label", None)
         if status_label is not None and dpg.does_item_exist(status_label):
             dpg.hide_item(status_label)

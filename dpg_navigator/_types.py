@@ -54,6 +54,12 @@ class FileEntry:
     modified_time: float
     is_hidden: bool
 
+    def __post_init__(self) -> None:
+        if not self.name:
+            raise ValueError("name must be a non-empty string")
+        if self.size_bytes is not None and self.size_bytes < 0:
+            raise ValueError("size_bytes cannot be negative")
+
     @property
     def ext(self) -> str:
         """Lowercase file extension including the leading dot (e.g. '.csv').
@@ -138,6 +144,8 @@ class DialogConfig:
             raise ValueError("min_size must be a pair of positive ints")
         _require_positive_int("min_size[0]", self.min_size[0])
         _require_positive_int("min_size[1]", self.min_size[1])
+        if self.width < self.min_size[0] or self.height < self.min_size[1]:
+            raise ValueError("width and height must be greater than or equal to min_size")
         if not isinstance(self.mode, DialogMode):
             raise TypeError("mode must be a DialogMode")
         if not isinstance(self.style, StyleVariant):
@@ -149,9 +157,15 @@ class DialogConfig:
                 raise TypeError("filter_list must be a list of strings or None")
             for ext in self.filter_list:
                 _require_extension("filter_list item", ext)
+                if ext != ".*" and any(char in ext[1:] for char in "*?["):
+                    raise ValueError("filter_list item cannot contain glob metacharacters")
+            self.filter_list = [item.lower() for item in self.filter_list]
         if not isinstance(self.file_filter, str):
             raise TypeError("file_filter must be a string")
         _require_extension("file_filter", self.file_filter)
+        if self.file_filter != ".*" and any(char in self.file_filter[1:] for char in "*?["):
+            raise ValueError("file_filter cannot contain glob metacharacters")
+        self.file_filter = self.file_filter.lower()
         if self.filter_list and self.file_filter not in self.filter_list:
             raise ValueError(f"file_filter {self.file_filter!r} is not in filter_list")
         if self.custom_dirs is not None:

@@ -23,7 +23,7 @@ def _make_logic(root: str):
     logic = DialogLogic(
         state=state,
         config=config,
-        refresh_ui_cb=lambda entries: listings.append(list(entries)),
+        refresh_ui_cb=lambda entries, gen=None: listings.append(list(entries)),
         show_error_cb=lambda title, msg: errors.append((title, msg)),
         update_path_input_cb=lambda path: path_inputs.append(path),
         update_size_cell_cb=lambda *_args: None,
@@ -138,6 +138,19 @@ class TestNavigateArchive:
         assert errors == []
         assert logic.state.current_dir.endswith("sample.zip|/")
         assert any(e.name == "docs" for e in listings[-1])
+
+    def test_relative_sibling_archive_from_inside_archive(self, tmp_path):
+        first = _zip_with_nested_docs(tmp_path)
+        other = tmp_path / "other.zip"
+        with zipfile.ZipFile(other, "w") as zf:
+            zf.writestr("only.txt", "x")
+        logic, listings, errors, _ = _make_logic(str(tmp_path))
+        logic.navigate_to(f"{first}|/docs")
+        logic.navigate_to("other.zip|/")
+
+        assert errors == []
+        assert logic.state.current_dir.endswith("other.zip|/")
+        assert any(e.name == "only.txt" for e in listings[-1])
 
     def test_missing_archive_keeps_current_and_reports(self, tmp_path):
         missing = str(tmp_path / "gone.zip")

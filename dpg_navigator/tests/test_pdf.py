@@ -15,40 +15,50 @@ HAS_NUMPY = importlib.util.find_spec("numpy") is not None
 
 class TestPdfAvailable:
     def test_available_when_all_installed(self):
-        with patch("dpg_navigator._pdf._pdfium", MagicMock()), patch("dpg_navigator._pdf._np", MagicMock()), patch(
-            "dpg_navigator._pdf._PILImage", MagicMock()
+        with (
+            patch("dpg_navigator._pdf._pdfium", MagicMock()),
+            patch("dpg_navigator._pdf._np", MagicMock()),
+            patch("dpg_navigator._pdf._PILImage", MagicMock()),
         ):
             from dpg_navigator._pdf import pdf_available
 
             assert pdf_available() is True
 
     def test_unavailable_without_pypdfium2(self):
-        with patch("dpg_navigator._pdf._pdfium", None), patch("dpg_navigator._pdf._np", MagicMock()), patch(
-            "dpg_navigator._pdf._PILImage", MagicMock()
+        with (
+            patch("dpg_navigator._pdf._pdfium", None),
+            patch("dpg_navigator._pdf._np", MagicMock()),
+            patch("dpg_navigator._pdf._PILImage", MagicMock()),
         ):
             from dpg_navigator._pdf import pdf_available
 
             assert pdf_available() is False
 
     def test_unavailable_without_numpy(self):
-        with patch("dpg_navigator._pdf._pdfium", MagicMock()), patch("dpg_navigator._pdf._np", None), patch(
-            "dpg_navigator._pdf._PILImage", MagicMock()
+        with (
+            patch("dpg_navigator._pdf._pdfium", MagicMock()),
+            patch("dpg_navigator._pdf._np", None),
+            patch("dpg_navigator._pdf._PILImage", MagicMock()),
         ):
             from dpg_navigator._pdf import pdf_available
 
             assert pdf_available() is False
 
     def test_unavailable_without_pillow(self):
-        with patch("dpg_navigator._pdf._pdfium", MagicMock()), patch("dpg_navigator._pdf._np", MagicMock()), patch(
-            "dpg_navigator._pdf._PILImage", None
+        with (
+            patch("dpg_navigator._pdf._pdfium", MagicMock()),
+            patch("dpg_navigator._pdf._np", MagicMock()),
+            patch("dpg_navigator._pdf._PILImage", None),
         ):
             from dpg_navigator._pdf import pdf_available
 
             assert pdf_available() is False
 
     def test_unavailable_when_all_missing(self):
-        with patch("dpg_navigator._pdf._pdfium", None), patch("dpg_navigator._pdf._np", None), patch(
-            "dpg_navigator._pdf._PILImage", None
+        with (
+            patch("dpg_navigator._pdf._pdfium", None),
+            patch("dpg_navigator._pdf._np", None),
+            patch("dpg_navigator._pdf._PILImage", None),
         ):
             from dpg_navigator._pdf import pdf_available
 
@@ -110,9 +120,10 @@ class TestPDFRendererInit:
         from dpg_navigator._pdf import _MAX_PDF_BYTES
 
         r = make_renderer
-        with patch("dpg_navigator._pdf.os.path.getsize", return_value=_MAX_PDF_BYTES + 1), patch(
-            "dpg_navigator._pdf._pdfium"
-        ) as pdfium:
+        with (
+            patch("dpg_navigator._pdf.os.path.getsize", return_value=_MAX_PDF_BYTES + 1),
+            patch("dpg_navigator._pdf._pdfium") as pdfium,
+        ):
             assert r.open("huge.pdf", 100, 100) is False
             pdfium.PdfDocument.assert_not_called()
 
@@ -195,8 +206,10 @@ class TestPageNavigation:
         r._buf_ptr = 0
 
         arr = np.ones(10 * 10 * 4, dtype=np.float32)
-        with patch.object(r, "_get_page", return_value=arr), patch("dpg_navigator._pdf.ctypes"), patch.object(
-            r, "_start_prefetch"
+        with (
+            patch.object(r, "_get_page", return_value=arr),
+            patch("dpg_navigator._pdf.ctypes"),
+            patch.object(r, "_start_prefetch"),
         ):
             page_info = r.next_page()
             assert page_info == (4, 10)
@@ -222,8 +235,10 @@ class TestPageNavigation:
         r._buf_ptr = 0
 
         arr = np.ones(10 * 10 * 4, dtype=np.float32)
-        with patch.object(r, "_get_page", return_value=arr), patch("dpg_navigator._pdf.ctypes"), patch.object(
-            r, "_start_prefetch"
+        with (
+            patch.object(r, "_get_page", return_value=arr),
+            patch("dpg_navigator._pdf.ctypes"),
+            patch.object(r, "_start_prefetch"),
         ):
             page_info = r.prev_page()
             assert page_info == (2, 10)
@@ -248,8 +263,10 @@ class TestPageNavigation:
         r._buf_ptr = 0
 
         arr = np.ones(10 * 10 * 4, dtype=np.float32)
-        with patch.object(r, "_get_page", return_value=arr), patch("dpg_navigator._pdf.ctypes"), patch.object(
-            r, "_start_prefetch"
+        with (
+            patch.object(r, "_get_page", return_value=arr),
+            patch("dpg_navigator._pdf.ctypes"),
+            patch.object(r, "_start_prefetch"),
         ):
             page_info = r.show_page(100)
             assert page_info == (4, 5)
@@ -534,8 +551,10 @@ class TestOnResize:
         r._tex_exists = True
 
         arr = np.ones(200 * 200 * 4, dtype=np.float32)
-        with patch.object(r, "_get_page", return_value=arr), patch("dpg_navigator._pdf.ctypes"), patch.object(
-            r, "_start_prefetch"
+        with (
+            patch.object(r, "_get_page", return_value=arr),
+            patch("dpg_navigator._pdf.ctypes"),
+            patch.object(r, "_start_prefetch"),
         ):
             result = r.on_resize(200, 200)
             assert result == (1, 3)

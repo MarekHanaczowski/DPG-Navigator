@@ -21,14 +21,31 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
         with:
           python-version: "3.13"
           cache: pip
 
+      - name: Verify git tag matches package version
+        if: github.event_name == 'release'
+        run: |
+          python - <<'PY'
+          import os, pathlib, re
+          text = pathlib.Path("dpg_navigator/__init__.py").read_text(encoding="utf-8")
+          match = re.search(r'__version__\s*=\s*"([^"]+)"', text)
+          if match is None:
+              raise SystemExit("Could not read __version__")
+          expected = f"v{match.group(1)}"
+          tag = os.environ["GITHUB_REF_NAME"]
+          if tag != expected:
+              raise SystemExit(f"tag {tag} does not match package version {expected}")
+          PY
+
       - name: Install build dependencies
-        run: python -m pip install --upgrade pip build twine
+        run: python -m pip install --upgrade pip "build==1.2.2" "twine==6.1.0"
 
       - name: Build wheel and sdist
         run: python -m build

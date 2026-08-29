@@ -238,6 +238,9 @@ class IconRegistry:
     ``_EXT_LOOKUP`` dictionary (supports double extensions like .tar.gz).
     """
 
+    _shared_tags: dict[str, str] = {}
+    _shared_users: int = 0
+
     def __init__(self, tag_prefix: str, images_dir: str) -> None:
         self._tags: dict[str, str] = {}
         self._tag_prefix = tag_prefix
@@ -247,16 +250,22 @@ class IconRegistry:
 
     def load_all(self) -> None:
         """Load all icons from images/ directory into DPG texture registry."""
+        if IconRegistry._shared_tags:
+            self._tags = IconRegistry._shared_tags
+            IconRegistry._shared_users += 1
+            return
         with dpg.texture_registry():
             for name in ICON_NAMES:
                 path = os.path.join(self._images_dir, f"{name}.png")
                 try:
                     w, h, _, data = dpg.load_image(path)
-                    tag = f"{self._tag_prefix}_ico_{name}"
+                    tag = f"dpg_nav_shared_ico_{name}"
                     dpg.add_static_texture(width=w, height=h, default_value=data, tag=tag)
                     self._tags[name] = tag
                 except Exception:
                     _log.warning("Failed to load icon '%s' from %s", name, path)
+        IconRegistry._shared_tags = self._tags
+        IconRegistry._shared_users = 1
 
     def get(self, name: str) -> str | None:
         """Return DPG texture tag for an icon name, or None if not loaded."""
@@ -288,7 +297,13 @@ class IconRegistry:
         return self._tags.get("mini_folder", "")
 
     def destroy(self) -> None:
-        """Remove all loaded textures from DPG."""
+        """Remove all loaded textures from DPG after the last dialog releases them."""
+        if self._tags is IconRegistry._shared_tags:
+            IconRegistry._shared_users = max(0, IconRegistry._shared_users - 1)
+            if IconRegistry._shared_users > 0:
+                self._tags = {}
+                return
+            IconRegistry._shared_tags = {}
         for tag in self._tags.values():
             if dpg.does_item_exist(tag):
                 dpg.delete_item(tag)

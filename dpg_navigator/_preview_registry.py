@@ -11,6 +11,11 @@ import os
 from dataclasses import dataclass
 from enum import Enum, auto
 
+from . import _preview_limits
+
+OOXML_PREVIEW_MAX_BYTES = _preview_limits.OOXML_PREVIEW_MAX_COMPRESSED_BYTES
+ooxml_exceeds_preview_limit = _preview_limits.ooxml_exceeds_preview_limit
+
 STB_IMAGE_EXTS: frozenset[str] = frozenset(
     {
         ".png",
@@ -42,9 +47,6 @@ PILLOW_EXTRA_EXTS: frozenset[str] = frozenset(
         ".pcx",
     }
 )
-
-OOXML_PREVIEW_MAX_BYTES: int = 32 * 1024 * 1024
-"""Byte gate for .docx/.pptx/.xlsx preview loaders."""
 
 PDF_EXTS: frozenset[str] = frozenset({".pdf"})
 WORD_EXTS: frozenset[str] = frozenset({".docx"})
@@ -145,6 +147,7 @@ TEXT_PREVIEW_EXTS: frozenset[str] = (
             ".gitattributes",
             ".editorconfig",
             ".lock",
+            ".markdown",
         }
     )
     | CODE_EXTS
@@ -246,11 +249,3 @@ def resolve_preview_kind(
     if capabilities.pptx and ext in PPTX_EXTS:
         return PreviewKind.PPTX
     return PreviewKind.NONE
-
-
-def ooxml_exceeds_preview_limit(path: str) -> bool:
-    """True when *path* exists and is larger than the Office preview byte gate."""
-    try:
-        return os.path.isfile(path) and os.path.getsize(path) > OOXML_PREVIEW_MAX_BYTES
-    except OSError:
-        return False

@@ -72,36 +72,55 @@ class TestChromeAvailable:
     """chrome_available() uses a disposable session and caches the result."""
 
     def test_false_when_html_deps_missing(self):
-        with patch.object(htmlmod, "_chrome_available_cache", None), patch.object(
-            htmlmod, "html_available", return_value=False
+        with (
+            patch.object(htmlmod, "_chrome_available_cache", None),
+            patch.object(htmlmod, "html_available", return_value=False),
         ):
             assert chrome_available() is False
 
     def test_true_when_executable_resolves(self):
-        with patch.object(htmlmod, "_chrome_available_cache", None), patch.object(
-            htmlmod, "html_available", return_value=True
-        ), patch.object(htmlmod, "_discover_chrome_executable", return_value=r"C:\chrome.exe"):
+        with (
+            patch.object(htmlmod, "_chrome_available_cache", None),
+            patch.object(htmlmod, "html_available", return_value=True),
+            patch.object(htmlmod, "_discover_chrome_executable", return_value=r"C:\chrome.exe"),
+        ):
             assert chrome_available() is True
 
     def test_false_when_executable_missing(self):
-        with patch.object(htmlmod, "_chrome_available_cache", None), patch.object(
-            htmlmod, "html_available", return_value=True
-        ), patch.object(htmlmod, "_discover_chrome_executable", return_value=None):
+        with (
+            patch.object(htmlmod, "_chrome_available_cache", None),
+            patch.object(htmlmod, "html_available", return_value=True),
+            patch.object(htmlmod, "_discover_chrome_executable", return_value=None),
+        ):
             assert chrome_available() is False
 
     def test_false_when_resolution_raises(self):
-        with patch.object(htmlmod, "_chrome_available_cache", None), patch.object(
-            htmlmod, "html_available", return_value=True
-        ), patch.object(htmlmod, "_discover_chrome_executable", side_effect=RuntimeError):
+        with (
+            patch.object(htmlmod, "_chrome_available_cache", None),
+            patch.object(htmlmod, "html_available", return_value=True),
+            patch.object(htmlmod, "_discover_chrome_executable", side_effect=RuntimeError),
+        ):
             assert chrome_available() is False
 
     def test_result_is_cached(self):
-        with patch.object(htmlmod, "_chrome_available_cache", None), patch.object(
-            htmlmod, "html_available", return_value=True
-        ), patch.object(htmlmod, "_discover_chrome_executable", return_value="/usr/bin/chromium") as discover:
+        with (
+            patch.object(htmlmod, "_chrome_available_cache", None),
+            patch.object(htmlmod, "html_available", return_value=True),
+            patch.object(htmlmod, "_discover_chrome_executable", return_value="/usr/bin/chromium") as discover,
+        ):
             assert chrome_available() is True
             assert chrome_available() is True
             discover.assert_called_once()
+
+    def test_false_result_is_not_cached(self):
+        with (
+            patch.object(htmlmod, "_chrome_available_cache", None),
+            patch.object(htmlmod, "html_available", return_value=True),
+            patch.object(htmlmod, "_discover_chrome_executable", side_effect=[None, "/usr/bin/chromium"]) as discover,
+        ):
+            assert chrome_available() is False
+            assert chrome_available() is True
+            assert discover.call_count == 2
 
 
 class TestChromeFlagsAndSessions:
@@ -142,9 +161,11 @@ class TestChromeFlagsAndSessions:
         temp.name = str(tmp_path / "session")
         fake_hti = MagicMock()
         fake_hti.browser._subprocess_run_kwargs = {}
-        with patch.object(htmlmod.tempfile, "TemporaryDirectory", return_value=temp), patch.object(
-            htmlmod, "_discover_chrome_executable", return_value="/chrome"
-        ), patch.object(htmlmod, "_Html2Image", return_value=fake_hti) as ctor:
+        with (
+            patch.object(htmlmod.tempfile, "TemporaryDirectory", return_value=temp),
+            patch.object(htmlmod, "_discover_chrome_executable", return_value="/chrome"),
+            patch.object(htmlmod, "_Html2Image", return_value=fake_hti) as ctor,
+        ):
             session = HTMLRenderer._create_chrome_session(trusted=False)
         kwargs = ctor.call_args.kwargs
         output_dir = htmlmod.os.path.join(temp.name, "output")
@@ -164,10 +185,11 @@ class TestChromeFlagsAndSessions:
     def test_constructor_failure_cleans_profile(self, tmp_path):
         temp = MagicMock()
         temp.name = str(tmp_path / "failed")
-        with patch.object(htmlmod.tempfile, "TemporaryDirectory", return_value=temp), patch.object(
-            htmlmod, "_discover_chrome_executable", return_value="/chrome"
-        ), patch.object(htmlmod, "_Html2Image", side_effect=RuntimeError("boom")), pytest.raises(
-            RuntimeError, match="boom"
+        with (
+            patch.object(htmlmod.tempfile, "TemporaryDirectory", return_value=temp),
+            patch.object(htmlmod, "_discover_chrome_executable", return_value="/chrome"),
+            patch.object(htmlmod, "_Html2Image", side_effect=RuntimeError("boom")),
+            pytest.raises(RuntimeError, match="boom"),
         ):
             HTMLRenderer._create_chrome_session(trusted=False)
         temp.cleanup.assert_called_once()
@@ -175,11 +197,14 @@ class TestChromeFlagsAndSessions:
     def test_headless_shell_uses_plain_headless_mode(self):
         fake_hti = MagicMock()
         fake_hti.browser._subprocess_run_kwargs = {}
-        with patch.object(
-            htmlmod,
-            "_discover_chrome_executable",
-            return_value="/opt/chrome-headless-shell",
-        ), patch.object(htmlmod, "_Html2Image", return_value=fake_hti):
+        with (
+            patch.object(
+                htmlmod,
+                "_discover_chrome_executable",
+                return_value="/opt/chrome-headless-shell",
+            ),
+            patch.object(htmlmod, "_Html2Image", return_value=fake_hti),
+        ):
             session = HTMLRenderer._create_chrome_session(trusted=False)
         try:
             assert fake_hti.browser.use_new_headless is None
@@ -191,8 +216,9 @@ class TestChromeFlagsAndSessions:
         fake_a.browser._subprocess_run_kwargs = {}
         fake_b = MagicMock()
         fake_b.browser._subprocess_run_kwargs = {}
-        with patch.object(htmlmod, "_discover_chrome_executable", return_value="/chrome"), patch.object(
-            htmlmod, "_Html2Image", side_effect=[fake_a, fake_b]
+        with (
+            patch.object(htmlmod, "_discover_chrome_executable", return_value="/chrome"),
+            patch.object(htmlmod, "_Html2Image", side_effect=[fake_a, fake_b]),
         ):
             first = HTMLRenderer._create_chrome_session(trusted=False)
             second = HTMLRenderer._create_chrome_session(trusted=False)
@@ -226,9 +252,11 @@ class TestResolveChromeExecutable:
 
     def test_posix_validation_probe_has_a_timeout(self):
         completed = MagicMock(returncode=0, stdout=b"Chromium 123")
-        with patch.object(htmlmod.os, "name", "posix"), patch.object(
-            htmlmod.shutil, "which", return_value="/usr/bin/chromium"
-        ), patch.object(htmlmod.subprocess, "run", return_value=completed) as run:
+        with (
+            patch.object(htmlmod.os, "name", "posix"),
+            patch.object(htmlmod.shutil, "which", return_value="/usr/bin/chromium"),
+            patch.object(htmlmod.subprocess, "run", return_value=completed) as run,
+        ):
             assert htmlmod._validate_chrome_executable("chromium") == "/usr/bin/chromium"
         assert run.call_args.kwargs["timeout"] == htmlmod._CHROME_PROBE_TIMEOUT
 
@@ -272,6 +300,11 @@ class TestSafeHtmlPreparation:
         out = _prepare_safe_document(f'<img src="{allowed}"><img src="data:image/svg+xml;base64,PHN2Zz4=">')
         assert allowed in out
         assert "svg+xml" not in out
+
+    def test_huge_data_image_is_stripped(self):
+        huge = "data:image/png;base64," + ("A" * 3_000_000)
+        out = _prepare_safe_document(f'<img src="{huge}">')
+        assert "data:image/png" not in out
 
     def test_event_handlers_scripts_and_author_css_are_removed(self):
         out = _prepare_safe_document(
@@ -438,10 +471,13 @@ class TestMainThreadHandoff:
         renderer._render_future = old
         events = []
         future = MagicMock()
-        with patch.object(renderer, "_arm_poll", side_effect=lambda: events.append("poll")), patch.object(
-            htmlmod.JobManager,
-            "submit",
-            side_effect=lambda *_args: events.append("submit") or future,
+        with (
+            patch.object(renderer, "_arm_poll", side_effect=lambda: events.append("poll")),
+            patch.object(
+                htmlmod.JobManager,
+                "submit",
+                side_effect=lambda *_args: events.append("submit") or future,
+            ),
         ):
             renderer._start_render(100)
         old.cancel.assert_called_once()
@@ -467,8 +503,9 @@ class TestMainThreadHandoff:
         screenshot = image.new("RGBA", (100, 30), _BG_COLOR_RGBA)
         screenshot.putpixel((10, 10), (255, 255, 255, 255))
         mock_html_dpg.reset_mock()
-        with patch.object(renderer, "_create_chrome_session", return_value=session), patch.object(
-            renderer, "_hti_screenshot", return_value=screenshot
+        with (
+            patch.object(renderer, "_create_chrome_session", return_value=session),
+            patch.object(renderer, "_hti_screenshot", return_value=screenshot),
         ):
             renderer._render_worker(100, 1, renderer._html_content, False)
         assert renderer._pending_render is not None
@@ -551,9 +588,11 @@ class TestMainThreadHandoff:
         scheduled["fn"]()
         assert renderer._pending_resize is not None
         assert mock_html_dpg.mock_calls == []
-        with patch.object(renderer, "_recreate_texture") as recreate, patch.object(
-            renderer, "_start_render"
-        ) as start, patch.object(HTMLRenderer, "_kill_owned_chrome"):
+        with (
+            patch.object(renderer, "_recreate_texture") as recreate,
+            patch.object(renderer, "_start_render") as start,
+            patch.object(HTMLRenderer, "_kill_owned_chrome"),
+        ):
             renderer._apply_pending()
         recreate.assert_called_once_with(200, 150)
         start.assert_called_once_with(180)
@@ -568,8 +607,9 @@ class TestMainThreadHandoff:
         HTMLRenderer._poll_targets.append(renderer)
         future = renderer._render_future
         timer = renderer._resize_timer
-        with patch.object(htmlmod.JobManager, "cancel_timer") as cancel_timer, patch.object(
-            HTMLRenderer, "_kill_owned_chrome"
+        with (
+            patch.object(htmlmod.JobManager, "cancel_timer") as cancel_timer,
+            patch.object(HTMLRenderer, "_kill_owned_chrome"),
         ):
             renderer.close()
         future.cancel.assert_called_once()
@@ -590,8 +630,9 @@ class TestMainThreadHandoff:
         def screenshot(_session, _html, width, _height, _generation):
             return image.new("RGBA", (width, 20), _BG_COLOR_RGBA)
 
-        with patch.object(HTMLRenderer, "_create_chrome_session", side_effect=sessions), patch.object(
-            HTMLRenderer, "_hti_screenshot", side_effect=screenshot
+        with (
+            patch.object(HTMLRenderer, "_create_chrome_session", side_effect=sessions),
+            patch.object(HTMLRenderer, "_hti_screenshot", side_effect=screenshot),
         ):
             first._render_worker(100, 1, first._html_content, False)
             second._render_worker(120, 1, second._html_content, False)
@@ -639,10 +680,13 @@ class TestChromeProcessOwnership:
         proc = MagicMock()
         proc.poll.return_value = None
         proc.pid = 12345
-        HTMLRenderer._register_chrome(proc, renderer)
+        # Stub the create-time probe: a real psutil lookup of PID 12345 is
+        # nondeterministic on CI (the PID may or may not exist).
+        with patch.object(htmlmod, "_chrome_create_time", return_value=111.0):
+            HTMLRenderer._register_chrome(proc, renderer)
         with patch.object(htmlmod, "_kill_process_tree") as kill:
             renderer.close()
-        kill.assert_called_once_with(proc)
+        kill.assert_called_once_with(proc, 111.0)
 
     def test_close_does_not_kill_other_renderer_process(self):
         mine = HTMLRenderer("mine")
@@ -658,7 +702,8 @@ class TestChromeProcessOwnership:
         proc = MagicMock()
         proc.poll.return_value = None
         renderer = HTMLRenderer("test")
-        HTMLRenderer._register_chrome(proc, renderer)
+        with patch.object(htmlmod, "_chrome_create_time", return_value=None):
+            HTMLRenderer._register_chrome(proc, renderer)
         HTMLRenderer._poll_targets.append(renderer)
         HTMLRenderer._poll_armed = True
         htmlmod._chrome_available_cache = True
@@ -694,9 +739,11 @@ class TestChromeProcessOwnership:
 
         htmlmod._chrome_owner.renderer = renderer
         htmlmod._chrome_owner.generation = 1
-        with patch.object(subprocess, "Popen", side_effect=popen), patch.object(
-            htmlmod, "_kill_process_tree"
-        ) as kill, pytest.raises(_ChromeCancelled):
+        with (
+            patch.object(subprocess, "Popen", side_effect=popen),
+            patch.object(htmlmod, "_kill_process_tree") as kill,
+            pytest.raises(_ChromeCancelled),
+        ):
             _chrome_popen_run(["chrome"])
         kill.assert_called_once_with(proc)
         assert HTMLRenderer._chrome_procs == []
@@ -710,9 +757,11 @@ class TestChromeProcessOwnership:
             subprocess.TimeoutExpired(cmd="chrome", timeout=0.01),
             (None, None),
         ]
-        with patch.object(subprocess, "Popen", return_value=proc), patch.object(
-            htmlmod, "_kill_process_tree"
-        ) as kill, pytest.raises(subprocess.TimeoutExpired):
+        with (
+            patch.object(subprocess, "Popen", return_value=proc),
+            patch.object(htmlmod, "_kill_process_tree") as kill,
+            pytest.raises(subprocess.TimeoutExpired),
+        ):
             _chrome_popen_run(["chrome"], timeout=0.01)
         kill.assert_called_once_with(proc)
 
@@ -726,3 +775,80 @@ class TestChromeProcessOwnership:
             import html2image.browsers.chromium as chromium_mod
 
             assert isinstance(chromium_mod.subprocess, htmlmod._ChromiumSubprocessProxy)
+
+    @pytest.mark.skipif(
+        not html_available(),
+        reason="html2image backend not importable in this environment",
+    )
+    def test_shutdown_shared_unpatches_html2image_hook(self):
+        _ensure_chromium_run_hook()
+        import html2image.browsers.chromium as chromium_mod
+
+        assert isinstance(chromium_mod.subprocess, htmlmod._ChromiumSubprocessProxy)
+        HTMLRenderer.shutdown_shared()
+        assert htmlmod._chromium_run_patched is False
+        assert not isinstance(chromium_mod.subprocess, htmlmod._ChromiumSubprocessProxy)
+        _ensure_chromium_run_hook()
+
+    def test_kill_process_tree_skips_reused_pid(self):
+        proc = MagicMock()
+        proc.poll.return_value = None
+        proc.pid = 4242
+        parent = MagicMock()
+        parent.create_time.return_value = 100.0
+        fake_psutil = MagicMock()
+        fake_psutil.Process.return_value = parent
+        with patch.object(htmlmod, "_psutil", fake_psutil):
+            htmlmod._kill_process_tree(proc, 10.0)
+        parent.kill.assert_not_called()
+        proc.kill.assert_not_called()
+
+    def test_retry_rmtree_retries_then_ignores(self, tmp_path, monkeypatch):
+        target = tmp_path / "locked"
+        target.mkdir()
+        calls = {"n": 0}
+
+        def boom(_path, ignore_errors=False):
+            calls["n"] += 1
+            if ignore_errors:
+                return
+            raise OSError("locked")
+
+        monkeypatch.setattr(htmlmod.shutil, "rmtree", boom)
+        monkeypatch.setattr(htmlmod.time, "sleep", lambda _seconds: None)
+        htmlmod._retry_rmtree(str(target), attempts=2)
+        assert calls["n"] == 3
+
+    def test_env_helpers_clamp_and_reject_garbage(self, monkeypatch):
+        monkeypatch.setenv("DPG_TEST_LIMIT", "99999")
+        assert htmlmod._env_int("DPG_TEST_LIMIT", 10, minimum=1, maximum=20) == 20
+        monkeypatch.setenv("DPG_TEST_LIMIT", "nope")
+        assert htmlmod._env_int("DPG_TEST_LIMIT", 10, minimum=1, maximum=20) == 10
+        monkeypatch.setenv("DPG_TEST_LIMIT", "0.05")
+        assert htmlmod._env_float("DPG_TEST_LIMIT", 0.4, minimum=0.1, maximum=1.0) == 0.1
+        monkeypatch.delenv("DPG_TEST_LIMIT", raising=False)
+        assert htmlmod._env_int("DPG_TEST_LIMIT", 10, minimum=1, maximum=20) == 10
+
+
+class TestKeepFirstScreenshot:
+    def test_keeps_first_capture_when_wider_shot_fails(self, tmp_path):
+        image = pytest.importorskip("PIL.Image")
+        renderer = HTMLRenderer("test")
+        renderer._html_content = "<p>x</p>"
+        renderer._trusted = True
+        renderer._render_generation = 1
+        first = image.new("RGBA", (100, 40), _BG_COLOR_RGBA)
+        first.putpixel((3, 3), (1, 244, 255, 255))  # scroll_w = 500
+        first.putpixel((4, 3), (17, 34, 51, 255))
+        first.putpixel((3, 4), (0, 20, 255, 255))  # scroll_h = 20
+        first.putpixel((20, 20), (255, 0, 0, 255))
+        session = _fake_session(tmp_path)
+        with (
+            patch.object(renderer, "_create_chrome_session", return_value=session),
+            patch.object(renderer, "_hti_screenshot", side_effect=[first, RuntimeError("second failed")]),
+        ):
+            renderer._render_worker(100, 1, renderer._html_content, True)
+        assert renderer._pending_render is not None
+        assert renderer._pending_render.error is None
+        assert renderer._pending_render.chrome_width == 100
+        session.cleanup.assert_called_once()

@@ -92,7 +92,7 @@ The package keeps filesystem/search logic separate from DearPyGui rendering:
 
 The integrated preview panel renders files directly inside the dialog:
 
-- **Images** — native stb_image loading with Pillow fallback for WebP, TIFF, HEIC, and SVG; aspect-ratio scaling and centering.
+- **Images** — native stb_image loading with Pillow fallback for WebP, TIFF, HEIC, and SVG; the first view fits the pane without cropping. Mouse wheel zooms toward the cursor; left-button drag pans.
 - **PDF** — page-by-page rendering via pypdfium2 with mouse wheel navigation over the preview panel (wheel down = next page, wheel up = previous page), LRU cache, and background prefetch.
 - **Word (.docx)** — pixel-perfect HTML render via mammoth + Chrome Headless, or python-docx styled text extraction as fallback.
 - **PowerPoint (.pptx)** — slide text, tables, speaker notes, and inline image extraction via python-pptx.
@@ -228,7 +228,7 @@ dpg.bind_font(ui_font)
 
 ## Requirements
 
-- Python >= 3.8
+- Python >= 3.9
 - [DearPyGui](https://pypi.org/project/dearpygui/) >= 2.2
 - [psutil](https://pypi.org/project/psutil/) >= 5.9.0
 - [bleach](https://pypi.org/project/bleach/) >= 6.0

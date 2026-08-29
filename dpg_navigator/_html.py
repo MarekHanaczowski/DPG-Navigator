@@ -29,6 +29,7 @@ import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
 from ._job_manager import JobManager, TimerTask
 from ._optional import OptionalModule, as_optional, require_optional
+from ._preview_limits import is_safe_data_image
 
 _log = logging.getLogger(__name__)
 
@@ -79,6 +80,28 @@ _chrome_available_cache: bool | None = None
 _chrome_executable_cache: str | None = None
 
 
+def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
+    """Read a clamped integer environment override, or *default* if unset/invalid."""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return max(minimum, min(maximum, int(raw, 10)))
+    except ValueError:
+        return default
+
+
+def _env_float(name: str, default: float, *, minimum: float, maximum: float) -> float:
+    """Read a clamped float environment override, or *default* if unset/invalid."""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return max(minimum, min(maximum, float(raw)))
+    except ValueError:
+        return default
+
+
 def chrome_available() -> bool:
     """Return True if a Chrome/Chromium binary is resolvable for rendering.
 
@@ -89,39 +112,41 @@ def chrome_available() -> bool:
     profile. The result is cached.
     """
     global _chrome_available_cache, _chrome_executable_cache
-    if _chrome_available_cache is not None:
-        return _chrome_available_cache
+    if _chrome_available_cache is True:
+        return True
     if not html_available():
-        _chrome_available_cache = False
         return False
     try:
         _chrome_executable_cache = _discover_chrome_executable()
     except Exception:
         _log.debug("Chrome availability probe failed", exc_info=True)
         _chrome_executable_cache = None
+        return False
     _chrome_available_cache = _chrome_executable_cache is not None
-    return _chrome_available_cache
+    return bool(_chrome_available_cache)
 
 
 # ── Module-level constants ─────────────────────────────────────
 
-_RENDER_H: int = 8000
+_RENDER_H: int = _env_int("DPG_HTML_RENDER_H", 8000, minimum=200, maximum=16000)
 _SCROLL_SPEED: int = 50
 _MARGIN: int = 10
 _BG_COLOR_RGBA = (26, 26, 26, 255)
 _TRIM_TOLERANCE: int = 5
-_RESIZE_DEBOUNCE: float = 0.4
-_OVERSCAN: int = 20
-_MAX_RENDER_W: int = 4000
-_MAX_HTML_BYTES: int = 2 * 1024 * 1024
+_RESIZE_DEBOUNCE: float = _env_float("DPG_HTML_RESIZE_DEBOUNCE", 0.4, minimum=0.05, maximum=5.0)
+_OVERSCAN: int = 20 if os.name == "nt" else 0
+_MAX_RENDER_W: int = _env_int("DPG_HTML_MAX_RENDER_W", 4000, minimum=200, maximum=8000)
+_MAX_HTML_BYTES: int = _env_int("DPG_HTML_MAX_BYTES", 2 * 1024 * 1024, minimum=4096, maximum=16 * 1024 * 1024)
 """Reject HTML/Markdown sources larger than this before spawning Chrome."""
-_CHROME_TIMEOUT: float = 30.0
+_MAX_TEXTURE_PIXELS: int = _MAX_RENDER_W * _RENDER_H
+_CHROME_TIMEOUT: float = _env_float("DPG_CHROME_TIMEOUT", 30.0, minimum=2.0, maximum=120.0)
 """Seconds before a hung Chrome screenshot subprocess is killed."""
 _CHROME_PROBE_TIMEOUT: float = 5.0
 """Maximum seconds spent validating a Chrome binary on POSIX."""
 
 _chrome_owner = threading.local()
 _chromium_run_patched = False
+_chromium_subprocess_original: Any = None
 
 
 def _resolve_chrome_executable() -> str | None:
@@ -209,7 +234,8 @@ def _is_headless_shell(executable: str | None) -> bool:
     """Return True if *executable* is Chrome's old-headless screenshot binary."""
     if not executable:
         return False
-    return "headless-shell" in os.path.basename(executable).lower()
+    name = os.path.basename(executable).lower().replace("_", "-")
+    return "headless-shell" in name or name in {"headlessshell", "chrome-headless"}
 
 
 def _chrome_custom_flags(
@@ -273,6 +299,14 @@ class _ChromeCancelled(Exception):
     """Raised when a screenshot is aborted because the preview closed."""
 
 
+# Render workers currently inside _render_worker. The html2image hook must
+# stay installed while any are alive: a straggler outliving JobManager's
+# shutdown join would otherwise call the real subprocess.run and spawn an
+# untracked, uncancellable Chrome.
+_active_render_workers = 0
+_active_render_lock = threading.Lock()
+
+
 class _ChromiumSubprocessProxy:
     """Replace html2image's ``chromium.subprocess`` without touching stdlib."""
 
@@ -285,18 +319,62 @@ class _ChromiumSubprocessProxy:
 
 def _ensure_chromium_run_hook() -> None:
     """Route html2image Chrome launches through ``_chrome_popen_run``."""
-    global _chromium_run_patched
-    if _chromium_run_patched:
-        return
+    global _chromium_run_patched, _chromium_subprocess_original
     try:
         import html2image.browsers.chromium as chromium_mod  # type: ignore[import-untyped]
     except Exception:
         return
+    current = getattr(chromium_mod, "subprocess", None)
+    if isinstance(current, _ChromiumSubprocessProxy):
+        _chromium_run_patched = True
+        return
+    if _chromium_subprocess_original is None:
+        _chromium_subprocess_original = current
     chromium_mod.subprocess = _ChromiumSubprocessProxy()
+    if not isinstance(chromium_mod.subprocess, _ChromiumSubprocessProxy):
+        _log.warning("html2image Chrome launch hook failed self-test")
+        return
     _chromium_run_patched = True
 
 
-def _kill_process_tree(proc: Any) -> None:
+def _restore_chromium_run_hook() -> None:
+    """Undo the process-global html2image launch hook after the last dialog."""
+    global _chromium_run_patched, _chromium_subprocess_original
+    if not _chromium_run_patched:
+        return
+    with _active_render_lock:
+        if _active_render_workers > 0:
+            _log.debug(
+                "Keeping html2image hook; %s render worker(s) still active",
+                _active_render_workers,
+            )
+            return
+    try:
+        import html2image.browsers.chromium as chromium_mod  # type: ignore[import-untyped]
+    except Exception:
+        _chromium_run_patched = False
+        _chromium_subprocess_original = None
+        return
+    if isinstance(chromium_mod.subprocess, _ChromiumSubprocessProxy):
+        chromium_mod.subprocess = (
+            _chromium_subprocess_original if _chromium_subprocess_original is not None else subprocess
+        )
+    _chromium_run_patched = False
+    _chromium_subprocess_original = None
+
+
+def _chrome_create_time(proc: Any) -> float | None:
+    """Return the OS create-time for *proc*, or None when it cannot be read."""
+    pid = getattr(proc, "pid", None)
+    if _psutil is None or pid is None:
+        return None
+    try:
+        return float(_psutil.Process(pid).create_time())
+    except Exception:
+        return None
+
+
+def _kill_process_tree(proc: Any, create_time: float | None = None) -> None:
     """Kill *proc* and its children (headless Chrome is multi-process)."""
     poll = getattr(proc, "poll", None)
     if callable(poll) and poll() is not None:
@@ -305,6 +383,9 @@ def _kill_process_tree(proc: Any) -> None:
     if _psutil is not None and pid is not None:
         try:
             parent = _psutil.Process(pid)
+            if create_time is not None and abs(parent.create_time() - create_time) > 1.0:
+                _log.debug("Skipping Chrome kill; PID %s was reused", pid)
+                return
             victims = parent.children(recursive=True)
             victims.append(parent)
             for victim in victims:
@@ -324,6 +405,20 @@ def _kill_process_tree(proc: Any) -> None:
         proc.wait(timeout=1.0)
     except Exception:
         pass
+
+
+def _retry_rmtree(path: str, *, attempts: int = 4) -> None:
+    """Remove *path* with backoff so Windows can release Chrome file locks."""
+    if not path or not os.path.exists(path):
+        return
+    for attempt in range(attempts):
+        try:
+            shutil.rmtree(path)
+            return
+        except OSError:
+            time.sleep(0.05 * (2**attempt))
+    shutil.rmtree(path, ignore_errors=True)
+    _log.warning("Chrome session directory cleanup was incomplete: %s", path)
 
 
 def _chrome_popen_run(
@@ -464,17 +559,11 @@ _SAFE_TAG_ATTRIBUTES: dict[str, frozenset[str]] = {
     "td": frozenset({"colspan", "rowspan"}),
     "th": frozenset({"colspan", "rowspan", "scope"}),
 }
-_SAFE_DATA_IMAGE_PREFIXES = (
-    "data:image/gif;base64,",
-    "data:image/jpeg;base64,",
-    "data:image/png;base64,",
-    "data:image/webp;base64,",
-)
 
 
 def _is_safe_data_image(value: str) -> bool:
     """Return whether *value* is an explicitly allowed embedded raster image."""
-    return value.strip().lower().startswith(_SAFE_DATA_IMAGE_PREFIXES)
+    return is_safe_data_image(value)
 
 
 def _allow_safe_attribute(tag: str, name: str, value: str) -> bool:
@@ -489,6 +578,27 @@ def _allow_safe_attribute(tag: str, name: str, value: str) -> bool:
         stripped = value.strip()
         return stripped.isdigit() and int(stripped) <= 100000
     return True
+
+
+def _decode_html_bytes(raw: bytes) -> str:
+    """Decode HTML bytes with optional charset detection and BOM handling."""
+    if raw.startswith(b"\xff\xfe"):
+        return raw.decode("utf-16-le", errors="replace")
+    if raw.startswith(b"\xfe\xff"):
+        return raw.decode("utf-16-be", errors="replace")
+    if raw.startswith(b"\x00\x00\xfe\xff"):
+        return raw.decode("utf-32-be", errors="replace")
+    if raw.startswith(b"\xff\xfe\x00\x00"):
+        return raw.decode("utf-32-le", errors="replace")
+    try:
+        from charset_normalizer import from_bytes as _from_bytes
+
+        best = _from_bytes(raw).best()
+        if best is not None:
+            return str(best)
+    except Exception:
+        pass
+    return raw.decode("utf-8-sig", errors="replace")
 
 
 def _sanitize_html_fragment(html: str) -> str:
@@ -679,7 +789,15 @@ class _ChromeSession:
     output_path: str
 
     def cleanup(self) -> None:
-        self.temp_dir.cleanup()
+        name = getattr(self.temp_dir, "name", "") or ""
+        try:
+            self.temp_dir.cleanup()
+        except OSError:
+            _retry_rmtree(name)
+            try:
+                self.temp_dir.cleanup()
+            except OSError:
+                pass
 
 
 @dataclass(frozen=True)
@@ -733,7 +851,7 @@ class HTMLRenderer:
     """
 
     _chrome_proc_lock: threading.Lock = threading.Lock()
-    _chrome_procs: list[tuple[Any, Any]] = []
+    _chrome_procs: list[tuple[Any, Any, float | None]] = []
     _poll_targets: list[HTMLRenderer] = []
     _poll_armed: bool = False
 
@@ -808,7 +926,7 @@ class HTMLRenderer:
     @classmethod
     def _register_chrome(cls, proc: Any, owner: Any) -> None:
         with cls._chrome_proc_lock:
-            cls._chrome_procs.append((proc, owner))
+            cls._chrome_procs.append((proc, owner, _chrome_create_time(proc)))
 
     @classmethod
     def _unregister_chrome(cls, proc: Any) -> None:
@@ -820,11 +938,14 @@ class HTMLRenderer:
         """Kill tracked Chrome processes. ``owner=None`` kills all."""
         with cls._chrome_proc_lock:
             if owner is None:
-                victims = [proc for proc, _owner in cls._chrome_procs]
+                victims = [(proc, created) for proc, _owner, created in cls._chrome_procs]
             else:
-                victims = [proc for proc, item_owner in cls._chrome_procs if item_owner is owner]
-        for proc in victims:
-            _kill_process_tree(proc)
+                victims = [(proc, created) for proc, item_owner, created in cls._chrome_procs if item_owner is owner]
+        for proc, created in victims:
+            if created is None:
+                _kill_process_tree(proc)
+            else:
+                _kill_process_tree(proc, created)
 
     @classmethod
     def _create_chrome_session(cls, *, trusted: bool) -> _ChromeSession:
@@ -962,7 +1083,7 @@ class HTMLRenderer:
         if len(raw_bytes) > _MAX_HTML_BYTES:
             self._status_text = "File too large for preview"
             return False
-        raw_html = raw_bytes.decode("utf-8-sig", errors="replace")
+        raw_html = _decode_html_bytes(raw_bytes)
         try:
             if trusted:
                 base_href = Path(path).resolve().parent.as_uri().rstrip("/") + "/"
@@ -1086,6 +1207,7 @@ class HTMLRenderer:
             cls._chrome_procs.clear()
         cls._poll_targets.clear()
         cls._poll_armed = False
+        _restore_chromium_run_hook()
         global _chrome_available_cache, _chrome_executable_cache
         _chrome_available_cache = None
         _chrome_executable_cache = None
@@ -1099,8 +1221,12 @@ class HTMLRenderer:
                 dpg.delete_item(self._tex_id)
             self._tex_exists = False
 
-        self._tex_w = max(1, w)
-        self._tex_h = max(1, h)
+        self._tex_w = max(1, min(int(w), _MAX_RENDER_W))
+        self._tex_h = max(1, min(int(h), _RENDER_H))
+        if self._tex_w * self._tex_h > _MAX_TEXTURE_PIXELS:
+            scale = (_MAX_TEXTURE_PIXELS / float(self._tex_w * self._tex_h)) ** 0.5
+            self._tex_w = max(1, int(self._tex_w * scale))
+            self._tex_h = max(1, int(self._tex_h * scale))
 
         buf_size = self._tex_w * self._tex_h * 4
         self._tex_buffer = dpg.mvBuffer(buf_size)
@@ -1201,6 +1327,9 @@ class HTMLRenderer:
         t0 = time.perf_counter()
         chrome_w = max(content_w, 100)
         session: _ChromeSession | None = None
+        global _active_render_workers
+        with _active_render_lock:
+            _active_render_workers += 1
         try:
             np = require_optional(_np, "numpy")
             pil = require_optional(_PILImage, "Pillow")
@@ -1223,18 +1352,26 @@ class HTMLRenderer:
                 marker_present, scroll_w, scroll_h = _read_overflow_marker(pixels)
 
             if marker_present and scroll_w > chrome_w + 5:
-                img_rgba.close()
                 render_w = min(scroll_w + 10, _MAX_RENDER_W)
-                img2 = self._hti_screenshot(session, html_content, render_w, _RENDER_H, gen)
                 try:
-                    if self._render_generation != gen:
-                        raise _ChromeCancelled()
-                    img_rgba = img2.convert("RGBA")
-                finally:
-                    img2.close()
-                pixels = np.array(img_rgba)
-                marker_present, _second_w, scroll_h = _read_overflow_marker(pixels)
-                chrome_w = render_w
+                    img2 = self._hti_screenshot(session, html_content, render_w, _RENDER_H, gen)
+                    try:
+                        if self._render_generation != gen:
+                            raise _ChromeCancelled()
+                        second = img2.convert("RGBA")
+                    finally:
+                        img2.close()
+                except _ChromeCancelled:
+                    img_rgba.close()
+                    raise
+                except Exception:
+                    _log.warning("Wider HTML screenshot failed; keeping first capture", exc_info=True)
+                else:
+                    img_rgba.close()
+                    img_rgba = second
+                    pixels = np.array(img_rgba)
+                    marker_present, _second_w, scroll_h = _read_overflow_marker(pixels)
+                    chrome_w = render_w
 
             if marker_present:
                 _clear_marker(pixels)
@@ -1294,6 +1431,8 @@ class HTMLRenderer:
         finally:
             if session is not None:
                 session.cleanup()
+            with _active_render_lock:
+                _active_render_workers -= 1
 
     def _apply_pending(self) -> None:
         """Apply queued results while the frame poll holds the DPG mutex."""

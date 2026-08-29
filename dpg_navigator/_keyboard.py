@@ -1,9 +1,10 @@
 """Keyboard shortcut and table navigation mixin for FileDialog.
 
 Provides ESC, F5, Ctrl+A, Up/Down/Enter, and Alt+Up (go up) key handlers,
-arrow-key table navigation, and mouse wheel/drag handlers for preview panel
-resize, PDF page scrolling, and HTML scroll.  This is a mixin class —
-it accesses ``self._*`` attributes defined by the host :class:`FileDialog`.
+arrow-key table navigation, and mouse wheel/drag handlers for preview
+panel resize, cursor-anchored image zoom, image pan, PDF page scrolling,
+and HTML scroll.  This is a mixin class — it accesses ``self._*``
+attributes defined by the host :class:`FileDialog`.
 """
 
 from __future__ import annotations
@@ -107,6 +108,24 @@ class KeyboardMixin:
                 continue
         return False
 
+    def _dialog_text_input_active(self) -> bool:
+        """True when a dialog text input or filter combo is capturing keys."""
+        for item in (
+            getattr(self, "_path_input", None),
+            getattr(self, "_filename_input", None),
+            getattr(self, "_new_folder_input", None),
+            getattr(self, "_search_input", None),
+            getattr(self, "_filter_combo", None),
+        ):
+            if item is None:
+                continue
+            try:
+                if dpg.does_item_exist(item) and dpg.is_item_active(item):
+                    return True
+            except Exception:
+                continue
+        return False
+
     # ── Key handlers ───────────────────────────────────────────
 
     def _on_key_escape(self, sender: Any, app_data: Any, user_data: Any) -> None:
@@ -120,12 +139,15 @@ class KeyboardMixin:
             self._size_cache.clear()
             self._dir_index.invalidate()
             self._refresh_listing()
-            if self._config.search_subfolders:
-                self._start_index_build()
 
     def _on_key_a(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """Ctrl+A: select all visible entries."""
-        if not self._is_dialog_active() or not _platform.is_mod_key_down() or not self._config.multi_selection:
+        if (
+            not self._is_dialog_active()
+            or not _platform.is_mod_key_down()
+            or not self._config.multi_selection
+            or self._dialog_text_input_active()
+        ):
             return
         for child in dpg.get_item_children(self._explorer_table, 1):
             row_children = dpg.get_item_children(child, 1)
@@ -160,9 +182,8 @@ class KeyboardMixin:
         """
         if not self._is_dialog_active() or self._focused_row_index < 0:
             return
-        for inp in (self._path_input, self._filename_input, self._new_folder_input, self._search_input):
-            if dpg.does_item_exist(inp) and dpg.is_item_active(inp):
-                return
+        if self._dialog_text_input_active():
+            return
         self._activate_focused_row()
 
     # ── Table navigation ───────────────────────────────────────
@@ -263,9 +284,9 @@ class KeyboardMixin:
     def _build_keyboard_handlers(self) -> None:
         """Create the global DPG handler registry with keyboard shortcuts.
 
-        If preview is enabled, also adds a mouse_drag_handler to catch
-        resizable_x separator drags for preview re-layout and a
-        mouse_wheel_handler for PDF page scrolling and HTML scroll.
+        If preview is enabled, also registers left-button click/drag/release
+        (image pan plus the resizable-x splitter re-layout) and a mouse
+        wheel handler (cursor-anchored image zoom, PDF paging, HTML scroll).
         """
         with dpg.handler_registry() as self._key_handler:
             dpg.add_key_press_handler(dpg.mvKey_Escape, callback=self._on_key_escape)
@@ -275,6 +296,19 @@ class KeyboardMixin:
             dpg.add_key_press_handler(dpg.mvKey_Down, callback=self._on_key_down)
             dpg.add_key_press_handler(dpg.mvKey_Return, callback=self._on_key_enter)
             if self._config.show_preview:
+                dpg.add_mouse_click_handler(
+                    button=dpg.mvMouseButton_Left,
+                    callback=self._preview.on_mouse_down,
+                )
+                dpg.add_mouse_drag_handler(
+                    button=dpg.mvMouseButton_Left,
+                    threshold=0,
+                    callback=self._preview.on_mouse_drag,
+                )
+                dpg.add_mouse_release_handler(
+                    button=dpg.mvMouseButton_Left,
+                    callback=self._preview.on_mouse_up,
+                )
                 dpg.add_mouse_drag_handler(
                     button=dpg.mvMouseButton_Left,
                     callback=self._preview.on_resize,

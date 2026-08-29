@@ -13,7 +13,8 @@ from .._preview_archive import (
     load_7z_table,
     load_zip_table,
 )
-from .._preview_registry import PDF_EXTS
+from .._preview_limits import ARCHIVE_PREVIEW_MEMBER_MAX_BYTES
+from .._preview_registry import PDF_EXTS, ZIP_EXTS
 from .._types import FileEntry
 from ._base import BaseRenderer, PreviewContext, TableRenderMixin
 
@@ -24,7 +25,7 @@ class ArchiveRenderer(TableRenderMixin, BaseRenderer):
     """Render ZIP and 7z archive listings and selected members."""
 
     _TABLE_MAX_ROWS: int = 200
-    _TEXT_PREVIEW_MAX_SIZE: int = 256 * 1024
+    _TEXT_PREVIEW_MAX_SIZE: int = ARCHIVE_PREVIEW_MEMBER_MAX_BYTES
     _PDF_EXTS: frozenset[str] = PDF_EXTS
 
     def __init__(self, request_update_cb: Callable[[FileEntry], None]) -> None:
@@ -37,7 +38,7 @@ class ArchiveRenderer(TableRenderMixin, BaseRenderer):
         self._ctx = ctx
         self._current_entry = entry
         ext = entry.ext
-        if ext == ".zip":
+        if ext in ZIP_EXTS:
             self._render_zip_preview(entry)
         elif ext in (".7z", ".cb7"):
             self._render_7z_preview(entry)

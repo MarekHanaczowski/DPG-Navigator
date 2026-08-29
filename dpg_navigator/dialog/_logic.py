@@ -26,7 +26,7 @@ class DialogLogic:
         self,
         state: DialogState,
         config: DialogConfig,
-        refresh_ui_cb: Callable[[list[FileEntry]], None],
+        refresh_ui_cb: Callable[[list[FileEntry], int], None],
         show_error_cb: Callable[[str, str], None],
         update_path_input_cb: Callable[[str], None],
         update_size_cell_cb: Callable[[str, str], None],
@@ -82,11 +82,11 @@ class DialogLogic:
             if os.path.isabs(archive_path):
                 resolved_archive = os.path.normpath(archive_path)
             else:
-                base = (
-                    self.state.current_dir.split("|", 1)[0]
-                    if is_archive_virtual_path(self.state.current_dir)
-                    else self.state.current_dir
-                )
+                if is_archive_virtual_path(self.state.current_dir):
+                    current_archive = self.state.current_dir.split("|", 1)[0]
+                    base = os.path.dirname(current_archive)
+                else:
+                    base = self.state.current_dir
                 resolved_archive = os.path.normpath(os.path.join(base, archive_path))
             if not os.path.isfile(resolved_archive):
                 self.show_error(
@@ -130,8 +130,6 @@ class DialogLogic:
 
         self.state.navigate(resolved)
         self.refresh_listing()
-        if self.config.search_subfolders:
-            self.start_index_build()
 
     def _create_new_folder(self, name: str) -> None:
         """Create a validated folder in the current local directory."""
@@ -173,10 +171,10 @@ class DialogLogic:
             show_dir_size=False,
         )
         self._local_entries = entries
-        self.refresh_ui(entries)
+        self.refresh_ui(entries, self.state.index_generation)
 
-        if self.config.show_dir_size:
-            self.start_size_computation()
+        if self.config.search_subfolders and not search_query and not is_archive_virtual_path(self.state.current_dir):
+            self.start_index_build()
 
     def cancel_background_tasks(self) -> None:
         """Invalidate pending searches, index builds, and size computations."""
@@ -213,13 +211,10 @@ class DialogLogic:
         if gen != self.state.index_generation:
             return
         self._local_entries = entries
-        self.refresh_ui(entries)
+        self.refresh_ui(entries, gen)
 
         if query and self.config.search_subfolders:
             self._perform_deep_search(query, gen)
-
-        if self.config.show_dir_size and not query:
-            self.start_size_computation()
 
     def _perform_deep_search(self, query: str, gen: int) -> None:
         if (
@@ -250,7 +245,7 @@ class DialogLogic:
             modified_time=0.0,
             is_hidden=False,
         )
-        self.refresh_ui(list(self._local_entries) + [separator] + extra)
+        self.refresh_ui(list(self._local_entries) + [separator] + extra, gen)
 
     def start_index_build(self) -> None:
         """Build the recursive search index in a cancellable background task."""
@@ -271,10 +266,13 @@ class DialogLogic:
 
         JobManager.submit(_build)
 
-    def start_size_computation(self) -> None:
+    def start_size_computation(self, paths: list[str] | None = None) -> None:
         """Compute visible directory sizes asynchronously and cache the results."""
         gen = self.state.bg_generation
-        paths = list(self.state.pending_size_cells.keys())
+        if paths is None:
+            paths = [entry.full_path for entry in self._local_entries if entry.is_dir]
+        if not paths:
+            return
 
         def _compute() -> None:
             for path in paths:

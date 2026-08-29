@@ -110,21 +110,24 @@ class TableRenderMixin:
         if ui_builder is not None:
             bottom_margin += 30
 
-        with dpg.child_window(
-            parent=ctx.panel_id,
-            height=-bottom_margin,
-            width=-1,
-        ), dpg.table(
-            header_row=False,
-            borders_innerH=True,
-            borders_innerV=True,
-            borders_outerH=True,
-            borders_outerV=True,
-            scrollX=True,
-            scrollY=True,
-            freeze_rows=1,
-            resizable=True,
-            policy=dpg.mvTable_SizingFixedFit,
+        with (
+            dpg.child_window(
+                parent=ctx.panel_id,
+                height=-bottom_margin,
+                width=-1,
+            ),
+            dpg.table(
+                header_row=False,
+                borders_innerH=True,
+                borders_innerV=True,
+                borders_outerH=True,
+                borders_outerV=True,
+                scrollX=True,
+                scrollY=True,
+                freeze_rows=1,
+                resizable=True,
+                policy=dpg.mvTable_SizingFixedFit,
+            ),
         ):
             # Pre-calculate column widths to prevent vertical text wrapping
             # (DPG calculates FixedFit based on first visible row)

@@ -515,6 +515,109 @@ class TestExtractFromArchive:
         finally:
             DirectoryLister.cleanup_temp_files()
 
+    def test_declared_oversize_rejected_before_write(self, tmp_path):
+        archive_path = tmp_path / "stream.zip"
+        with zipfile.ZipFile(archive_path, "w") as zf:
+            zf.writestr("blob.bin", b"y" * 4096)
+        try:
+            extracted = DirectoryLister.extract_from_archive(
+                f"{archive_path}|/blob.bin",
+                max_size=64,
+            )
+            assert extracted is None
+        finally:
+            DirectoryLister.cleanup_temp_files()
+
+    def test_stream_error_unlinks_partial_write(self, tmp_path):
+        """A member whose stream fails mid-write (lying declared size makes
+        zipfile raise Bad CRC-32) must not leave a partial file behind."""
+        archive_path = tmp_path / "stream.zip"
+        with zipfile.ZipFile(archive_path, "w") as zf:
+            zf.writestr("blob.bin", b"y" * 4096)
+
+        real_getinfo = zipfile.ZipFile.getinfo
+
+        def lying_getinfo(self, name):
+            info = real_getinfo(self, name)
+            info.file_size = 1
+            return info
+
+        try:
+            with patch.object(zipfile.ZipFile, "getinfo", lying_getinfo):
+                extracted = DirectoryLister.extract_from_archive(
+                    f"{archive_path}|/blob.bin",
+                    max_size=64,
+                )
+            assert extracted is None
+            temp_root = DirectoryLister._session_temp_dir
+            leftovers = []
+            if temp_root and os.path.isdir(temp_root):
+                for _root, _dirs, files in os.walk(temp_root):
+                    leftovers.extend(files)
+            assert leftovers == []
+        finally:
+            DirectoryLister.cleanup_temp_files()
+
+    def test_streaming_budget_aborts_and_unlinks(self, tmp_path):
+        """Direct check of the mid-stream budget abort: the partial write is
+        unlinked and OSError propagates."""
+        from dpg_navigator.vfs._archive import _extract_zip_member
+
+        class FakeSrc:
+            def __init__(self):
+                self.reads = 0
+
+            def read(self, _n):
+                self.reads += 1
+                return b"x" * (64 * 1024) if self.reads <= 4 else b""
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        class FakeZf:
+            def open(self, _info, _mode):
+                return FakeSrc()
+
+        dest_root = str(tmp_path / "root")
+        os.makedirs(dest_root)
+        info = zipfile.ZipInfo("big.bin")
+        with pytest.raises(OSError, match="budget"):
+            _extract_zip_member(FakeZf(), info, dest_root, budget=1024)
+        assert not os.path.exists(os.path.join(dest_root, "big.bin"))
+
+    def test_zip_backslash_member_lists_and_extracts(self, tmp_path):
+        """Members stored with backslash separators (legacy Windows tools) must
+        list as nested paths and remain extractable via the normalized name."""
+        archive_path = tmp_path / "legacy.zip"
+        with zipfile.ZipFile(archive_path, "w") as zf:
+            zf.writestr(zipfile.ZipInfo("dir\\inner.txt"), b"payload")
+
+        entries = DirectoryLister.list_directory(f"{archive_path}|/", show_hidden=True)
+        assert {e.name for e in entries} == {"dir"}
+
+        try:
+            extracted = DirectoryLister.extract_from_archive(
+                f"{archive_path}|/dir/inner.txt",
+            )
+            assert extracted is not None
+            with open(extracted, "rb") as fh:
+                assert fh.read() == b"payload"
+        finally:
+            DirectoryLister.cleanup_temp_files()
+
+    def test_archive_listing_hides_dotfiles(self, tmp_path):
+        archive_path = tmp_path / "hidden.zip"
+        with zipfile.ZipFile(archive_path, "w") as zf:
+            zf.writestr("visible.txt", "a")
+            zf.writestr(".secret", "b")
+        shown = DirectoryLister.list_directory(f"{archive_path}|/", show_hidden=True)
+        hidden = DirectoryLister.list_directory(f"{archive_path}|/", show_hidden=False)
+        assert {e.name for e in shown} >= {"visible.txt", ".secret"}
+        assert {e.name for e in hidden} == {"visible.txt"}
+
 
 class TestSessionTempDir:
     def test_uses_mkdtemp(self):
@@ -565,17 +668,19 @@ class TestExtractPostWriteChecks:
         with zipfile.ZipFile(archive_path, "w") as zf:
             zf.writestr("link.txt", "hi")
 
-        def extract_as_link(self, member, path=None, pwd=None):
-            dest = os.path.join(path, "link.txt")
-            os.makedirs(path, exist_ok=True)
+        def extract_as_link(_zf, info, dest_root, _budget):
+            dest = os.path.join(dest_root, info.filename)
+            parent = os.path.dirname(dest)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
             try:
-                os.symlink("elsewhere", dest)
+                os.symlink(str(tmp_path / "elsewhere.txt"), dest)
             except OSError:
                 pytest.skip("symlink creation not permitted on this platform")
             return dest
 
         try:
-            with patch.object(zipfile.ZipFile, "extract", extract_as_link):
+            with patch("dpg_navigator.vfs._archive._extract_zip_member", extract_as_link):
                 extracted = DirectoryLister.extract_from_archive(f"{archive_path}|/link.txt")
             assert extracted is None
         finally:

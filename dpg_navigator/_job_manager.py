@@ -70,24 +70,26 @@ class JobManager:
     _timer_cond: threading.Condition = threading.Condition()
     _timer_thread: threading.Thread | None = None
     _shutdown_flag: bool = False
+    _shutting_down: bool = False
 
     @classmethod
-    def _ensure_pool(cls) -> None:
-        """Start idle daemon workers if the pool is empty."""
-        with cls._lock:
-            cls._workers = [t for t in cls._workers if t.is_alive()]
-            if cls._workers:
-                return
-            generation = cls._pool_generation
-            for index in range(_MAX_WORKERS):
-                worker = threading.Thread(
-                    target=cls._worker,
-                    args=(generation,),
-                    name=f"dpg_nav_worker-{index}",
-                    daemon=True,
-                )
-                cls._workers.append(worker)
-                worker.start()
+    def _ensure_pool_locked(cls) -> None:
+        """Start idle daemon workers if the pool is empty. Caller holds ``_lock``."""
+        if cls._shutting_down:
+            return
+        cls._workers = [t for t in cls._workers if t.is_alive()]
+        if cls._workers:
+            return
+        generation = cls._pool_generation
+        for index in range(_MAX_WORKERS):
+            worker = threading.Thread(
+                target=cls._worker,
+                args=(generation,),
+                name=f"dpg_nav_worker-{index}",
+                daemon=True,
+            )
+            cls._workers.append(worker)
+            worker.start()
 
     @classmethod
     def _worker(cls, generation: int) -> None:
@@ -106,11 +108,27 @@ class JobManager:
                 future.set_exception(exc)
 
     @classmethod
+    def ensure_running(cls) -> None:
+        """Clear a completed shutdown so a new FileDialog can use the pool."""
+        with cls._lock:
+            cls._shutting_down = False
+
+    @classmethod
     def submit(cls, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Future[Any]:
-        """Submit a task to the bounded worker pool."""
+        """Submit a task to the bounded worker pool.
+
+        The shutdown check, pool start, and enqueue happen under one lock so a
+        ``submit()`` racing ``shutdown()`` either lands before the drain (and is
+        cancelled with the rest of the queue) or observes ``_shutting_down`` and
+        is cancelled immediately — it can never run after shutdown completes.
+        """
         future: Future[Any] = Future()
-        cls._ensure_pool()
-        cls._work_queue.put((future, fn, args, kwargs))
+        with cls._lock:
+            if cls._shutting_down:
+                future.cancel()
+                return future
+            cls._ensure_pool_locked()
+            cls._work_queue.put((future, fn, args, kwargs))
         return future
 
     @classmethod
@@ -122,6 +140,10 @@ class JobManager:
                     cls._timer_cond.wait()
 
                 if cls._shutdown_flag:
+                    # Deregister under the cond so schedule_timer's aliveness
+                    # check can't observe an alive-but-exiting thread.
+                    if cls._timer_thread is threading.current_thread():
+                        cls._timer_thread = None
                     break
 
                 now = time.time()
@@ -147,12 +169,22 @@ class JobManager:
         """Schedule a function to run after a delay, tracking the timer."""
         task = TimerTask(time.time() + interval, fn, args or (), kwargs or {})
 
+        with cls._lock:
+            if cls._shutting_down:
+                task.cancel()
+                return task
+
         with cls._timer_cond:
+            if cls._shutting_down:
+                task.cancel()
+                return task
+            # Clear a completed shutdown's flag even when the old timer thread
+            # is still alive-but-exiting, so the new task is not stranded.
+            cls._shutdown_flag = False
             heapq.heappush(cls._timer_queue, task)
 
             # Start the loop if not running
             if cls._timer_thread is None or not cls._timer_thread.is_alive():
-                cls._shutdown_flag = False
                 cls._timer_thread = threading.Thread(
                     target=cls._timer_worker,
                     name="dpg_nav_timer",
@@ -201,6 +233,8 @@ class JobManager:
         In-flight work is left to finish; ``wait`` joins workers up to
         ``timeout`` and logs a warning if any are still alive.
         """
+        with cls._lock:
+            cls._shutting_down = True
         with cls._timer_cond:
             for task in cls._timer_queue:
                 task.cancel()
@@ -234,3 +268,5 @@ class JobManager:
                     "JobManager.shutdown timed out with %s worker(s) still running",
                     leftover,
                 )
+        with cls._lock:
+            cls._shutting_down = False

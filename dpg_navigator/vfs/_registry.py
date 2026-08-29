@@ -39,5 +39,7 @@ class VFSRegistry:
             if provider.is_valid_path(path):
                 return provider
 
-        # Fallback to local if nothing else matches
-        return cls._providers[-1]
+        for provider in cls._providers:
+            if isinstance(provider, LocalVFSProvider):
+                return provider
+        return LocalVFSProvider()

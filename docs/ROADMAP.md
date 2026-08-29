@@ -68,7 +68,7 @@ can trail the first stable release.
   `ruff format --check .`. Format skips Markdown (`*.md`); Ruff 0.16+ would
   otherwise rewrite Python fences in README and audit notes.
 - **Whole-package mypy:** **DONE.** `[tool.mypy] files = ["dpg_navigator"]`
-  (tests excluded); CI runs `python -m mypy` on Python != 3.8/3.9. Flags:
+  (tests excluded); CI runs `python -m mypy` on Python != 3.9. Flags:
   `check_untyped_defs`, `no_implicit_optional`, `disallow_untyped_defs`,
   `warn_return_any`, `disallow_any_generics`. Optional backends use
   `OptionalModule` / `require_optional()` instead of `cast(Any, None)`.

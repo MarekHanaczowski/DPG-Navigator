@@ -28,8 +28,8 @@ from . import _platform
 from ._preview_registry import SEVEN_Z_EXTS, ZIP_EXTS
 from ._types import FileEntry
 from .vfs import VFSRegistry
+from .vfs._local import MAX_SCAN_DEPTH as MAX_SCAN_DEPTH
 
-MAX_SCAN_DEPTH = 3
 INDEX_SCAN_DEPTH = 8
 """Maximum recursion depth for the background directory index."""
 
@@ -37,6 +37,7 @@ INDEX_TTL: float = 60.0
 """Seconds before the directory index is considered stale."""
 
 INDEX_MAX_RESULTS = 500
+"""Maximum number of results returned from an index search."""
 
 INDEX_MAX_ENTRIES = 50_000
 """Hard cap on indexed entries so a huge tree cannot exhaust memory.
@@ -44,19 +45,11 @@ INDEX_MAX_ENTRIES = 50_000
 The recursive index has a depth limit but a wide tree can still produce
 millions of entries; past this cap the build stops and the partial index is
 kept (search results are already limited to :data:`INDEX_MAX_RESULTS`)."""
-"""Maximum number of results returned from an index search."""
 
 
 def _short_md5(data: bytes) -> str:
-    """Return an 8-char MD5 hex digest for non-cryptographic naming.
-
-    ``usedforsecurity`` was added in Python 3.9; fall back gracefully on 3.8.
-    """
-    try:
-        return hashlib.md5(data, usedforsecurity=False).hexdigest()[:8]
-    except TypeError:
-        # Python 3.8 fallback; used only for non-cryptographic temp-dir naming.
-        return hashlib.md5(data).hexdigest()[:8]  # nosec B324
+    """Return an 8-char MD5 hex digest for non-cryptographic naming."""
+    return hashlib.md5(data, usedforsecurity=False).hexdigest()[:8]
 
 
 class DirectoryLister:
@@ -81,12 +74,18 @@ class DirectoryLister:
     @staticmethod
     def cleanup_temp_files() -> None:
         """Remove all temporary files extracted during this session."""
-        if DirectoryLister._session_temp_dir and os.path.exists(DirectoryLister._session_temp_dir):
+        path = DirectoryLister._session_temp_dir
+        DirectoryLister._session_temp_dir = None
+        if not path or not os.path.exists(path):
+            return
+        for attempt in range(3):
             try:
-                shutil.rmtree(DirectoryLister._session_temp_dir, ignore_errors=True)
-                DirectoryLister._session_temp_dir = None
-            except Exception:
-                _log.debug("Failed to cleanup session temp dir", exc_info=True)
+                shutil.rmtree(path)
+                return
+            except OSError:
+                time.sleep(0.05 * (attempt + 1))
+        shutil.rmtree(path, ignore_errors=True)
+        _log.warning("Session extract directory cleanup was incomplete: %s", path)
 
     @staticmethod
     def list_directory(
@@ -151,8 +150,10 @@ class DirectoryLister:
     ) -> str | None:
         """Extract a single file from an archive virtual path to a temp file.
 
-        If *max_size* is set, oversized members are rejected before extraction
-        unless their extension is listed in *allow_large_extensions*.
+        If *max_size* is set, oversized members are rejected before extraction.
+        Extensions listed in *allow_large_extensions* get the bounded
+        large-preview budget instead (the allowlist raises a small cap, it
+        never removes the limit entirely).
         """
         provider = VFSRegistry.get_provider(virtual_path)
         temp_root = DirectoryLister._get_session_temp_dir()
@@ -378,10 +379,9 @@ class DirectoryIndex:
                 root,
             )
 
-        if get_generation() != generation:
-            return
-
         with self._lock:
+            if get_generation() != generation:
+                return
             self._entries = entries
             self._root = root
             self._built_at = time.time()

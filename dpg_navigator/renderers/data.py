@@ -10,7 +10,8 @@ from defusedxml import minidom as _minidom  # type: ignore[import-untyped]
 
 from .._availability import _load_workbook
 from .._filesystem import DirectoryLister
-from .._preview_registry import PreviewCapabilities
+from .._preview_limits import PREVIEW_TEXT_CHUNK_BYTES
+from .._preview_registry import DB_EXTS, XML_EXTS, PreviewCapabilities
 from .._preview_spreadsheet import ExcelPreviewError, load_excel_table
 from .._preview_sqlite import SQLitePreviewError, load_sqlite_table
 from .._preview_table import CsvPreviewError, parse_csv_table
@@ -26,7 +27,7 @@ class DataRenderer(TableRenderMixin, BaseRenderer):
     # _STATUS_HEIGHT is provided by TableRenderMixin.
     _TABLE_MAX_ROWS: int = 200
     _TABLE_MAX_COLS: int = 50
-    _TEXT_PREVIEW_MAX_SIZE: int = 256 * 1024
+    _TEXT_PREVIEW_MAX_SIZE: int = PREVIEW_TEXT_CHUNK_BYTES
     _text_offset: int = 0
 
     def __init__(self, load_text_content_cb: Callable[[str, int], tuple[str | None, bool]]) -> None:
@@ -43,9 +44,9 @@ class DataRenderer(TableRenderMixin, BaseRenderer):
             self._render_csv_preview(entry)
         elif ext in (".xlsx", ".xlsm"):
             self._render_excel_preview(entry)
-        elif ext in (".sqlite", ".sqlite3", ".db"):
+        elif ext in DB_EXTS:
             self._render_sqlite_preview(entry)
-        elif ext == ".xml":
+        elif ext in XML_EXTS:
             self._render_xml_preview(entry)
         else:
             ctx.show_error("Unsupported data format", f"{ext} is not supported")

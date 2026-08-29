@@ -22,6 +22,7 @@ import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
 from ._job_manager import JobManager
 from ._optional import OptionalModule, as_optional, require_optional
+from ._preview_limits import PDF_PREVIEW_MAX_BYTES
 
 _pdfium: OptionalModule | None
 try:
@@ -53,7 +54,7 @@ def pdf_available() -> bool:
     return _pdfium is not None and _np is not None and _PILImage is not None
 
 
-_MAX_PDF_BYTES = 50 * 1024 * 1024
+_MAX_PDF_BYTES = PDF_PREVIEW_MAX_BYTES
 """Reject PDF files larger than this before opening them in pypdfium2."""
 
 
@@ -231,6 +232,8 @@ class PDFRenderer:
         with self._doc_lock:
             page = self._doc[page_num]
             pw, ph = page.get_size()
+            if pw <= 0 or ph <= 0:
+                raise ValueError("PDF page has invalid dimensions")
             scale = min(w / pw, h / ph)
             bitmap = page.render(scale=scale)
             pil_img = bitmap.to_pil().convert("RGBA")

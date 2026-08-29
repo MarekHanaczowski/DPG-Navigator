@@ -41,13 +41,25 @@ if _SYSTEM == "Linux":
 
 _INVALID_FILE_ATTRIBUTES = -1
 _FILE_ATTRIBUTE_HIDDEN = 0x2
+_xdg_cache: dict[str, str | None] = {}
+_special_dirs_cache: tuple[str, str, dict[str, str]] | None = None
 
 
 def get_drives() -> list[str]:
     """Return list of mounted drives/volumes (cross-platform)."""
     try:
         partitions = psutil.disk_partitions()
-        drives = [p.mountpoint for p in partitions if p.mountpoint]
+        drives = []
+        for part in partitions:
+            mount = part.mountpoint
+            if not mount:
+                continue
+            try:
+                if not os.path.isdir(mount):
+                    continue
+            except OSError:
+                continue
+            drives.append(mount)
     except (OSError, PermissionError, RuntimeError):
         drives = []
 
@@ -69,7 +81,10 @@ def get_special_dirs() -> dict[str, str]:
 
     Only returns directories that actually exist on disk.
     """
+    global _special_dirs_cache
     home = os.path.expanduser("~")
+    if _special_dirs_cache is not None and _special_dirs_cache[0] == _SYSTEM and _special_dirs_cache[1] == home:
+        return dict(_special_dirs_cache[2])
     dirs: dict[str, str] = {"Home": home}
 
     names = ("Desktop", "Downloads", "Pictures", "Documents", "Music", "Videos")
@@ -111,21 +126,27 @@ def get_special_dirs() -> dict[str, str]:
             dirs[name] = os.path.join(home, name)
 
     # Filter to only existing directories
-    return {k: v for k, v in dirs.items() if v and os.path.isdir(v)}
+    filtered = {k: v for k, v in dirs.items() if v and os.path.isdir(v)}
+    _special_dirs_cache = (_SYSTEM, home, filtered)
+    return dict(filtered)
 
 
 def _get_xdg_dir(name: str) -> str | None:
     """Get XDG user directory path on Linux (handles non-English locales)."""
+    if name in _xdg_cache:
+        return _xdg_cache[name]
     xdg_key = _XDG_NAME_MAP.get(name, name.upper())
+    resolved: str | None = None
     try:
         result = subprocess.run(["xdg-user-dir", xdg_key], capture_output=True, text=True, timeout=2)
         if result.returncode == 0:
             path = result.stdout.strip()
             if path and os.path.isdir(path):
-                return path
+                resolved = path
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError, UnicodeDecodeError):
         pass
-    return None
+    _xdg_cache[name] = resolved
+    return resolved
 
 
 def is_mod_key_down() -> bool:
@@ -137,7 +158,13 @@ def is_mod_key_down() -> bool:
 
 def is_hidden(filepath: str) -> bool:
     """Check if a file/directory is hidden (cross-platform)."""
-    name = os.path.basename(filepath) or filepath
+    stripped = filepath.rstrip("\\/")
+    if os.name == "nt":
+        if len(stripped) == 2 and stripped[1] == ":":
+            return False
+    elif stripped == "":
+        return False
+    name = os.path.basename(stripped) or stripped
     if name.startswith("."):
         return True
     if os.name == "nt":

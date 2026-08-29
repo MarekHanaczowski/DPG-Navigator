@@ -1,6 +1,6 @@
 # Local entry point for the same ruff/mypy checks CI runs.
 # Requires an active environment: pip install -e ".[dev]"
-# (pre-commit is omitted on Python 3.8 so the CI matrix still installs [dev].)
+# Requires Python >= 3.9.
 
 repos:
   - repo: local

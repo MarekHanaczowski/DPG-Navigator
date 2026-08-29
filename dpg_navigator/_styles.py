@@ -247,12 +247,21 @@ class CompactSidebar(SidebarRenderer):
             icon_name = _SHORTCUT_ICON_MAP.get(name, "folder")
             icon_tag = icons.get(icon_name)
             if icon_tag:
-                dpg.add_image_button(
+                btn = dpg.add_image_button(
                     icon_tag,
                     callback=lambda s, ad, ud: on_navigate(ud),
                     user_data=path,
                     parent=parent,
                 )
+            else:
+                btn = dpg.add_button(
+                    label=name[:2],
+                    callback=lambda s, ad, ud: on_navigate(ud),
+                    user_data=path,
+                    parent=parent,
+                )
+            with dpg.tooltip(btn):
+                dpg.add_text(name)
 
         # Custom user directories
         if custom_dirs:

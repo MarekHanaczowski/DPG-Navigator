@@ -77,9 +77,10 @@ class TestChromeHtmlPreview:
             assert safe_html is not trusted_html
             assert safe_html._viewport_buf is not None
             assert trusted_html._viewport_buf is not None
-            with patch.object(safe_html, "close", wraps=safe_html.close) as safe_close, patch.object(
-                trusted_html, "close", wraps=trusted_html.close
-            ) as trusted_close:
+            with (
+                patch.object(safe_html, "close", wraps=safe_html.close) as safe_close,
+                patch.object(trusted_html, "close", wraps=trusted_html.close) as trusted_close,
+            ):
                 assert wait_until(
                     lambda: not safe_html.is_rendering and not trusted_html.is_rendering,
                     timeout=_HTML_RENDER_WAIT,

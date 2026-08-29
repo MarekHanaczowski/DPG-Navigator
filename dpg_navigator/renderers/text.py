@@ -6,6 +6,7 @@ from typing import Any, Callable
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
+from .._preview_limits import PREVIEW_TEXT_CHUNK_BYTES
 from .._types import FileEntry
 from ._base import BaseRenderer, PreviewContext
 
@@ -13,7 +14,7 @@ from ._base import BaseRenderer, PreviewContext
 class TextRenderer(BaseRenderer):
     """Render text and source-code previews as monospace DPG text."""
 
-    _TEXT_PREVIEW_MAX_SIZE = 100 * 1024  # 100 KB chunks
+    _TEXT_PREVIEW_MAX_SIZE = PREVIEW_TEXT_CHUNK_BYTES
 
     def __init__(
         self,
@@ -125,6 +126,6 @@ class TextRenderer(BaseRenderer):
             self._request_update(self._current_entry)
 
     def clear(self) -> None:
-        """Reset the current text entry and paging offset."""
+        """Release the current text entry. Offset is reset on the next path change."""
         self._current_entry = None
         self._text_offset = 0

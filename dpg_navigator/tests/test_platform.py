@@ -176,9 +176,11 @@ class TestGetSpecialDirsMocked:
         for name in ("Desktop", "Downloads", "Pictures", "Documents", "Music", "Videos"):
             os.makedirs(os.path.join(home, name))
 
-        with patch("dpg_navigator._platform._SYSTEM", "Linux"), patch(
-            "dpg_navigator._platform.os.path.expanduser", return_value=home
-        ), patch("dpg_navigator._platform._get_xdg_dir", return_value=None) as mock_xdg:
+        with (
+            patch("dpg_navigator._platform._SYSTEM", "Linux"),
+            patch("dpg_navigator._platform.os.path.expanduser", return_value=home),
+            patch("dpg_navigator._platform._get_xdg_dir", return_value=None) as mock_xdg,
+        ):
             result = get_special_dirs()
 
         # _get_xdg_dir should have been called for each of the 6 directory names
@@ -199,9 +201,11 @@ class TestGetSpecialDirsMocked:
                 return custom_docs
             return None
 
-        with patch("dpg_navigator._platform._SYSTEM", "Linux"), patch(
-            "dpg_navigator._platform.os.path.expanduser", return_value=home
-        ), patch("dpg_navigator._platform._get_xdg_dir", side_effect=mock_xdg_side_effect):
+        with (
+            patch("dpg_navigator._platform._SYSTEM", "Linux"),
+            patch("dpg_navigator._platform.os.path.expanduser", return_value=home),
+            patch("dpg_navigator._platform._get_xdg_dir", side_effect=mock_xdg_side_effect),
+        ):
             result = get_special_dirs()
 
         assert result["Documents"] == custom_docs
@@ -214,8 +218,9 @@ class TestGetSpecialDirsMocked:
         for name in ("Desktop", "Downloads", "Pictures", "Documents", "Music", "Movies"):
             os.makedirs(os.path.join(home, name))
 
-        with patch("dpg_navigator._platform._SYSTEM", "Darwin"), patch(
-            "dpg_navigator._platform.os.path.expanduser", return_value=home
+        with (
+            patch("dpg_navigator._platform._SYSTEM", "Darwin"),
+            patch("dpg_navigator._platform.os.path.expanduser", return_value=home),
         ):
             result = get_special_dirs()
 
@@ -236,9 +241,11 @@ class TestGetSpecialDirsMocked:
         mock_winreg.OpenKey.return_value = MagicMock(__enter__=MagicMock(), __exit__=MagicMock())
         mock_winreg.QueryValueEx.side_effect = fake_query
 
-        with patch("dpg_navigator._platform._SYSTEM", "Windows"), patch(
-            "dpg_navigator._platform.os.path.expanduser", return_value=home
-        ), patch("dpg_navigator._platform.winreg", mock_winreg, create=True):
+        with (
+            patch("dpg_navigator._platform._SYSTEM", "Windows"),
+            patch("dpg_navigator._platform.os.path.expanduser", return_value=home),
+            patch("dpg_navigator._platform.winreg", mock_winreg, create=True),
+        ):
             result = get_special_dirs()
 
         assert "Home" in result
@@ -283,8 +290,9 @@ class TestGetDrives:
 
     def test_psutil_failure_returns_empty_list(self):
         """If psutil fails on non-Darwin, result should be an empty list."""
-        with patch("dpg_navigator._platform.psutil") as mock_psutil, patch(
-            "dpg_navigator._platform._SYSTEM", "Windows"
+        with (
+            patch("dpg_navigator._platform.psutil") as mock_psutil,
+            patch("dpg_navigator._platform._SYSTEM", "Windows"),
         ):
             mock_psutil.disk_partitions.side_effect = OSError("simulated failure")
             result = get_drives()
@@ -292,8 +300,9 @@ class TestGetDrives:
 
     def test_psutil_permission_error_returns_empty(self):
         """PermissionError is also handled gracefully."""
-        with patch("dpg_navigator._platform.psutil") as mock_psutil, patch(
-            "dpg_navigator._platform._SYSTEM", "Windows"
+        with (
+            patch("dpg_navigator._platform.psutil") as mock_psutil,
+            patch("dpg_navigator._platform._SYSTEM", "Windows"),
         ):
             mock_psutil.disk_partitions.side_effect = PermissionError("access denied")
             result = get_drives()
@@ -313,10 +322,10 @@ class TestConstants:
 
 class TestIsHiddenEdgeCases:
     @pytest.mark.skipif(os.name != "nt", reason="Windows root path test")
-    def test_root_c_drive_has_hidden_attribute(self):
-        """On Windows, C:\\ has the HIDDEN system attribute set (attr=22).
-        This is real Windows behavior — root drives are system+hidden."""
-        assert is_hidden("C:\\") is True
+    def test_root_c_drive_is_not_hidden(self):
+        """Drive roots keep the Windows HIDDEN bit; the picker still shows them."""
+        assert is_hidden("C:\\") is False
+        assert is_hidden("C:") is False
 
     @pytest.mark.skipif(os.name == "nt", reason="Unix root path test")
     def test_root_slash_not_hidden(self):
@@ -498,10 +507,11 @@ class TestGetDrivesDarwin:
         # Use posixpath.join to get correct / separators regardless of host OS
         import posixpath
 
-        with patch("dpg_navigator._platform._SYSTEM", "Darwin"), patch(
-            "dpg_navigator._platform.psutil"
-        ) as mock_psutil, patch("dpg_navigator._platform.os.listdir", return_value=["Macintosh HD", "USB"]), patch(
-            "dpg_navigator._platform.os.path.join", side_effect=posixpath.join
+        with (
+            patch("dpg_navigator._platform._SYSTEM", "Darwin"),
+            patch("dpg_navigator._platform.psutil") as mock_psutil,
+            patch("dpg_navigator._platform.os.listdir", return_value=["Macintosh HD", "USB"]),
+            patch("dpg_navigator._platform.os.path.join", side_effect=posixpath.join),
         ):
             mock_psutil.disk_partitions.return_value = [mock_partition]
             result = get_drives()
@@ -517,10 +527,11 @@ class TestGetDrivesDarwin:
 
         import posixpath
 
-        with patch("dpg_navigator._platform._SYSTEM", "Darwin"), patch(
-            "dpg_navigator._platform.psutil"
-        ) as mock_psutil, patch("dpg_navigator._platform.os.listdir", return_value=["USB"]), patch(
-            "dpg_navigator._platform.os.path.join", side_effect=posixpath.join
+        with (
+            patch("dpg_navigator._platform._SYSTEM", "Darwin"),
+            patch("dpg_navigator._platform.psutil") as mock_psutil,
+            patch("dpg_navigator._platform.os.listdir", return_value=["USB"]),
+            patch("dpg_navigator._platform.os.path.join", side_effect=posixpath.join),
         ):
             mock_psutil.disk_partitions.return_value = [mock_p1, mock_p2]
             result = get_drives()
@@ -531,9 +542,11 @@ class TestGetDrivesDarwin:
         """If os.listdir('/Volumes') raises OSError, drives from psutil still returned."""
         mock_partition = MagicMock(mountpoint="/")
 
-        with patch("dpg_navigator._platform._SYSTEM", "Darwin"), patch(
-            "dpg_navigator._platform.psutil"
-        ) as mock_psutil, patch("dpg_navigator._platform.os.listdir", side_effect=OSError("permission denied")):
+        with (
+            patch("dpg_navigator._platform._SYSTEM", "Darwin"),
+            patch("dpg_navigator._platform.psutil") as mock_psutil,
+            patch("dpg_navigator._platform.os.listdir", side_effect=OSError("permission denied")),
+        ):
             mock_psutil.disk_partitions.return_value = [mock_partition]
             result = get_drives()
 

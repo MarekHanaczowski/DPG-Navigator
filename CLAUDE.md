@@ -4,16 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`dpg-navigator` — a file/directory picker widget for [DearPyGui](https://github.com/hoffstadt/DearPyGui) with a rich preview panel (images, PDF, Word, Excel, PowerPoint, Markdown, HTML, CSV, SQLite, fonts, archives, source code as text). Installable library; import root is `dpg_navigator`. Supports Python 3.8–3.13, Windows/Linux/macOS. Version is `__version__` in `dpg_navigator/__init__.py` (currently a `1.0.0b*` beta).
+`dpg-navigator` — a file/directory picker widget for [DearPyGui](https://github.com/hoffstadt/DearPyGui) with a rich preview panel (images, PDF, Word, Excel, PowerPoint, Markdown, HTML, CSV, SQLite, fonts, archives, source code as text). Installable library; import root is `dpg_navigator`. Supports Python 3.9–3.13, Windows/Linux/macOS. Version is `__version__` in `dpg_navigator/__init__.py` (currently a `1.0.0b*` beta).
 
 ## Commands
 
 ```bash
 pip install -e ".[dev]"          # dev install (pulls in the [all] preview extras)
 
-python -m ruff check .           # lint (E9,F,W,I,B,UP,SIM; target py38)
+python -m ruff check .           # lint (E9,F,W,I,B,UP,SIM; target py39)
 python -m ruff format --check .  # format gate (same as CI)
-python -m mypy                   # package type check via [tool.mypy] files= (skip 3.8/3.9 in CI)
+python -m mypy                   # package type check via [tool.mypy] files= (skip 3.9 in CI)
                                  # flags include disallow_untyped_defs, warn_return_any, disallow_any_generics
 python -m pytest -q              # run the unit test suite
 python -m pytest -q --cov=dpg_navigator --cov-report=term-missing
@@ -42,7 +42,7 @@ xvfb-run -a env DPG_INTEGRATION=1 pytest -m integration   # headless Linux
 - **Version** lives in `dpg_navigator/__init__.py` as `__version__` (hatchling reads it via regex). Bump it there for a release.
 - **Do not pin `python_version` in `[tool.mypy]`.** It's deliberately unpinned so mypy targets the running interpreter and matches each version's third-party stubs (numpy's PEP 695 `type` aliases only parse on newer Python). Pinning breaks stub parsing on newer CI runners.
 - pytest writes temp dirs under `.pytest_tmp/` (`--basetemp` in `pyproject.toml`); that's why those dirs and `.pytest_tmp_cache/` exist.
-- New `.py` files **must** start with `from __future__ import annotations` (3.8 support). Don't use `slots=True` on dataclasses (3.10+). Guard every optional-backend import with `try/except Exception`.
+- New `.py` files **must** start with `from __future__ import annotations`. Don't use `slots=True` on dataclasses (keeps 3.9 compatibility). Guard every optional-backend import with `try/except Exception`.
 
 ## Architecture
 
@@ -75,7 +75,7 @@ Routing and rendering are split:
 
 - **`_preview_registry.py`** — GUI-free routing. Extension `frozenset`s, the `PreviewKind` enum, `PreviewCapabilities`, and `resolve_preview_kind()`. **The order of checks in `resolve_preview_kind()` is load-bearing** (e.g. HTML and code are matched before generic text). Change it carefully; it has dedicated tests.
 - **`_preview.py` — `PreviewPanel`**: owns the panel, maps `PreviewKind → BaseRenderer`, and drives the active renderer.
-- **`renderers/`** — the DPG-facing renderer objects (`ImageRenderer`, `TextRenderer`, `DataRenderer`, `ArchiveRenderer`, `DocumentRenderer`, `FontRenderer`), each conforming to the `BaseRenderer` protocol in `renderers/_base.py` and receiving a `PreviewContext`. `DocumentRenderer` covers HTML/Markdown/PDF/Word/PPTX by delegating to the heavy renderers and pure loaders.
+- **`renderers/`** — the DPG-facing renderer objects (`ImageRenderer`, `TextRenderer`, `DataRenderer`, `ArchiveRenderer`, `DocumentRenderer`, `FontRenderer`), each conforming to the `BaseRenderer` protocol in `renderers/_base.py` and receiving a `PreviewContext`. `ImageRenderer` draws on a `drawlist` (fit-to-pane, wheel zooms toward the cursor, left-button pan). `DocumentRenderer` covers HTML/Markdown/PDF/Word/PPTX by delegating to the heavy renderers and pure loaders.
 - **`_availability.py`** — every optional backend is probed once at import via `try/except` and exposed as a `*_available()` predicate. `chrome_available()` (in `_html.py`) checks `DPG_CHROME_BIN` / `CHROME_BIN` / `CHROME_PATH`, then bounded platform-specific Chrome locations without invoking html2image's unbounded search. Failed imports are `None` typed as `OptionalModule` (`_optional.py`), not `cast(Any, None)`.
 - **HTML policy (`_html.py`)** — raw HTML is safe by default: parser allow-list + controlled CSP wrapper, no scripts or local/network resources. `DialogConfig.trusted_html_preview=True` is an explicit opt-in for raw `.html`/`.htm` only; Markdown and mammoth output always use the safe string entry point. Every Chrome render owns a separate temporary profile/output directory.
 - **`_preview_*.py`** (`_preview_word`, `_preview_presentation`, `_preview_archive`, `_preview_spreadsheet`, `_preview_sqlite`, `_preview_table`) — **pure data loaders**: they parse a file and return plain Python data structures, no DPG. The `renderers/` objects consume them. This is why they're unit-testable.

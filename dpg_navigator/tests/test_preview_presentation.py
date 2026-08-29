@@ -84,7 +84,8 @@ class TestLoadPresentation:
             load_presentation("sample.pptx", presentation_loader=None)
 
     def test_rejects_oversized_file(self):
-        with patch("dpg_navigator._preview_presentation.ooxml_exceeds_preview_limit", return_value=True), pytest.raises(
-            PresentationPreviewError, match="too large"
+        with (
+            patch("dpg_navigator._preview_presentation.ooxml_exceeds_preview_limit", return_value=True),
+            pytest.raises(PresentationPreviewError, match="too large"),
         ):
             load_presentation("huge.pptx", presentation_loader=lambda path: None)

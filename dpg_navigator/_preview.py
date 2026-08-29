@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
+from ._preview_limits import PREVIEW_TEXT_CHUNK_BYTES
 from ._preview_registry import (
     PILLOW_EXTRA_EXTS,
     STB_IMAGE_EXTS,
@@ -30,6 +31,11 @@ from .renderers.text import TextRenderer
 _UTF16_LE_BOM = b"\xff\xfe"
 _UTF16_BE_BOM = b"\xfe\xff"
 _NUL = b"\x00"
+
+
+def _strip_bom(text: str) -> str:
+    """Drop a leading U+FEFF left behind by UTF-32 codecs."""
+    return text[1:] if text.startswith("\ufeff") else text
 
 
 def decode_preview_bytes(
@@ -57,16 +63,17 @@ def decode_preview_bytes(
     except UnicodeDecodeError:
         pass
 
-    has_bom = raw_bytes.startswith((_UTF16_LE_BOM, _UTF16_BE_BOM))
-    is_utf16_likely = has_bom
-    if not is_utf16_likely and len(raw_bytes) >= 4:
-        sample = raw_bytes[:1024]
-        nulls_even = sample[0::2].count(_NUL)
-        nulls_odd = sample[1::2].count(_NUL)
-        if nulls_even > len(sample) // 4 or nulls_odd > len(sample) // 4:
-            is_utf16_likely = True
-
-    if is_utf16_likely:
+    if raw_bytes.startswith(b"\x00\x00\xfe\xff"):
+        try:
+            return _strip_bom(raw_bytes.decode("utf-32-be")), False, "utf-32-be"
+        except UnicodeDecodeError:
+            pass
+    if raw_bytes.startswith(b"\xff\xfe\x00\x00"):
+        try:
+            return _strip_bom(raw_bytes.decode("utf-32-le")), False, "utf-32-le"
+        except UnicodeDecodeError:
+            pass
+    if raw_bytes.startswith((_UTF16_LE_BOM, _UTF16_BE_BOM)):
         try:
             return raw_bytes.decode("utf-16"), False, "utf-16"
         except UnicodeDecodeError:
@@ -86,9 +93,11 @@ class PreviewPanel:
     """Route selected files to the appropriate DearPyGui preview renderer.
 
     ``PreviewKind.CODE`` shares ``TextRenderer`` (monospace text).
+    Mouse wheel and left-button drag are forwarded to the active renderer
+    when the pane is hovered (image zoom/pan, PDF paging, HTML scroll).
     """
 
-    _TEXT_PREVIEW_MAX_SIZE = 100 * 1024
+    _TEXT_PREVIEW_MAX_SIZE = PREVIEW_TEXT_CHUNK_BYTES
 
     @staticmethod
     def preview_image_exts() -> frozenset[str]:
@@ -123,6 +132,7 @@ class PreviewPanel:
             PreviewKind.CSV: DataRenderer(self._load_text_content),
             PreviewKind.EXCEL: DataRenderer(self._load_text_content),
             PreviewKind.SQLITE: DataRenderer(self._load_text_content),
+            PreviewKind.XML: DataRenderer(self._load_text_content),
             PreviewKind.ZIP: ArchiveRenderer(self.update),
             PreviewKind.SEVEN_Z: ArchiveRenderer(self.update),
             PreviewKind.HTML: DocumentRenderer(self._load_text_content),
@@ -195,6 +205,32 @@ class PreviewPanel:
         if callable(handler):
             handler(sender, app_data, user_data)
 
+    def _preview_hovered(self) -> bool:
+        """True when the preview pane is shown and the cursor is over it."""
+        if self._panel_id is None or not self._show:
+            return False
+        return bool(dpg.does_item_exist(self._panel_id) and dpg.is_item_hovered(self._panel_id))
+
+    def on_mouse_down(self, sender: Any, app_data: Any, user_data: Any) -> None:
+        """Start a renderer drag (image pan) when the pane is hovered."""
+        if not self._preview_hovered():
+            return
+        handler = getattr(self._active_renderer, "on_mouse_down", None)
+        if callable(handler):
+            handler(sender, app_data, user_data)
+
+    def on_mouse_drag(self, sender: Any, app_data: Any, user_data: Any) -> None:
+        """Continue a renderer-specific drag started on the preview pane."""
+        handler = getattr(self._active_renderer, "on_mouse_drag", None)
+        if callable(handler):
+            handler(sender, app_data, user_data)
+
+    def on_mouse_up(self, sender: Any, app_data: Any, user_data: Any) -> None:
+        """End a renderer-specific drag."""
+        handler = getattr(self._active_renderer, "on_mouse_up", None)
+        if callable(handler):
+            handler(sender, app_data, user_data)
+
     def clear(self) -> None:
         """Clear the panel and release the active renderer's state."""
         if self._panel_id:
@@ -219,23 +255,31 @@ class PreviewPanel:
             self.clear()
             return
 
-        if self._current_entry != entry:
+        if self._current_entry is None or self._current_entry.full_path != entry.full_path:
             self._text_encoding = None
-
-        self._current_entry = entry
-        self.ctx.on_clear = self.clear
-        self.ctx.on_show_error = self._show_preview_error
-
-        # Clear previous state
-        self.clear()
 
         kind = resolve_preview_kind(
             entry.name,
             capabilities=self.ctx.capabilities,
             image_extensions=self.preview_image_exts(),
         )
-
         renderer = self._renderers.get(kind)
+        same_path = (
+            self._current_entry is not None
+            and entry.full_path == self._current_entry.full_path
+            and self._active_renderer is renderer
+            and renderer is not None
+        )
+        if same_path:
+            if self._panel_id:
+                dpg.delete_item(self._panel_id, children_only=True)
+        else:
+            self.clear()
+
+        self._current_entry = entry
+        self.ctx.on_clear = self.clear
+        self.ctx.on_show_error = self._show_preview_error
+
         if renderer:
             self._active_renderer = renderer
             renderer.render(entry, self.ctx)
@@ -278,14 +322,10 @@ class PreviewPanel:
         return self._show
 
     def on_mouse_wheel(self, sender: Any, app_data: Any, user_data: Any) -> None:
-        """Route mouse-wheel scroll to the active renderer if it handles it.
+        """Route the mouse wheel to the active renderer when the pane is hovered.
 
-        Registered as a global wheel handler by the keyboard mixin. Only the
-        active renderer (when the panel is visible and hovered) gets the event;
-        renderers that don't implement on_mouse_wheel simply ignore it.
-
-        PDF page navigation is implemented by DocumentRenderer; renderers that
-        do not expose on_mouse_wheel simply ignore the event.
+        Image preview zooms toward the cursor; PDF changes page; HTML
+        scrolls its viewport. Renderers without ``on_mouse_wheel`` ignore it.
         """
         if self._panel_id is None or not self._show:
             return

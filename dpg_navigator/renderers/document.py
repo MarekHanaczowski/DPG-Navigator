@@ -2,8 +2,6 @@
 
 from __future__ import annotations  # PEP 604/585 in signatures need this on py3.8/3.9
 
-import array
-import io
 import logging
 from typing import Any, Callable
 
@@ -13,7 +11,6 @@ from .._availability import (
     _DocxDocument,
     _mammoth,
     _markdown,
-    _np,
     _PILImage,
     _Presentation,
 )
@@ -21,6 +18,11 @@ from .._filesystem import DirectoryLister
 from .._html import HTMLRenderer, chrome_available
 from .._optional import require_optional
 from .._pdf import PDFRenderer
+from .._preview_limits import (
+    PREVIEW_TEXT_CHUNK_BYTES,
+    decode_preview_rgba_bytes,
+    ooxml_exceeds_preview_limit,
+)
 from .._preview_presentation import PresentationPreviewError, load_presentation
 from .._preview_word import WordPreviewError, WordTable, load_word_document
 from .._types import FileEntry
@@ -124,7 +126,7 @@ img { max-width: 100%; height: auto; }
 class DocumentRenderer(BaseRenderer):
     """Render HTML, Markdown, PDF, Word, and PowerPoint previews."""
 
-    _TEXT_PREVIEW_MAX_SIZE: int = 256 * 1024
+    _TEXT_PREVIEW_MAX_SIZE: int = PREVIEW_TEXT_CHUNK_BYTES
     """Maximum file size in bytes to attempt text preview (256 KB)."""
 
     _STATUS_HEIGHT: int = 42
@@ -153,7 +155,7 @@ class DocumentRenderer(BaseRenderer):
         ext = entry.ext
         if ext in (".html", ".htm"):
             self._render_html_preview(entry)
-        elif ext == ".md":
+        elif ext in (".md", ".markdown"):
             self._render_markdown_preview(entry)
         elif ext == ".pdf":
             self._render_pdf_preview(entry)
@@ -479,6 +481,14 @@ class DocumentRenderer(BaseRenderer):
             self._html = HTMLRenderer(self._ctx.config_tag)
         self._clear_for_html()
 
+        if ooxml_exceeds_preview_limit(entry.full_path):
+            dpg.add_text(
+                "Cannot preview this file",
+                color=[128, 128, 128],
+                parent=self._ctx.panel_id,
+            )
+            return
+
         # Convert .docx -> HTML via mammoth
         try:
             with open(entry.full_path, "rb") as f:
@@ -698,26 +708,10 @@ class DocumentRenderer(BaseRenderer):
                     # Image
                     if shape.image_blob is not None and _PILImage is not None:
                         try:
-                            pil = require_optional(_PILImage, "Pillow")
-                            pil_img = pil.open(io.BytesIO(shape.image_blob))
-                            img_rgba = pil_img.convert("RGBA")
-                            pil_img.close()
-                            img_w, img_h = img_rgba.size
-                            scale = min(max_img_w / img_w, 1.0)
-                            disp_w = int(img_w * scale)
-                            disp_h = int(img_h * scale)
-                            if _np is not None:
-                                np = require_optional(_np, "numpy")
-                                arr = np.frombuffer(img_rgba.tobytes(), dtype=np.uint8).astype(np.float32) / np.float32(
-                                    255.0
-                                )
-                                raw = array.array("f", arr.tobytes())
-                            else:
-                                raw = array.array(
-                                    "f",
-                                    (b / 255.0 for b in img_rgba.tobytes()),
-                                )
-                            img_rgba.close()
+                            img_w, img_h, raw = decode_preview_rgba_bytes(shape.image_blob)
+                            scale = min(max_img_w / img_w, 1.0) if img_w else 1.0
+                            disp_w = max(1, int(img_w * scale))
+                            disp_h = max(1, int(img_h * scale))
                             pptx_tex_tag = f"_pptx_tex_{self._ctx.config_tag}_{pptx_tex_idx}"
                             pptx_tex_idx += 1
                             self._ctx.pptx_texture_tags.append(pptx_tex_tag)

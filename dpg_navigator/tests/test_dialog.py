@@ -38,11 +38,12 @@ class TestSidebarDriveLoading:
             custom_dirs=[],
         )
 
-        with patch("dpg_navigator.dialog._ui.dpg") as mock_dpg, patch(
-            "dpg_navigator.dialog._ui.get_special_dirs", return_value={}
-        ), patch("dpg_navigator.dialog._ui.get_drives") as get_drives, patch(
-            "dpg_navigator.dialog._ui.JobManager.submit"
-        ) as submit:
+        with (
+            patch("dpg_navigator.dialog._ui.dpg") as mock_dpg,
+            patch("dpg_navigator.dialog._ui.get_special_dirs", return_value={}),
+            patch("dpg_navigator.dialog._ui.get_drives") as get_drives,
+            patch("dpg_navigator.dialog._ui.JobManager.submit") as submit,
+        ):
             mock_dpg.child_window.return_value = MagicMock()
             builder._build_sidebar("dialog", 56)
 
@@ -65,10 +66,13 @@ class TestSidebarDriveLoading:
             time.sleep(0.01)
             return ["/slow-network-mount"]
 
-        with patch(
-            "dpg_navigator.dialog._ui.get_drives",
-            side_effect=delayed_drives,
-        ), patch("dpg_navigator.dialog._ui.dpg") as mock_dpg:
+        with (
+            patch(
+                "dpg_navigator.dialog._ui.get_drives",
+                side_effect=delayed_drives,
+            ),
+            patch("dpg_navigator.dialog._ui.dpg") as mock_dpg,
+        ):
             builder._load_sidebar_drives("dialog_shortcut_menu")
 
         mock_dpg.mutex.assert_not_called()
