@@ -427,6 +427,12 @@ class TestGetXdgDir:
     def _skip_non_linux(self):
         if platform.system() != "Linux":
             pytest.skip("Linux-only test")
+        import dpg_navigator._platform as plat
+
+        # Earlier tests may have filled the process-wide XDG cache via
+        # get_special_dirs(); isolate each case so mocks actually run.
+        plat._xdg_cache.clear()
+        plat._special_dirs_cache = None
 
     def test_valid_dir_returned(self, tmp_path):
         from dpg_navigator._platform import _get_xdg_dir
