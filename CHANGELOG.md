@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.0.0b5] - 2026-08-29
+
 ### Added
 
 - `DialogConfig.trusted_html_preview` provides an explicit opt-in for raw
