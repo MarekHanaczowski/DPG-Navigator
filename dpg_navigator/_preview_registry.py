@@ -40,9 +40,11 @@ PILLOW_EXTRA_EXTS: frozenset[str] = frozenset(
         ".svg",
         ".dds",
         ".pcx",
-        ".eps",
     }
 )
+
+OOXML_PREVIEW_MAX_BYTES: int = 32 * 1024 * 1024
+"""Byte gate for .docx/.pptx/.xlsx preview loaders."""
 
 PDF_EXTS: frozenset[str] = frozenset({".pdf"})
 WORD_EXTS: frozenset[str] = frozenset({".docx"})
@@ -244,3 +246,11 @@ def resolve_preview_kind(
     if capabilities.pptx and ext in PPTX_EXTS:
         return PreviewKind.PPTX
     return PreviewKind.NONE
+
+
+def ooxml_exceeds_preview_limit(path: str) -> bool:
+    """True when *path* exists and is larger than the Office preview byte gate."""
+    try:
+        return os.path.isfile(path) and os.path.getsize(path) > OOXML_PREVIEW_MAX_BYTES
+    except OSError:
+        return False

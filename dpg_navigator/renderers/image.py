@@ -13,6 +13,12 @@ from .._optional import OptionalModule, as_optional
 from .._types import FileEntry
 from ._base import BaseRenderer, PreviewContext
 
+_np: Any
+try:
+    import numpy as _np
+except Exception:
+    _np = None
+
 _PILImage: OptionalModule | None
 try:
     from PIL import Image as _PILImage_mod
@@ -51,14 +57,15 @@ class ImageRenderer(BaseRenderer):
         if _PILImage is None:
             raise RuntimeError("Pillow is not installed or unavailable.")
         with _PILImage.open(path) as img:
+            if img.size[0] > 8192 or img.size[1] > 8192:
+                img.thumbnail((8192, 8192))
             rgba = img.convert("RGBA") if img.mode != "RGBA" else img
             img_w, img_h = rgba.size
-            if img_w > 8192 or img_h > 8192:
-                rgba.thumbnail((8192, 8192))
-                img_w, img_h = rgba.size
             raw_data = rgba.tobytes()
-            # Normalize to 0.0-1.0 float array expected by DPG
-            float_data = array.array("f", (b / 255.0 for b in raw_data))
+            if _np is not None:
+                float_data = _np.frombuffer(raw_data, dtype=_np.uint8).astype(_np.float32) / _np.float32(255)
+            else:
+                float_data = array.array("f", (b / 255.0 for b in raw_data))
             return img_w, img_h, float_data
 
     def render(self, entry: FileEntry, ctx: PreviewContext) -> None:

@@ -221,7 +221,14 @@ class ArchiveVFSProvider(VFSProvider):
                     _log.warning("py7zr is not installed, cannot extract from .7z")
                     return None
                 with _py7zr.SevenZipFile(archive_path, "r") as z:
-                    if z.password:
+                    needs_password = getattr(z, "needs_password", None)
+                    encrypted = False
+                    if callable(needs_password):
+                        try:
+                            encrypted = bool(needs_password())
+                        except Exception:
+                            encrypted = False
+                    if encrypted:
                         _log.warning("Encrypted 7z not supported for preview: %s", archive_path)
                         return None
                     target_info = next(
@@ -240,9 +247,55 @@ class ArchiveVFSProvider(VFSProvider):
                     z.extract(targets=[internal_path], path=archive_temp_root)
                     extracted_path = os.path.join(archive_temp_root, internal_path)
 
-            if extracted_path and os.path.exists(extracted_path) and not os.path.isdir(extracted_path):
-                return os.path.abspath(extracted_path)
+            return _finalize_extracted_member(
+                extracted_path,
+                real_root,
+                internal_path,
+                max_size,
+                allowed_large_exts,
+            )
         except Exception as e:
             _log.error("Failed to extract from archive %s: %s", virtual_path, e)
 
         return None
+
+
+def _finalize_extracted_member(
+    extracted_path: str,
+    real_root: str,
+    internal_path: str,
+    max_size: int | None,
+    allowed_large_exts: set[str],
+) -> str | None:
+    """Reject symlinks, escaped paths, and members larger than *max_size*."""
+    if not extracted_path or not os.path.exists(extracted_path) or os.path.isdir(extracted_path):
+        return None
+    if os.path.islink(extracted_path):
+        _log.warning("Archive member is a symlink: %s", internal_path)
+        try:
+            os.unlink(extracted_path)
+        except OSError:
+            pass
+        return None
+    final = os.path.realpath(extracted_path)
+    if not final.startswith(real_root + os.sep) and final != real_root:
+        _log.warning("Extracted path escaped archive temp root: %s", internal_path)
+        try:
+            os.unlink(extracted_path)
+        except OSError:
+            pass
+        return None
+    if max_size is not None:
+        member_ext = os.path.splitext(internal_path)[1].lower()
+        try:
+            actual = os.path.getsize(final)
+        except OSError:
+            return None
+        if actual > max_size and member_ext not in allowed_large_exts:
+            _log.warning("Archive member exceeds preview size limit after extract: %s", internal_path)
+            try:
+                os.unlink(final)
+            except OSError:
+                pass
+            return None
+    return os.path.abspath(final)

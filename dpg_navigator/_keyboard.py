@@ -73,9 +73,39 @@ class KeyboardMixin:
         def _start_index_build(self) -> None: ...
 
     def _is_dialog_active(self) -> bool:
-        """Check if this dialog window is currently shown."""
+        """True when this dialog is shown and has focus (window or a child).
+
+        Global DPG key handlers must not steal Esc/Enter/Ctrl+A from the host
+        while a non-modal dialog is merely visible.
+        """
         tag = self._config.tag
-        return bool(dpg.does_item_exist(tag) and dpg.is_item_shown(tag))
+        if not (dpg.does_item_exist(tag) and dpg.is_item_shown(tag)):
+            return False
+        try:
+            if dpg.get_active_window() == tag:
+                return True
+        except Exception:
+            pass
+        try:
+            if dpg.is_item_focused(tag):
+                return True
+        except Exception:
+            pass
+        for item in (
+            getattr(self, "_path_input", None),
+            getattr(self, "_filename_input", None),
+            getattr(self, "_new_folder_input", None),
+            getattr(self, "_search_input", None),
+            getattr(self, "_explorer_table", None),
+        ):
+            if item is None:
+                continue
+            try:
+                if dpg.does_item_exist(item) and (dpg.is_item_focused(item) or dpg.is_item_active(item)):
+                    return True
+            except Exception:
+                continue
+        return False
 
     # ── Key handlers ───────────────────────────────────────────
 
@@ -95,7 +125,7 @@ class KeyboardMixin:
 
     def _on_key_a(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """Ctrl+A: select all visible entries."""
-        if not self._is_dialog_active() or not _platform.is_mod_key_down():
+        if not self._is_dialog_active() or not _platform.is_mod_key_down() or not self._config.multi_selection:
             return
         for child in dpg.get_item_children(self._explorer_table, 1):
             row_children = dpg.get_item_children(child, 1)

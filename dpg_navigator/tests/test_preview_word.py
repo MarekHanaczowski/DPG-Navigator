@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
@@ -62,3 +63,9 @@ class TestLoadWordDocument:
     def test_missing_backend_raises_preview_error(self):
         with pytest.raises(WordPreviewError):
             load_word_document("sample.docx", document_loader=None)
+
+    def test_rejects_oversized_file(self):
+        with patch("dpg_navigator._preview_word.ooxml_exceeds_preview_limit", return_value=True), pytest.raises(
+            WordPreviewError, match="too large"
+        ):
+            load_word_document("huge.docx", document_loader=lambda path: None)

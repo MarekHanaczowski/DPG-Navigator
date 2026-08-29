@@ -4,8 +4,28 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `FileDialog` increments the class instance counter so closing the first of
+  two dialogs no longer shuts down `JobManager`, Chrome, or the extract temp dir.
+- Directory listing and search refresh queue onto the DearPyGui thread instead
+  of rebuilding the explorer table from a worker under `dpg.mutex()`.
+- Global keyboard handlers require the dialog window or a child to have focus.
+  Ctrl+A is a no-op when `multi_selection` is off. Explorer `row_entries` is
+  cleared on each rebuild.
+- `|` is treated as an archive virtual path only when the left side has a
+  zip/7z extension, so a POSIX filename containing `|` is not routed as VFS.
+- `DirectoryIndex.build` does not publish when the generation changed after
+  the walk. Deep search ignores an index whose root is not the current directory.
+- Archive extract rejects symlink members and compares the written size to
+  `max_size` (encrypted 7z uses `needs_password()`).
+- Image preview thumbnails oversized pixel dimensions before `convert("RGBA")`.
+- Word, Excel, and PowerPoint loaders reject files larger than 32 MB.
+
 ### Changed
 
+- Session extract directory is created with `tempfile.mkdtemp`.
+- `.eps` is no longer routed as a Pillow image preview (Ghostscript).
 - Module and class docstrings, README, CLAUDE.md, and the release checklist
   match post-1.0.0b4 behavior: VFS facade, bounded `JobManager`, Chrome
   `DPG_CHROME_BIN` / `chrome-headless-shell`, sidebar drive updates on the

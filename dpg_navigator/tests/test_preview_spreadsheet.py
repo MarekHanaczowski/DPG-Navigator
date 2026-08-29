@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 
 from dpg_navigator._preview_spreadsheet import (
@@ -134,4 +136,16 @@ class TestLoadExcelTable:
                 max_rows=10,
                 max_cols=10,
                 workbook_loader=None,
+            )
+
+    def test_rejects_oversized_file(self):
+        with patch("dpg_navigator._preview_spreadsheet.ooxml_exceeds_preview_limit", return_value=True), pytest.raises(
+            ExcelPreviewError, match="too large"
+        ):
+            load_excel_table(
+                "huge.xlsx",
+                sheet_name=None,
+                max_rows=10,
+                max_cols=10,
+                workbook_loader=lambda *args, **kwargs: None,
             )

@@ -5,6 +5,9 @@ from __future__ import annotations
 import os
 import zipfile
 
+import pytest
+
+from dpg_navigator._filesystem import is_archive_virtual_path
 from dpg_navigator._types import DialogConfig
 from dpg_navigator.dialog._logic import DialogLogic
 from dpg_navigator.dialog._state import DialogState
@@ -70,6 +73,36 @@ class TestNavigateLocal:
         assert errors == []
         assert logic.state.current_dir == os.path.normpath(str(sub))
         assert any(e.name == "b.txt" for e in listings[-1])
+
+    def test_pipe_in_local_name_is_not_archive_route(self, tmp_path):
+        missing = tmp_path / "notes|draft"
+        logic, listings, errors, path_inputs = _make_logic(str(tmp_path))
+        logic.navigate_to(str(missing))
+
+        assert logic.state.current_dir == str(tmp_path)
+        assert errors and errors[-1][0] == "Path not found"
+        assert "archive" not in errors[-1][1].lower()
+        assert path_inputs[-1] == str(tmp_path)
+        assert listings == []
+
+    @pytest.mark.skipif(os.name == "nt", reason="| is not a legal Windows filename")
+    def test_pipe_in_dirname_lists_as_local(self, tmp_path):
+        folder = tmp_path / "has|pipe"
+        folder.mkdir()
+        (folder / "a.txt").write_text("x")
+        logic, listings, errors, _ = _make_logic(str(tmp_path))
+        logic.navigate_to(str(folder))
+        assert errors == []
+        assert logic.state.current_dir == os.path.normpath(str(folder))
+        assert any(e.name == "a.txt" for e in listings[-1])
+
+
+class TestArchiveVirtualPathHelper:
+    def test_requires_zip_or_7z_extension(self):
+        assert not is_archive_virtual_path(r"C:\data\notes|v1")
+        assert is_archive_virtual_path(r"C:\data\pack.zip|/inner")
+        assert is_archive_virtual_path("/tmp/pack.7z|/docs")
+        assert not is_archive_virtual_path("/tmp/pack.zip")
 
 
 class TestNavigateArchive:

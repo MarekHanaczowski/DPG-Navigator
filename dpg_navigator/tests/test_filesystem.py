@@ -16,6 +16,7 @@ from dpg_navigator._filesystem import (
     MAX_SCAN_DEPTH,
     DirectoryIndex,
     DirectoryLister,
+    is_archive_virtual_path,
     resolve_archive_selection,
 )
 from dpg_navigator._types import FileEntry
@@ -511,6 +512,72 @@ class TestExtractFromArchive:
             )
             assert extracted is not None
             assert os.path.isfile(extracted)
+        finally:
+            DirectoryLister.cleanup_temp_files()
+
+
+class TestSessionTempDir:
+    def test_uses_mkdtemp(self):
+        DirectoryLister.cleanup_temp_files()
+        DirectoryLister._session_temp_dir = None
+        try:
+            with patch("dpg_navigator._filesystem.tempfile.mkdtemp", return_value="extracted_tmp") as mkdtemp:
+                path = DirectoryLister._get_session_temp_dir()
+            mkdtemp.assert_called_once()
+            assert mkdtemp.call_args.kwargs["prefix"] == "dpg_navigator_extracted_"
+            assert path == "extracted_tmp"
+        finally:
+            DirectoryLister._session_temp_dir = None
+
+
+class TestArchiveVirtualPath:
+    def test_extension_gate(self):
+        assert is_archive_virtual_path("pack.zip|/a")
+        assert not is_archive_virtual_path("notes|v1")
+        assert not is_archive_virtual_path("plain")
+
+
+class TestExtractPostWriteChecks:
+    def test_rejects_when_written_size_exceeds_cap(self, tmp_path):
+        archive_path = tmp_path / "sample.zip"
+        with zipfile.ZipFile(archive_path, "w") as zf:
+            zf.writestr("docs/large.txt", "x" * 32)
+
+        real_getinfo = zipfile.ZipFile.getinfo
+
+        def getinfo(self, name):
+            info = real_getinfo(self, name)
+            info.file_size = 1
+            return info
+
+        try:
+            with patch.object(zipfile.ZipFile, "getinfo", getinfo):
+                extracted = DirectoryLister.extract_from_archive(
+                    f"{archive_path}|/docs/large.txt",
+                    max_size=8,
+                )
+            assert extracted is None
+        finally:
+            DirectoryLister.cleanup_temp_files()
+
+    def test_rejects_extracted_symlink(self, tmp_path):
+        archive_path = tmp_path / "sample.zip"
+        with zipfile.ZipFile(archive_path, "w") as zf:
+            zf.writestr("link.txt", "hi")
+
+        def extract_as_link(self, member, path=None, pwd=None):
+            dest = os.path.join(path, "link.txt")
+            os.makedirs(path, exist_ok=True)
+            try:
+                os.symlink("elsewhere", dest)
+            except OSError:
+                pytest.skip("symlink creation not permitted on this platform")
+            return dest
+
+        try:
+            with patch.object(zipfile.ZipFile, "extract", extract_as_link):
+                extracted = DirectoryLister.extract_from_archive(f"{archive_path}|/link.txt")
+            assert extracted is None
         finally:
             DirectoryLister.cleanup_temp_files()
 

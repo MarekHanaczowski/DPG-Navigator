@@ -159,7 +159,6 @@ class DialogUIBuilder:
         self.dialog._selec_theme = self.dialog._shared_selec_theme
         self.dialog._size_theme = self.dialog._shared_size_theme
         self.dialog._preview_btn = None
-        self.dialog._instance_count += 1
 
     def _build_sidebar(self, tag: str, info_px: int) -> None:
         """Build the sidebar with shortcuts and drives."""
@@ -395,7 +394,12 @@ class DialogUIBuilder:
                     dpg.add_text("Close dialog (Esc)")
 
     def _render_entries_list(self, entries: list[FileEntry]) -> None:
-        """Rebuild explorer rows. Caller must hold ``dpg.mutex()``."""
+        """Rebuild explorer rows on the DearPyGui thread.
+
+        Caller must hold ``dpg.mutex()``. ``row_entries`` is reset so refresh
+        and search do not leak stale row ids.
+        """
+        self.state.row_entries.clear()
         status_label = getattr(self.dialog, "_status_label", None)
         if status_label is not None and dpg.does_item_exist(status_label):
             dpg.hide_item(status_label)

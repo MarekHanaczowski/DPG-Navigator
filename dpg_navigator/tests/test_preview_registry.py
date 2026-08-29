@@ -6,11 +6,14 @@ from dpg_navigator._preview_registry import (
     CODE_EXTS,
     HTML_EXTS,
     MD_EXTS,
+    OOXML_PREVIEW_MAX_BYTES,
+    PILLOW_EXTRA_EXTS,
     STB_IMAGE_EXTS,
     WORD_EXTS,
     PreviewCapabilities,
     PreviewKind,
     html_active_extensions,
+    ooxml_exceeds_preview_limit,
     resolve_preview_kind,
 )
 
@@ -61,6 +64,17 @@ class TestResolvePreviewKind:
         assert _resolve("document.docx") is PreviewKind.NONE
         assert _resolve("document.docx", word=True) is PreviewKind.WORD
 
+    def test_eps_is_not_a_pillow_image_preview(self):
+        assert ".eps" not in PILLOW_EXTRA_EXTS
+        assert (
+            resolve_preview_kind(
+                "plot.eps",
+                capabilities=PreviewCapabilities(),
+                image_extensions=STB_IMAGE_EXTS | PILLOW_EXTRA_EXTS,
+            )
+            is PreviewKind.NONE
+        )
+
 
 class TestHtmlActiveExtensions:
     def test_base_html_extensions_are_always_active(self):
@@ -98,3 +112,14 @@ class TestExtensionlessFilenames:
 
     def test_unknown_extensionless_name_has_no_route(self):
         assert _resolve("README") is PreviewKind.NONE
+
+
+class TestOoxmlPreviewLimit:
+    def test_missing_path_is_not_oversized(self, tmp_path):
+        assert ooxml_exceeds_preview_limit(str(tmp_path / "missing.docx")) is False
+
+    def test_small_file_is_not_oversized(self, tmp_path):
+        path = tmp_path / "small.docx"
+        path.write_bytes(b"x")
+        assert ooxml_exceeds_preview_limit(str(path)) is False
+        assert OOXML_PREVIEW_MAX_BYTES == 32 * 1024 * 1024
