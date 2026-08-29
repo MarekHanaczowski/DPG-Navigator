@@ -35,7 +35,7 @@ from ._availability import (
 from ._dialog import FileDialog
 from ._types import DEFAULT_FILTER_LIST, DialogConfig, DialogMode, FileEntry, SelectionCallback, StyleVariant
 
-__version__ = "1.0.0b5"
+__version__ = "1.0.0b6"
 
 __all__ = [
     "FileDialog",

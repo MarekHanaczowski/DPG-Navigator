@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.0.0b6] - 2026-08-29
+
 ### Added
 
 - Shared preview limits module gates image pixels, decompressed OOXML,
