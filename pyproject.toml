@@ -65,7 +65,7 @@ dev = [
     "types-Pygments",
     "types-bleach",
     "dpg-navigator[all]",
-    "pre-commit>=3.5",
+    "pre-commit>=4.6.2",
 ]
 
 [project.urls]
