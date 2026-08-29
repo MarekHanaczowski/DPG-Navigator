@@ -76,7 +76,8 @@ Routing and rendering are split:
 - **`_preview_registry.py`** — GUI-free routing. Extension `frozenset`s, the `PreviewKind` enum, `PreviewCapabilities`, and `resolve_preview_kind()`. **The order of checks in `resolve_preview_kind()` is load-bearing** (e.g. HTML and code are matched before generic text). Change it carefully; it has dedicated tests.
 - **`_preview.py` — `PreviewPanel`**: owns the panel, maps `PreviewKind → BaseRenderer`, and drives the active renderer.
 - **`renderers/`** — the DPG-facing renderer objects (`ImageRenderer`, `TextRenderer`, `DataRenderer`, `ArchiveRenderer`, `DocumentRenderer`, `FontRenderer`), each conforming to the `BaseRenderer` protocol in `renderers/_base.py` and receiving a `PreviewContext`. `DocumentRenderer` covers HTML/Markdown/PDF/Word/PPTX by delegating to the heavy renderers and pure loaders.
-- **`_availability.py`** — every optional backend is probed once at import via `try/except` and exposed as a `*_available()` predicate. `chrome_available()` (in `_html.py`) checks for a resolvable browser binary (`DPG_CHROME_BIN` / `CHROME_BIN` / `CHROME_PATH`, then html2image's search), not just the Python packages. Failed imports are `None` typed as `OptionalModule` (`_optional.py`), not `cast(Any, None)`.
+- **`_availability.py`** — every optional backend is probed once at import via `try/except` and exposed as a `*_available()` predicate. `chrome_available()` (in `_html.py`) checks `DPG_CHROME_BIN` / `CHROME_BIN` / `CHROME_PATH`, then bounded platform-specific Chrome locations without invoking html2image's unbounded search. Failed imports are `None` typed as `OptionalModule` (`_optional.py`), not `cast(Any, None)`.
+- **HTML policy (`_html.py`)** — raw HTML is safe by default: parser allow-list + controlled CSP wrapper, no scripts or local/network resources. `DialogConfig.trusted_html_preview=True` is an explicit opt-in for raw `.html`/`.htm` only; Markdown and mammoth output always use the safe string entry point. Every Chrome render owns a separate temporary profile/output directory.
 - **`_preview_*.py`** (`_preview_word`, `_preview_presentation`, `_preview_archive`, `_preview_spreadsheet`, `_preview_sqlite`, `_preview_table`) — **pure data loaders**: they parse a file and return plain Python data structures, no DPG. The `renderers/` objects consume them. This is why they're unit-testable.
 
 ### Concurrency (`_job_manager.py`)
@@ -85,12 +86,12 @@ Routing and rendering are split:
 
 **DPG is single-threaded.** Two invariants follow:
 
-1. Background workers must not rebuild the widget tree. Listing/size updates marshal through `FileDialog._safe_*` (destroyed check, then `dpg.mutex()`). Sidebar drive enumeration stores a plain Python list; widgets are applied on the DPG thread via `show()` or a `set_frame_callback` poll — `dpg.mutex()` from a worker still races `render_dearpygui_frame` (xvfb segfault).
+1. Background workers must not call DearPyGui at all. Listing, size, sidebar, HTML render, and HTML resize results are stored as plain Python state. HTML results are applied by a `set_frame_callback` poll while holding `dpg.mutex()` because DPG dispatches frame callbacks on its callback thread; DearPyGui 2.2 fixes the older mutex/GIL inversion and is the minimum supported version. A worker taking `dpg.mutex()` directly is still forbidden.
 2. Stale-result cancellation uses **generation counters** on `DialogState` (`bg_generation`, `index_generation`). A background task captures the counter value when it starts and bails if it no longer matches — navigating away or refreshing bumps the counter.
 
 ### Shared-resource lifecycle
 
-Themes, the shared Chrome renderer, the extraction temp dir, and `JobManager` are process-wide, reference-counted by `FileDialog._instance_count`. They are only torn down when the **last** `FileDialog` is destroyed. When touching cleanup code, preserve this — tearing down early breaks a second open dialog.
+Themes, Chrome process tracking, the extraction temp dir, and `JobManager` are process-wide, reference-counted by `FileDialog._instance_count`. They are only torn down when the **last** `FileDialog` is destroyed. Individual HTML renders have isolated temporary Chrome sessions that clean themselves up. When touching shared cleanup code, preserve the last-dialog rule.
 
 ### Supporting modules
 

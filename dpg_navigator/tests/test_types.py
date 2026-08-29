@@ -127,6 +127,7 @@ class TestDialogConfig:
         assert cfg.modal is True
         assert cfg.show_hidden is False
         assert cfg.show_preview is False
+        assert cfg.trusted_html_preview is False
         assert cfg.preview_width == 300
         assert cfg.style == StyleVariant.LABELED
 
@@ -139,6 +140,7 @@ class TestDialogConfig:
             style=StyleVariant.COMPACT,
             show_hidden=True,
             multi_selection=False,
+            trusted_html_preview=True,
         )
         assert cfg.title == "Custom"
         assert cfg.width == 800
@@ -147,6 +149,7 @@ class TestDialogConfig:
         assert cfg.style == StyleVariant.COMPACT
         assert cfg.show_hidden is True
         assert cfg.multi_selection is False
+        assert cfg.trusted_html_preview is True
 
     def test_min_size_is_tuple(self):
         cfg = DialogConfig()

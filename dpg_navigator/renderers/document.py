@@ -9,11 +9,6 @@ from typing import Any, Callable
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
-try:
-    import bleach
-except ImportError:
-    bleach = None  # type: ignore[assignment]
-
 from .._availability import (
     _DocxDocument,
     _mammoth,
@@ -287,6 +282,7 @@ class DocumentRenderer(BaseRenderer):
             render_h,
             on_complete=self._on_html_render_done,
             on_resize_complete=self._on_html_resize_done,
+            trusted=self._ctx.trusted_html_preview,
         ):
             dpg.add_text(
                 "Cannot preview this file",
@@ -297,7 +293,7 @@ class DocumentRenderer(BaseRenderer):
         self._show_html_widgets()
 
     def _on_html_render_done(self) -> None:
-        """Called by HTMLRenderer inside dpg.mutex() when render completes."""
+        """Called by HTMLRenderer from its mutex-serialized frame poll."""
         if (
             self._html_status_label is not None
             and dpg.does_item_exist(self._html_status_label)
@@ -306,7 +302,7 @@ class DocumentRenderer(BaseRenderer):
             dpg.set_value(self._html_status_label, self._html.status_text)
 
     def _on_html_resize_done(self) -> None:
-        """Called inside dpg.mutex() when debounced resize recreates texture."""
+        """Called from the frame poll when a resize recreates the texture."""
         if self._ctx is None or self._ctx.panel_id is None or self._html is None:
             return
         dpg.delete_item(self._ctx.panel_id, children_only=True)
@@ -315,6 +311,9 @@ class DocumentRenderer(BaseRenderer):
     def _render_markdown_preview(self, entry: FileEntry) -> None:
         """Render a Markdown file via markdown lib + Chrome Headless."""
         if self._ctx is None or self._ctx.panel_id is None:
+            return
+        if not chrome_available():
+            self._render_text_preview(entry)
             return
         if self._html is None:
             self._html = HTMLRenderer(self._ctx.config_tag)
@@ -339,41 +338,6 @@ class DocumentRenderer(BaseRenderer):
                 md_text,
                 extensions=["tables", "fenced_code"],
             )
-            if bleach is not None:
-                md_html = bleach.clean(
-                    md_html_raw,
-                    tags=[
-                        "h1",
-                        "h2",
-                        "h3",
-                        "h4",
-                        "h5",
-                        "h6",
-                        "p",
-                        "a",
-                        "ul",
-                        "ol",
-                        "li",
-                        "strong",
-                        "em",
-                        "code",
-                        "pre",
-                        "blockquote",
-                        "table",
-                        "thead",
-                        "tbody",
-                        "tr",
-                        "th",
-                        "td",
-                        "br",
-                        "hr",
-                        "div",
-                        "span",
-                        "img",
-                    ],
-                )
-            else:
-                md_html = md_html_raw
         except Exception as e:
             self._ctx.show_error("Preview failed", str(e))
             return
@@ -382,9 +346,6 @@ class DocumentRenderer(BaseRenderer):
         if dims is None:
             return
         render_w, render_h = dims
-
-        # Wrapped HTML with Monokai-ish style
-        full_html = f"<html><head><style>{_MARKDOWN_CSS}</style></head><body><div class='md-wrapper'>{md_html}</div></body></html>"
 
         # Add truncation label if needed
         if entry.size_bytes is not None and entry.size_bytes > self._TEXT_PREVIEW_MAX_SIZE:
@@ -397,11 +358,13 @@ class DocumentRenderer(BaseRenderer):
             )
 
         if not self._html.open_string(
-            full_html,
+            md_html_raw,
             render_w,
             render_h,
             on_complete=self._on_html_render_done,
             on_resize_complete=self._on_html_resize_done,
+            css=_MARKDOWN_CSS,
+            wrapper_class="md-wrapper",
         ):
             self.clear()
             return
@@ -530,25 +493,18 @@ class DocumentRenderer(BaseRenderer):
             )
             return
 
-        # Wrap in styled HTML document
-        html_content = (
-            '<!DOCTYPE html><html><head><meta charset="utf-8">'
-            f"<style>{_MAMMOTH_CSS}</style>"
-            "</head><body>"
-            f'<div class="mammoth-wrapper">{docx_html}</div>'
-            "</body></html>"
-        )
-
         dims = self._html_panel_size()
         if dims is None:
             return
         render_w, render_h = dims
         if not self._html.open_string(
-            html_content,
+            docx_html,
             render_w,
             render_h,
             on_complete=self._on_html_render_done,
             on_resize_complete=self._on_html_resize_done,
+            css=_MAMMOTH_CSS,
+            wrapper_class="mammoth-wrapper",
         ):
             dpg.add_text(
                 "Cannot preview this file",

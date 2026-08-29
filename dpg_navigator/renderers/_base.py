@@ -14,12 +14,18 @@ class PreviewContext:
     """Context passed to renderers, encapsulating the DPG panel and common utilities."""
 
     def __init__(
-        self, panel_id: int | str, table_wrapper: int | str, config_tag: str, capabilities: PreviewCapabilities
+        self,
+        panel_id: int | str,
+        table_wrapper: int | str,
+        config_tag: str,
+        capabilities: PreviewCapabilities,
+        trusted_html_preview: bool = False,
     ) -> None:
         self.panel_id = panel_id
         self.table_wrapper = table_wrapper
         self.config_tag = config_tag
         self.capabilities = capabilities
+        self.trusted_html_preview = trusted_html_preview
 
         # Callbacks injected by the panel
         self.on_clear: Callable[[], None] = lambda: None
