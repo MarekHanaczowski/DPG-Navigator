@@ -222,6 +222,8 @@ jobs:
 
   audit:
     name: Dependency audit
+    # Informational audit; keep it on main/manual and out of every PR run.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Informational: surfaces known CVEs in the dependency tree without
@@ -249,6 +251,8 @@ jobs:
 
   sbom:
     name: Generate SBOM
+    # SBOM is a post-merge/release artifact, not a PR gate.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
