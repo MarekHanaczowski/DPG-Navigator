@@ -20,10 +20,11 @@ import tempfile
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from concurrent.futures import Future
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 

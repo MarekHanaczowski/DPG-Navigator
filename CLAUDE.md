@@ -4,21 +4,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`dpg-navigator` — a file/directory picker widget for [DearPyGui](https://github.com/hoffstadt/DearPyGui) with a rich preview panel (images, PDF, Word, Excel, PowerPoint, Markdown, HTML, CSV, SQLite, fonts, archives, source code as text). Installable library; import root is `dpg_navigator`. Supports Python 3.9–3.14, Windows/Linux/macOS. Version is `__version__` in `dpg_navigator/__init__.py` (currently a `1.0.0b*` beta).
+`dpg-navigator` — a file/directory picker widget for [DearPyGui](https://github.com/hoffstadt/DearPyGui) with a rich preview panel (images, PDF, Word, Excel, PowerPoint, Markdown, HTML, CSV, SQLite, fonts, archives, source code as text). Installable library; import root is `dpg_navigator`. Supports Python 3.10–3.14, Windows/Linux/macOS. Version is `__version__` in `dpg_navigator/__init__.py` (currently a `1.0.0b*` beta).
 
 ## Commands
 
 ```bash
 pip install -e ".[dev]"          # dev install (pulls in the [all] preview extras)
 
-python -m ruff check .           # lint (E9,F,W,I,B,UP,SIM; target py39)
+python -m ruff check .           # lint (E9,F,W,I,B,UP,SIM; target py310)
 python -m ruff format --check .  # format gate (same as CI)
-python -m mypy                   # package type check via [tool.mypy] files= (skip 3.9 in CI)
+python -m mypy                   # package type check via [tool.mypy] files= (every CI Python)
                                  # flags include disallow_untyped_defs, warn_return_any, disallow_any_generics
 python -m pytest -q              # run the unit test suite
 python -m pytest -q --cov=dpg_navigator --cov-report=term-missing
                                  # coverage gate on pure loaders/VFS/dialog logic (fail_under=75)
-pre-commit install               # git hooks: ruff + format + mypy (Python >= 3.9, venv active)
+pre-commit install               # git hooks: ruff + format + mypy (Python >= 3.10, venv active)
 pre-commit run --all-files       # same checks on the whole tree
 pytest dpg_navigator/tests/test_filesystem.py::test_name   # single test
 
@@ -42,7 +42,7 @@ xvfb-run -a env DPG_INTEGRATION=1 pytest -m integration   # headless Linux
 - **Version** lives in `dpg_navigator/__init__.py` as `__version__` (hatchling reads it via regex). Bump it there for a release.
 - **Do not pin `python_version` in `[tool.mypy]`.** It's deliberately unpinned so mypy targets the running interpreter and matches each version's third-party stubs (numpy's PEP 695 `type` aliases only parse on newer Python). Pinning breaks stub parsing on newer CI runners.
 - pytest writes temp dirs under `.pytest_tmp/` (`--basetemp` in `pyproject.toml`); that's why those dirs and `.pytest_tmp_cache/` exist.
-- New `.py` files **must** start with `from __future__ import annotations`. Don't use `slots=True` on dataclasses (keeps 3.9 compatibility). Guard every optional-backend import with `try/except Exception`.
+- New `.py` files **must** start with `from __future__ import annotations`. The minimum is Python 3.10, so runtime `X | Y` unions and `match` are fine; don't use 3.11+ features (`ExceptionGroup`, `typing.Self`, `tomllib`) without a fallback. Guard every optional-backend import with `try/except Exception`.
 
 ## Architecture
 

@@ -6,7 +6,7 @@ The first view fits the pane without cropping or upscaling; the mouse
 wheel zooms toward the cursor, and a left-button drag pans the picture.
 """
 
-from __future__ import annotations  # PEP 604/585 annotations need this on py3.8/3.9
+from __future__ import annotations
 
 import os
 import tempfile

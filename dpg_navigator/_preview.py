@@ -5,9 +5,10 @@ Routes a ``FileEntry`` through ``resolve_preview_kind()`` to a
 tests can cover it without a live renderer.
 """
 
-from __future__ import annotations  # PEP 604/585 in signatures need this on py3.8/3.9
+from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 

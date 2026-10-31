@@ -37,7 +37,7 @@ python -m mypy
 python -m pytest -q --cov=dpg_navigator --cov-report=term-missing
 ```
 
-After `pip install -e ".[dev]"` on Python >= 3.9, `pre-commit install` wires the
+After `pip install -e ".[dev]"` on Python >= 3.10, `pre-commit install` wires the
 same ruff/mypy commands as git hooks (`pre-commit run --all-files`). CI still
 runs the tools directly and does not invoke pre-commit.
 

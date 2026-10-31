@@ -3,7 +3,7 @@
 ``DialogState`` is a plain dataclass. The only method is ``navigate()``.
 """
 
-from __future__ import annotations  # PEP 604/585 annotations need this on py3.8/3.9
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any

@@ -1,9 +1,10 @@
 """Data preview renderer for CSV, Excel, SQLite, and XML."""
 
-from __future__ import annotations  # PEP 604/585 in signatures need this on py3.8/3.9
+from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 from defusedxml import minidom as _minidom  # type: ignore[import-untyped]

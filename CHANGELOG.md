@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Removed
+
+- **Python 3.9 support.** The minimum is now Python 3.10 (`requires-python
+  = ">=3.10"`). Python 3.9 reached end of life in October 2025. On 3.9, pip
+  keeps installing 1.0.0b7, the last release that supports it.
+
+### Changed
+
+- Dev tooling: mypy is pinned to `2.3.*` on every supported Python (the
+  separate `1.19.*` pin for 3.9 is gone) and runs on every CI job; ruff
+  targets `py310`.
+
 ## [1.0.0b7] - 2026-10-31
 
 ### Fixed

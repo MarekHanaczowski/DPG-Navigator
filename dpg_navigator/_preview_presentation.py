@@ -5,9 +5,11 @@ Extracts slide content without depending on DearPyGui or Pillow.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 # MIT licensed
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from ._preview_registry import ooxml_exceeds_preview_limit
 
