@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import os
 import zipfile
+from unittest.mock import patch
 
 import pytest
 
-from dpg_navigator._filesystem import is_archive_virtual_path
+from dpg_navigator._filesystem import INDEX_TTL, MAX_SCAN_DEPTH, is_archive_virtual_path
 from dpg_navigator._types import DialogConfig
 from dpg_navigator.dialog._logic import DialogLogic
 from dpg_navigator.dialog._state import DialogState
@@ -230,3 +231,147 @@ class TestGoBack:
 
         assert errors == []
         assert logic.state.current_dir == os.path.normpath(str(tmp_path))
+
+
+def _run_now(fn, *args, **kwargs):
+    fn(*args, **kwargs)
+
+
+class TestDeepSearchAfterIndexBuild:
+    """A query typed while the index builds is replayed once it is ready."""
+
+    def _tree(self, tmp_path):
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        (sub / "needle.txt").write_text("x")
+        return tmp_path
+
+    def test_pending_query_runs_deep_search_when_build_finishes(self, tmp_path):
+        root = str(self._tree(tmp_path))
+        logic, listings, _errors, _ = _make_logic(root)
+        logic.config.search_subfolders = True
+        logic.state.search_query = "needle"
+
+        with patch("dpg_navigator.dialog._logic.JobManager.submit", side_effect=_run_now):
+            logic.start_index_build()
+
+        assert listings, "deep search did not refresh the UI"
+        names = [entry.name for entry in listings[-1]]
+        assert "\0deep_sep" in names
+        assert "needle.txt" in names
+
+    def test_no_replay_without_query(self, tmp_path):
+        root = str(self._tree(tmp_path))
+        logic, listings, _errors, _ = _make_logic(root)
+        logic.config.search_subfolders = True
+
+        with patch("dpg_navigator.dialog._logic.JobManager.submit", side_effect=_run_now):
+            logic.start_index_build()
+
+        assert listings == []
+        assert logic._dir_index.ready
+
+    def test_no_replay_after_navigating_elsewhere(self, tmp_path):
+        root = str(self._tree(tmp_path))
+        logic, listings, _errors, _ = _make_logic(root)
+        logic.config.search_subfolders = True
+        logic.state.search_query = "needle"
+        queued = []
+
+        with patch("dpg_navigator.dialog._logic.JobManager.submit", side_effect=queued.append):
+            logic.start_index_build()
+        logic.state.current_dir = str(tmp_path / "sub")
+        queued[0]()
+
+        assert listings == []
+
+    def test_no_replay_when_generation_changed(self, tmp_path):
+        root = str(self._tree(tmp_path))
+        logic, listings, _errors, _ = _make_logic(root)
+        logic.config.search_subfolders = True
+        logic.state.search_query = "needle"
+        queued = []
+
+        with patch("dpg_navigator.dialog._logic.JobManager.submit", side_effect=queued.append):
+            logic.start_index_build()
+        logic.state.index_generation += 1
+        queued[0]()
+
+        assert listings == []
+
+
+class TestSearchSubfoldersStaleIndex:
+    def test_stale_ready_index_is_rebuilt(self, tmp_path):
+        logic, _listings, _errors, _ = _make_logic(str(tmp_path))
+        with patch("dpg_navigator.dialog._logic.JobManager.submit", side_effect=_run_now):
+            logic.start_index_build()
+        assert logic._dir_index.ready
+        logic._dir_index._built_at -= INDEX_TTL + 1
+
+        with patch.object(logic, "start_index_build") as build:
+            logic.set_search_subfolders(True)
+
+        build.assert_called_once()
+
+    def test_fresh_index_for_current_dir_is_reused(self, tmp_path):
+        logic, _listings, _errors, _ = _make_logic(str(tmp_path))
+        with patch("dpg_navigator.dialog._logic.JobManager.submit", side_effect=_run_now):
+            logic.start_index_build()
+
+        with patch.object(logic, "start_index_build") as build:
+            logic.set_search_subfolders(True)
+
+        build.assert_not_called()
+
+
+class TestSizeComputationLowerBound:
+    def test_truncated_scan_shows_lower_bound(self, tmp_path):
+        deep = tmp_path / "deep"
+        path = deep
+        for level in range(MAX_SCAN_DEPTH + 1):
+            path = path / f"l{level}"
+            path.mkdir(parents=True)
+            (path / "f.bin").write_bytes(b"x" * 1024)
+        cells: list[tuple[str, str]] = []
+        logic, _listings, _errors, _ = _make_logic(str(tmp_path))
+        logic.update_size_cell = lambda p, text: cells.append((p, text))
+
+        with patch("dpg_navigator.dialog._logic.JobManager.submit", side_effect=_run_now):
+            logic.start_size_computation([str(deep)])
+
+        assert cells == [(str(deep), ">= 2 KB")]
+        assert str(deep) in logic.state.size_truncated
+        assert logic.state.size_cache[str(deep)][0] == 2048
+
+    def test_complete_scan_shows_plain_size(self, tmp_path):
+        small = tmp_path / "small"
+        small.mkdir()
+        (small / "f.bin").write_bytes(b"x" * 1024)
+        cells: list[tuple[str, str]] = []
+        logic, _listings, _errors, _ = _make_logic(str(tmp_path))
+        logic.update_size_cell = lambda p, text: cells.append((p, text))
+        logic.state.size_truncated.add(str(small))
+
+        with patch("dpg_navigator.dialog._logic.JobManager.submit", side_effect=_run_now):
+            logic.start_size_computation([str(small)])
+
+        assert cells == [(str(small), "1 KB")]
+        assert str(small) not in logic.state.size_truncated
+
+
+@pytest.mark.skipif(os.name == "nt", reason="'|' is not allowed in Windows file names")
+class TestPipeInFolderBeforeArchive:
+    def test_navigates_into_archive_below_pipe_folder(self, tmp_path):
+        folder = tmp_path / "notes|v1"
+        folder.mkdir()
+        archive_path = _zip_with_nested_docs(folder)
+        logic, listings, errors, _ = _make_logic(str(tmp_path))
+
+        logic.navigate_to(f"{archive_path}|/docs")
+
+        assert errors == []
+        assert logic.state.current_dir == f"{archive_path}|/docs"
+        assert {e.name for e in listings[-1]} == {"nested", "readme.txt"}
+
+        logic.go_up()
+        assert logic.state.current_dir == f"{archive_path}|/"

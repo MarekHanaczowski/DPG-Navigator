@@ -20,6 +20,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: User Interfaces",
 ]
 dependencies = [
@@ -56,8 +57,14 @@ dev = [
     "pytest>=7.0",
     "pytest-github-actions-annotate-failures>=0.2",
     "pytest-cov>=4.1",
-    "ruff>=0.6",
-    "mypy>=1.10",
+    # Linters are pinned to a minor series: a new ruff/mypy release can add
+    # rules or change formatting and break CI on unrelated PRs. Dependabot
+    # proposes the bumps (see .github/dependabot.yml); widen the pin there.
+    "ruff==0.17.*",
+    # mypy 2.x needs Python >= 3.10. CI skips mypy on 3.9; the 1.19 series
+    # keeps the pre-commit mypy hook usable in a 3.9 dev environment.
+    "mypy==2.3.*; python_version >= '3.10'",
+    "mypy==1.19.*; python_version < '3.10'",
     # Type stubs for optional backends imported in mypy-checked modules —
     # without these CI reports import-untyped for markdown/openpyxl/pygments/bleach.
     "types-Markdown",
@@ -84,15 +91,21 @@ exclude = ["dpg_navigator/tests/"]
 "THIRD_PARTY_NOTICES.md" = "dpg_navigator/THIRD_PARTY_NOTICES.md"
 
 [tool.hatch.build.targets.sdist]
+# Leading "/" anchors each pattern at the project root (gitignore-style);
+# without it "README.md" or "LICENSE" would also match same-named files in
+# any subdirectory. Internal audit notes stay out of the published sdist.
 include = [
-    "dpg_navigator/",
-    "benchmarks/",
-    "docs/",
-    "CHANGELOG.md",
-    "LICENSE",
-    "README.md",
-    "THIRD_PARTY_NOTICES.md",
-    ".pre-commit-config.yaml",
+    "/dpg_navigator/",
+    "/benchmarks/",
+    "/docs/",
+    "/CHANGELOG.md",
+    "/LICENSE",
+    "/README.md",
+    "/THIRD_PARTY_NOTICES.md",
+    "/.pre-commit-config.yaml",
+]
+exclude = [
+    "/docs/audits/",
 ]
 
 [tool.pytest.ini_options]
@@ -147,7 +160,9 @@ disallow_untyped_defs = true
 warn_return_any = true
 disallow_any_generics = true
 
-# Gate only GUI-free loaders / VFS / dialog logic (measured ~80% on 3.13).
+# Gate only GUI-free loaders / VFS / dialog logic (measured 85% on
+# Python 3.13 / Windows on 2026-10-31, with the 7z extract and load_7z_table
+# tests; platform-specific branches make the Linux CI figure differ slightly).
 # Tracing still uses --cov=dpg_navigator; the report include list is what
 # fail_under applies to. Do not add PreviewPanel, renderers, or _dialog.py.
 [tool.coverage.run]

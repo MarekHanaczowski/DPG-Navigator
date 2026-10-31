@@ -105,6 +105,9 @@ class JobManager:
             try:
                 future.set_result(fn(*args, **kwargs))
             except Exception as exc:
+                # Most callers fire-and-forget and never read the future, so
+                # log the traceback here or the failure would vanish.
+                _log.exception("JobManager job %r failed", fn)
                 future.set_exception(exc)
 
     @classmethod

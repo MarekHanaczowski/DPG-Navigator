@@ -36,11 +36,15 @@ _XDG_NAME_MAP = {
     "Videos": "VIDEOS",
 }
 
-if _SYSTEM == "Linux":
-    import subprocess
+# Imported unconditionally (cheap) so the Linux XDG path can be exercised
+# with mocks on any host OS.
+import stat
+import subprocess
 
 _INVALID_FILE_ATTRIBUTES = -1
 _FILE_ATTRIBUTE_HIDDEN = 0x2
+_UF_HIDDEN: int = getattr(stat, "UF_HIDDEN", 0x00008000)
+"""macOS ``chflags hidden`` bit in ``st_flags``."""
 _xdg_cache: dict[str, str | None] = {}
 _special_dirs_cache: tuple[str, str, dict[str, str]] | None = None
 
@@ -131,20 +135,95 @@ def get_special_dirs() -> dict[str, str]:
     return dict(filtered)
 
 
+def _user_dirs_file(home: str) -> str:
+    """Return the path of ``user-dirs.dirs`` (``$XDG_CONFIG_HOME`` aware)."""
+    config_home = os.environ.get("XDG_CONFIG_HOME") or os.path.join(home, ".config")
+    return os.path.join(config_home, "user-dirs.dirs")
+
+
+def _read_user_dirs(home: str) -> dict[str, str]:
+    """Parse ``user-dirs.dirs`` into ``{"DOWNLOAD": "/home/u/Pobrane", ...}``.
+
+    The file is a shell fragment written by ``xdg-user-dirs-update``. Per its
+    format, each value is double-quoted and is either ``$HOME/...`` or an
+    absolute path; backslash escapes ``"``, ``$``, and ``\\``. Anything else is
+    ignored rather than evaluated.
+    """
+    result: dict[str, str] = {}
+    try:
+        with open(_user_dirs_file(home), encoding="utf-8") as handle:
+            lines = handle.readlines()
+    except (OSError, UnicodeDecodeError):
+        return result
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not (key.startswith("XDG_") and key.endswith("_DIR")):
+            continue
+        value = value.strip()
+        if len(value) < 2 or value[0] != '"' or value[-1] != '"':
+            continue
+        value = value[1:-1]
+        unescaped: list[str] = []
+        i = 0
+        while i < len(value):
+            ch = value[i]
+            if ch == "\\" and i + 1 < len(value):
+                i += 1
+                ch = value[i]
+            unescaped.append(ch)
+            i += 1
+        path = "".join(unescaped)
+        if path == "$HOME" or path.startswith("$HOME/"):
+            path = home + path[len("$HOME") :]
+        elif not path.startswith("/"):
+            continue
+        result[key[len("XDG_") : -len("_DIR")]] = path
+    return result
+
+
+def _is_home(path: str, home: str) -> bool:
+    """True when *path* is the home directory itself.
+
+    ``xdg-user-dirs`` resolves a disabled or unset entry to ``$HOME``; a
+    sidebar "Downloads" shortcut that opens the home folder is wrong, so such
+    results are discarded.
+    """
+    try:
+        return os.path.normpath(path).rstrip("/") == os.path.normpath(home).rstrip("/")
+    except (TypeError, ValueError):
+        return False
+
+
 def _get_xdg_dir(name: str) -> str | None:
-    """Get XDG user directory path on Linux (handles non-English locales)."""
+    """Get XDG user directory path on Linux (handles non-English locales).
+
+    Reads ``user-dirs.dirs`` first (no subprocess), then falls back to the
+    ``xdg-user-dir`` command. A result equal to ``$HOME`` means "not
+    configured" and is rejected, as is a path that does not exist.
+    """
     if name in _xdg_cache:
         return _xdg_cache[name]
     xdg_key = _XDG_NAME_MAP.get(name, name.upper())
+    home = os.path.expanduser("~")
     resolved: str | None = None
-    try:
-        result = subprocess.run(["xdg-user-dir", xdg_key], capture_output=True, text=True, timeout=2)
-        if result.returncode == 0:
-            path = result.stdout.strip()
-            if path and os.path.isdir(path):
-                resolved = path
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError, UnicodeDecodeError):
-        pass
+
+    candidate = _read_user_dirs(home).get(xdg_key)
+    if candidate and not _is_home(candidate, home) and os.path.isdir(candidate):
+        resolved = candidate
+
+    if resolved is None:
+        try:
+            result = subprocess.run(["xdg-user-dir", xdg_key], capture_output=True, text=True, timeout=2)
+            if result.returncode == 0:
+                path = result.stdout.strip()
+                if path and not _is_home(path, home) and os.path.isdir(path):
+                    resolved = path
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError, UnicodeDecodeError):
+            pass
     _xdg_cache[name] = resolved
     return resolved
 
@@ -174,6 +253,14 @@ def is_hidden(filepath: str) -> bool:
                 return bool(_FILE_ATTRIBUTE_HIDDEN & attrs)
         except (AttributeError, OSError, ValueError):
             pass
+    elif _SYSTEM == "Darwin":
+        # Finder hides entries flagged with ``chflags hidden`` (UF_HIDDEN),
+        # e.g. ~/Library. lstat so a visible symlink is judged by itself.
+        try:
+            flags = getattr(os.lstat(filepath), "st_flags", 0)
+        except (OSError, ValueError):
+            return False
+        return bool(flags & _UF_HIDDEN)
     return False
 
 

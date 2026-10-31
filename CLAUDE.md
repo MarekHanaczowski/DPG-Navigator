@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`dpg-navigator` — a file/directory picker widget for [DearPyGui](https://github.com/hoffstadt/DearPyGui) with a rich preview panel (images, PDF, Word, Excel, PowerPoint, Markdown, HTML, CSV, SQLite, fonts, archives, source code as text). Installable library; import root is `dpg_navigator`. Supports Python 3.9–3.13, Windows/Linux/macOS. Version is `__version__` in `dpg_navigator/__init__.py` (currently a `1.0.0b*` beta).
+`dpg-navigator` — a file/directory picker widget for [DearPyGui](https://github.com/hoffstadt/DearPyGui) with a rich preview panel (images, PDF, Word, Excel, PowerPoint, Markdown, HTML, CSV, SQLite, fonts, archives, source code as text). Installable library; import root is `dpg_navigator`. Supports Python 3.9–3.14, Windows/Linux/macOS. Version is `__version__` in `dpg_navigator/__init__.py` (currently a `1.0.0b*` beta).
 
 ## Commands
 

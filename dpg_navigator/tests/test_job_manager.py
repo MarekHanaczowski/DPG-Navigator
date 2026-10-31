@@ -40,6 +40,26 @@ class TestJobManagerPool:
         with pytest.raises(ZeroDivisionError):
             future.result(timeout=2)
 
+    def test_failed_job_is_logged_with_traceback(self, caplog):
+        """Fire-and-forget callers never read the future; the log must show the error."""
+
+        def boom() -> None:
+            raise ValueError("background failure")
+
+        with caplog.at_level(logging.ERROR, logger="dpg_navigator._job_manager"):
+            future = JobManager.submit(boom)
+            with pytest.raises(ValueError):
+                future.result(timeout=2)
+            deadline = time.time() + 2
+            while not caplog.records and time.time() < deadline:
+                time.sleep(0.01)
+
+        records = [r for r in caplog.records if r.name == "dpg_navigator._job_manager"]
+        assert records, "worker did not log the failed job"
+        assert records[0].levelno == logging.ERROR
+        assert records[0].exc_info is not None
+        assert records[0].exc_info[0] is ValueError
+
     def test_worker_count_is_capped(self):
         current: set[int] = set()
         lock = threading.Lock()

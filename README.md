@@ -135,9 +135,15 @@ Preview features are organized into installable extras:
 > `chrome-headless-shell` binary from [Chrome for Testing](https://googlechromelabs.github.io/chrome-for-testing/)
 > is the reliable CLI. If none is found (or a preview extra is not installed),
 > HTML files fall back to raw-text rendering, and Markdown/Word degrade to
-> their text extractors. Chrome is launched with JavaScript disabled and
-> network access blocked through a dead proxy (`--proxy-bypass-list=<-loopback>`
-> sends loopback HTTP through that proxy; `file://` is not an HTTP proxy hop).
+> their text extractors. In the default **safe mode** scripts never run:
+> the HTML is sanitized with `bleach` (an allow-list that drops `<script>`,
+> event-handler attributes, and `javascript:` URLs) and wrapped in a
+> Content-Security-Policy with `script-src 'none'`. Network access is blocked
+> through a dead proxy (`--proxy-bypass-list=<-loopback>` sends loopback HTTP
+> through that proxy; `file://` is not an HTTP proxy hop). Markdown and Word
+> previews always use safe mode. With `trusted_html_preview=True`, raw
+> `.html`/`.htm` files render unsanitized: **JavaScript runs** and the page
+> may load local and network resources. Enable it only for files you trust.
 > Containers/CI that cannot start the sandbox may set `DPG_CHROME_NO_SANDBOX=1`
 > (weakens isolation; not the default).
 

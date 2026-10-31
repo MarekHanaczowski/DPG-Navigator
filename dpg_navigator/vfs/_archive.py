@@ -15,6 +15,7 @@ from .._preview_limits import PDF_PREVIEW_MAX_BYTES
 from .._preview_registry import SEVEN_Z_EXTS, ZIP_EXTS
 from .._types import FileEntry
 from ._base import VFSProvider
+from ._paths import is_within_directory, split_archive_path
 
 _log = logging.getLogger(__name__)
 
@@ -34,13 +35,7 @@ class ArchiveVFSProvider(VFSProvider):
     """Virtual paths inside ZIP and 7z: ``archive_path|/inner/dir``."""
 
     def is_valid_path(self, path: str) -> bool:
-        if "|" not in path:
-            return False
-        parts = path.split("|", 1)
-        if len(parts) != 2:
-            return False
-        ext = os.path.splitext(parts[0])[1].lower()
-        return ext in ZIP_EXTS or ext in SEVEN_Z_EXTS
+        return split_archive_path(path) is not None
 
     def list_dir(
         self,
@@ -53,12 +48,12 @@ class ArchiveVFSProvider(VFSProvider):
     ) -> list[FileEntry]:
         entries: list[FileEntry] = []
 
-        parts = path.split("|", 1)
-        if len(parts) != 2:
+        split = split_archive_path(path)
+        if split is None:
             return entries
 
-        archive_path = parts[0]
-        internal_dir = parts[1].replace("\\", "/").strip("/")
+        archive_path = split[0]
+        internal_dir = split[1].replace("\\", "/").strip("/")
 
         if not os.path.isfile(archive_path):
             return entries
@@ -178,13 +173,13 @@ class ArchiveVFSProvider(VFSProvider):
         max_size: int | None = None,
         allow_large_extensions: Collection[str] = (),
     ) -> str | None:
-        if "|" not in virtual_path:
+        split = split_archive_path(virtual_path)
+        if split is None:
             return None
 
         try:
-            parts = virtual_path.split("|", 1)
-            archive_path = parts[0]
-            internal_path = parts[1].replace("\\", "/").strip("/")
+            archive_path = split[0]
+            internal_path = split[1].replace("\\", "/").strip("/")
             if _has_dotdot_segment(internal_path):
                 _log.warning("Refusing archive member with '..' segment: %s", internal_path)
                 return None
@@ -226,7 +221,7 @@ class ArchiveVFSProvider(VFSProvider):
                         _log.warning("Archive member exceeds preview size limit: %s", internal_path)
                         return None
                     target = os.path.realpath(os.path.join(archive_temp_root, info.filename))
-                    if not target.startswith(real_root + os.sep) and target != real_root:
+                    if not is_within_directory(target, real_root):
                         _log.warning("ZipSlip attempt blocked: %s", info.filename)
                         return None
                     extracted_path = _extract_zip_member(zf, info, archive_temp_root, budget)
@@ -255,7 +250,7 @@ class ArchiveVFSProvider(VFSProvider):
                         _log.warning("Archive member exceeds preview size limit: %s", internal_path)
                         return None
                     target = os.path.realpath(os.path.join(archive_temp_root, internal_path))
-                    if not target.startswith(real_root + os.sep) and target != real_root:
+                    if not is_within_directory(target, real_root):
                         _log.warning("ZipSlip attempt blocked: %s", internal_path)
                         return None
                     extracted_path = _extract_7z_member(
@@ -357,67 +352,138 @@ def _extract_7z_member(
     dest_root: str,
     budget: int | None,
 ) -> str:
-    """Extract one 7z member, aborting if the write budget is exceeded."""
+    """Extract one 7z member, aborting if the write budget is exceeded.
+
+    The streaming path hands py7zr a ``WriterFactory`` whose writers subclass
+    ``py7zr.io.Py7zIO`` and enforce *budget* on every ``write``. py7zr
+    releases without that API (``ImportError``) or with an incompatible one
+    (``TypeError``/``AttributeError`` from the ``factory=`` call) fall back to
+    a plain on-disk extract followed by a size check. Any failure removes the
+    partial file before the exception propagates.
+    """
     dest = os.path.join(dest_root, internal_path.replace("/", os.sep))
     parent = os.path.dirname(dest)
     if parent:
         os.makedirs(parent, exist_ok=True)
+    if os.path.islink(dest) or os.path.isdir(dest):
+        raise OSError("Refusing to extract over a non-regular path")
 
-    class _BudgetWriter:
-        def __init__(self) -> None:
-            self._fp = open(dest, "wb")  # noqa: SIM115 — py7zr owns the writer lifetime
-            self._written = 0
-
-        def write(self, data: bytes) -> int:
-            self._written += len(data)
-            if budget is not None and self._written > budget:
-                self._fp.close()
-                _unlink_quiet(dest)
-                raise OSError("Archive member exceeds extract budget")
-            return self._fp.write(data)
-
-        def close(self) -> None:
-            self._fp.close()
-
-        def __enter__(self) -> _BudgetWriter:
-            return self
-
-        def __exit__(self, *args: object) -> None:
-            self.close()
-
-    factory = getattr(archive, "extract", None)
-    writer_factory = None
-    try:
-        from py7zr.io import WriterFactory as _WriterFactory
-
-        class _Factory(_WriterFactory):  # type: ignore[misc]
-            def create(self, filename: str) -> Any:  # noqa: ANN401
-                return _BudgetWriter()
-
-        writer_factory = _Factory()
-    except Exception:
-        writer_factory = None
-
-    if writer_factory is not None and callable(factory):
+    writer_factory = _make_7z_budget_factory(dest, budget)
+    if writer_factory is not None:
         try:
             archive.extract(targets=[archive_name], path=dest_root, factory=writer_factory)
-            return dest
-        except TypeError:
-            pass
+        except _BudgetExceeded:
+            writer_factory.close_all()
+            _unlink_quiet(dest)
+            raise
+        except (TypeError, AttributeError) as exc:
+            # The installed py7zr does not accept or drive our writer; retry
+            # through the plain extract path below.
+            writer_factory.close_all()
+            _unlink_quiet(dest)
+            _log.debug("py7zr factory extract unavailable, using fallback: %s", exc)
+        except BaseException:
+            writer_factory.close_all()
+            _unlink_quiet(dest)
+            raise
+        else:
+            writer_factory.close_all()
+            if writer_factory.created:
+                return dest
+            # No writer was requested (e.g. an empty member); let the
+            # fallback materialize it on disk.
+        if hasattr(archive, "reset"):
+            archive.reset()
 
-    archive.extract(targets=[archive_name], path=dest_root)
-    if not os.path.exists(dest):
+    raw_dest = os.path.join(dest_root, archive_name)
+    try:
+        archive.extract(targets=[archive_name], path=dest_root)
         # py7zr writes under the member's *raw* stored name; a name that
         # normalizes differently (e.g. a literal backslash on POSIX) lands
         # elsewhere under dest_root. Move it to the computed dest so the
         # budget check below and the finalize checks always see the payload.
-        raw_dest = os.path.join(dest_root, archive_name)
-        if os.path.lexists(raw_dest):
+        if not os.path.exists(dest) and os.path.lexists(raw_dest):
             os.replace(raw_dest, dest)
-    if budget is not None and os.path.isfile(dest) and os.path.getsize(dest) > budget:
+        if budget is not None and os.path.isfile(dest) and os.path.getsize(dest) > budget:
+            raise _BudgetExceeded("Archive member exceeds extract budget")
+    except BaseException:
         _unlink_quiet(dest)
-        raise OSError("Archive member exceeds extract budget")
+        if os.path.isfile(raw_dest) and not os.path.islink(raw_dest):
+            _unlink_quiet(raw_dest)
+        raise
     return dest
+
+
+class _BudgetExceeded(OSError):
+    """Raised when an archive member writes past its extract budget."""
+
+
+def _make_7z_budget_factory(dest: str, budget: int | None) -> Any:
+    """Return a py7zr ``WriterFactory`` writing *dest* under *budget*.
+
+    Returns ``None`` when the installed py7zr has no ``py7zr.io`` writer API
+    (releases older than the ``factory=`` extract keyword).
+    """
+    try:
+        from py7zr.io import Py7zIO, WriterFactory
+    except Exception:
+        return None
+
+    class _BudgetWriter(Py7zIO):  # type: ignore[misc]
+        """File-backed ``Py7zIO`` that refuses writes past *budget*."""
+
+        def __init__(self) -> None:
+            self._fp = open(dest, "w+b")  # noqa: SIM115 — closed by close()/close_all()
+            self._size = 0
+
+        def write(self, s: bytes | bytearray) -> int:
+            end = self._fp.tell() + len(s)
+            if budget is not None and end > budget:
+                raise _BudgetExceeded("Archive member exceeds extract budget")
+            written = self._fp.write(s)
+            self._size = max(self._size, self._fp.tell())
+            return written
+
+        def read(self, size: int | None = None) -> bytes:
+            return self._fp.read(-1 if size is None else size)
+
+        def seek(self, offset: int, whence: int = 0) -> int:
+            return self._fp.seek(offset, whence)
+
+        def flush(self) -> None:
+            self._fp.flush()
+
+        def size(self) -> int:
+            return self._size
+
+        def seekable(self) -> bool:
+            return True
+
+        def close(self) -> None:
+            if not self._fp.closed:
+                self._fp.close()
+
+    class _BudgetFactory(WriterFactory):  # type: ignore[misc]
+        def __init__(self) -> None:
+            self.writers: list[_BudgetWriter] = []
+
+        @property
+        def created(self) -> bool:
+            return bool(self.writers)
+
+        def create(self, filename: str) -> _BudgetWriter:
+            # Only the requested target is registered with a writer, so a
+            # second create() (duplicate member names) replaces the first.
+            self.close_all()
+            writer = _BudgetWriter()
+            self.writers.append(writer)
+            return writer
+
+        def close_all(self) -> None:
+            for writer in self.writers:
+                writer.close()
+
+    return _BudgetFactory()
 
 
 def _finalize_extracted_member(
@@ -436,7 +502,7 @@ def _finalize_extracted_member(
     if not os.path.exists(extracted_path) or os.path.isdir(extracted_path):
         return None
     final = os.path.realpath(extracted_path)
-    if not final.startswith(real_root + os.sep) and final != real_root:
+    if not is_within_directory(final, real_root):
         _log.warning("Extracted path escaped archive temp root: %s", internal_path)
         _unlink_quiet(extracted_path)
         return None

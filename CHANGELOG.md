@@ -4,6 +4,38 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- 7z extraction works again: the budget writer subclasses `py7zr.io.Py7zIO`
+  (write/read/seek/flush/size/close). An incompatible py7zr (`TypeError` or
+  `AttributeError`) falls back to a plain extract, and every failure removes
+  the partial file. py7zr releases without `py7zr.io` (0.20) use the fallback.
+- Path containment checks use `os.path.commonpath`, so folders and typed
+  names at a drive or filesystem root are accepted, and paths on another
+  drive are rejected. A rejected typed file name now shows a message and
+  keeps the dialog open instead of returning an empty selection.
+- "Search subfolders" replays a query typed while the index was building.
+- Directory sizes count depth with `os.path.relpath`; a scan cut off at the
+  depth cap shows a lower bound such as `>= 3 KB`.
+- SQLite preview cuts cells at 500 characters, shows BLOBs as
+  `<BLOB n bytes>`, and runs `PRAGMA trusted_schema=OFF`.
+- Folder and file names: only an exact `..` is traversal (`v1..2` is valid).
+  On Windows, reserved device names, `<>:"|?*`, control characters, and a
+  trailing dot or space are rejected with a specific message.
+- Solid 7z archives show `-` for Packed and Ratio instead of `0 B`/`100%`.
+- Linux special folders read `user-dirs.dirs` and ignore entries that point
+  at `$HOME`; macOS honors the `UF_HIDDEN` flag.
+- Archive virtual paths split on the first `|` whose left side ends with a
+  zip/7z extension, in the VFS, the dialog logic, and
+  `is_archive_virtual_path`.
+- Failed `JobManager` jobs are logged with a traceback.
+
+### Changed
+
+- CI tests Python 3.14 on Ubuntu; ruff and mypy are pinned to `0.17.*` and
+  `2.3.*` (`1.19.*` on Python 3.9).
+- The sdist uses root-anchored include patterns and leaves out `docs/audits/`.
+
 ## [1.0.0b6] - 2026-08-29
 
 ### Added

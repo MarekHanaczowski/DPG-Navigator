@@ -1,3 +1,19 @@
+# Update strategy
+# ---------------
+# github-actions: workflows pin every action to a commit SHA (supply-chain
+#   integrity). Dependabot is the only way those SHAs move: it opens a weekly
+#   PR that rewrites the SHA and the "# vN" comment together. Review the
+#   action's release notes before merging.
+#
+# pip: runtime dependencies in pyproject.toml use lower bounds (>=) so users
+#   are not boxed in; Dependabot raises those floors only when a security
+#   advisory or a needed feature justifies it. Dev tools are pinned to a
+#   minor series ("ruff==0.17.*", "mypy==2.3.*") so a new lint rule or
+#   formatter change cannot break CI on an unrelated PR. Dependabot proposes
+#   each new minor as one grouped PR; merge it together with any code fixes
+#   the new tool version requires, after the CI run on that PR is green.
+#   Patch releases inside the pinned series are picked up automatically by
+#   pip and need no PR.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -11,3 +27,14 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      # ruff and mypy bumps change lint/type results; review them together.
+      dev-linters:
+        patterns: ["ruff", "mypy"]
+    ignore:
+      # Patch releases within the pinned minor series are already allowed by
+      # "==X.Y.*"; only new minor/major series need a PR.
+      - dependency-name: "ruff"
+        update-types: ["version-update:semver-patch"]
+      - dependency-name: "mypy"
+        update-types: ["version-update:semver-patch"]

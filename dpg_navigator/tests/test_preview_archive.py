@@ -83,3 +83,80 @@ class TestLoad7zTable:
     def test_missing_backend_raises_preview_error(self):
         with patch("dpg_navigator._preview_archive._py7zr", None), pytest.raises(ArchivePreviewError):
             load_7z_table("archive.7z", max_rows=10)
+
+    def test_loads_rows_sorted_by_largest_member(self, tmp_path):
+        py7zr = pytest.importorskip("py7zr")
+        archive_path = tmp_path / "sample.7z"
+        with py7zr.SevenZipFile(archive_path, "w") as archive:
+            archive.writestr(b"a", "small.txt")
+            archive.writestr(b"b" * 20, "large.txt")
+
+        table = load_7z_table(str(archive_path), max_rows=10)
+
+        assert table.headers == ["Filename", "Size", "Packed", "Ratio", "Date"]
+        assert [row[0] for row in table.rows] == ["large.txt", "small.txt"]
+        assert [row[1] for row in table.rows] == ["20 B", "1 B"]
+        assert table.status == "2 files | Extracted: 21 B"
+
+    def test_caps_rows_and_reports_truncation(self, tmp_path):
+        py7zr = pytest.importorskip("py7zr")
+        archive_path = tmp_path / "many.7z"
+        with py7zr.SevenZipFile(archive_path, "w") as archive:
+            archive.writestr(b"a", "a.txt")
+            archive.writestr(b"bb", "b.txt")
+            archive.writestr(b"ccc", "c.txt")
+
+        table = load_7z_table(str(archive_path), max_rows=2)
+
+        assert [row[0] for row in table.rows] == ["c.txt", "b.txt"]
+        assert table.status == "3 files (showing largest 2) | Extracted: 6 B"
+
+    def test_solid_archive_shows_dash_for_packed_and_ratio(self, tmp_path):
+        py7zr = pytest.importorskip("py7zr")
+        archive_path = tmp_path / "solid.7z"
+        with py7zr.SevenZipFile(archive_path, "w") as archive:
+            archive.writestr(b"a" * 1000, "a.txt")
+            archive.writestr(b"b" * 3000, "b.txt")
+        with py7zr.SevenZipFile(archive_path, "r") as archive:
+            if not archive.archiveinfo().solid:
+                pytest.skip("py7zr did not write a solid archive")
+
+        table = load_7z_table(str(archive_path), max_rows=10)
+
+        assert [row[0] for row in table.rows] == ["b.txt", "a.txt"]
+        for row in table.rows:
+            assert row[2] == "-"
+            assert row[3] == "-"
+
+    def test_non_solid_archive_keeps_packed_and_ratio(self, tmp_path):
+        py7zr = pytest.importorskip("py7zr")
+        archive_path = tmp_path / "single.7z"
+        with py7zr.SevenZipFile(archive_path, "w") as archive:
+            archive.writestr(b"a" * 1000, "a.txt")
+        with py7zr.SevenZipFile(archive_path, "r") as archive:
+            if archive.archiveinfo().solid:
+                pytest.skip("py7zr reported a single-member archive as solid")
+
+        table = load_7z_table(str(archive_path), max_rows=10)
+
+        assert table.rows[0][2] != "-"
+        assert table.rows[0][3].endswith("%")
+
+    def test_empty_archive_has_empty_status(self, tmp_path):
+        py7zr = pytest.importorskip("py7zr")
+        archive_path = tmp_path / "empty.7z"
+        with py7zr.SevenZipFile(archive_path, "w"):
+            pass
+
+        table = load_7z_table(str(archive_path), max_rows=10)
+
+        assert table.rows == []
+        assert table.status == "Empty 7z archive"
+
+    def test_invalid_7z_raises_preview_error(self, tmp_path):
+        pytest.importorskip("py7zr")
+        archive_path = tmp_path / "broken.7z"
+        archive_path.write_text("not a 7z archive")
+
+        with pytest.raises(ArchivePreviewError):
+            load_7z_table(str(archive_path), max_rows=10)

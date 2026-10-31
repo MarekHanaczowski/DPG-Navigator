@@ -18,6 +18,19 @@ class TestParseCsvTable:
         assert table.rows == [["alpha", "1"]]
         assert table.status == "1 rows \u00d7 2 cols"
 
+    def test_detects_comma_delimiter(self):
+        table = parse_csv_table("a,b,c\n1,2,3\n", "data.csv", max_rows=10, max_cols=10)
+
+        assert table.headers == ["a", "b", "c"]
+        assert table.rows == [["1", "2", "3"]]
+
+    def test_sniffs_tab_delimiter_in_csv_file(self):
+        """A .csv file that is really tab-separated is still split correctly."""
+        table = parse_csv_table("a\tb\tc\n1\t2\t3\n", "data.csv", max_rows=10, max_cols=10)
+
+        assert table.headers == ["a", "b", "c"]
+        assert table.rows == [["1", "2", "3"]]
+
     def test_uses_tab_delimiter_for_tsv(self):
         table = parse_csv_table(
             "name\tvalue\nalpha\t1\n",

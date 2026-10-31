@@ -32,6 +32,7 @@ from ._filesystem import (
     build_selection_list,
     is_archive_virtual_path,
     resolve_archive_selection,
+    typed_name_error,
 )
 from ._icons import IconRegistry
 from ._job_manager import JobManager
@@ -796,7 +797,14 @@ class FileDialog(KeyboardMixin):
         Archive virtual paths (``archive|/inner``) are extracted to the
         session temp dir first. Extraction failure leaves the dialog open.
         """
-        typed_name = dpg.get_value(self._filename_input)
+        typed_name = dpg.get_value(self._filename_input) or ""
+        if not self.state.selected_files:
+            name_error = typed_name_error(typed_name, self.state.current_dir)
+            if name_error is not None:
+                # Rejected typed name: explain why and keep the dialog open
+                # instead of returning an empty selection.
+                self._show_message("Invalid file name", name_error)
+                return
         selection = build_selection_list(
             self.state.selected_files,
             typed_name,

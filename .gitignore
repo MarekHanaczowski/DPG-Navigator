@@ -39,3 +39,11 @@ htmlcov/
 # Local diagnostics
 *.stackdump
 pyright_output*.txt
+
+# Local audit run artifacts (raw per-run output; the curated audit/*.md
+# reports stay tracked)
+/audit/2026-08-29-*/
+/audit/_findings.json
+/audit/_plan.json
+/audit/_verified.json
+/audit/coverage.md

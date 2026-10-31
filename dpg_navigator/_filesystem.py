@@ -13,7 +13,6 @@ from __future__ import annotations
 
 # MIT licensed
 import fnmatch
-import hashlib
 import logging
 import os
 import shutil
@@ -25,10 +24,12 @@ from collections.abc import Callable, Collection
 _log = logging.getLogger(__name__)
 
 from . import _platform
-from ._preview_registry import SEVEN_Z_EXTS, ZIP_EXTS
 from ._types import FileEntry
 from .vfs import VFSRegistry
 from .vfs._local import MAX_SCAN_DEPTH as MAX_SCAN_DEPTH
+from .vfs._local import compute_dir_size_info
+from .vfs._paths import is_within_directory as is_within_directory
+from .vfs._paths import split_archive_path as split_archive_path
 
 INDEX_SCAN_DEPTH = 8
 """Maximum recursion depth for the background directory index."""
@@ -45,11 +46,6 @@ INDEX_MAX_ENTRIES = 50_000
 The recursive index has a depth limit but a wide tree can still produce
 millions of entries; past this cap the build stops and the partial index is
 kept (search results are already limited to :data:`INDEX_MAX_RESULTS`)."""
-
-
-def _short_md5(data: bytes) -> str:
-    """Return an 8-char MD5 hex digest for non-cryptographic naming."""
-    return hashlib.md5(data, usedforsecurity=False).hexdigest()[:8]
 
 
 class DirectoryLister:
@@ -121,6 +117,29 @@ class DirectoryLister:
         return size if size is not None else 0
 
     @staticmethod
+    def compute_dir_size_info(path: str) -> tuple[int, bool]:
+        """Return ``(size, truncated)``; *truncated* marks a lower-bound size.
+
+        Local trees are scanned to ``MAX_SCAN_DEPTH``; deeper or unreadable
+        content sets *truncated*. Archive paths are never truncated (their
+        directory sizes are not computed and report 0).
+        """
+        if is_archive_virtual_path(path):
+            return DirectoryLister.compute_dir_size(path), False
+        return compute_dir_size_info(path)
+
+    @staticmethod
+    def format_dir_size(size_bytes: int | None, truncated: bool) -> str:
+        """Format a directory size; truncated scans render as ``>= 3 KB``.
+
+        ASCII ``>=`` keeps the label readable with the default DPG font.
+        """
+        text = DirectoryLister.format_size(size_bytes)
+        if truncated and size_bytes is not None:
+            return f">= {text}"
+        return text
+
+    @staticmethod
     def format_size(size_bytes: int | None) -> str:
         """Format file size for display."""
         if size_bytes is None:
@@ -167,32 +186,87 @@ class DirectoryLister:
 
 def is_archive_virtual_path(path: str) -> bool:
     """True when *path* uses ``archive|inner`` and the left side is a zip/7z."""
-    if "|" not in path:
-        return False
-    archive = path.split("|", 1)[0]
-    return os.path.splitext(archive)[1].lower() in ZIP_EXTS | SEVEN_Z_EXTS
+    return split_archive_path(path) is not None
+
+
+_WINDOWS_RESERVED_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL"} | {f"COM{i}" for i in range(1, 10)} | {f"LPT{i}" for i in range(1, 10)}
+)
+_WINDOWS_INVALID_CHARS = frozenset('<>:"|?*')
+
+
+def _name_error(name: str, kind: str, *, windows: bool | None = None) -> str | None:
+    """Return a user-facing reason why *name* is not a valid entry name.
+
+    *kind* is the noun used in messages (``"Folder name"``/``"File name"``).
+    Only a segment that is exactly ``..`` counts as traversal, so names such
+    as ``v1..2`` stay valid. On Windows (or when *windows* is forced) the
+    reserved device names, ``<>:"|?*``, control characters, and a trailing
+    dot or space are rejected as well.
+    """
+    if not name or not name.strip():
+        return f"{kind} cannot be empty."
+    if name in (".", ".."):
+        return f"Invalid {kind.lower()}: '{name}'."
+    separators = [os.sep] + ([os.altsep] if os.altsep else [])
+    if any(sep in name for sep in separators):
+        return f"Invalid {kind.lower()}: '{name}' must not contain a path separator."
+    if windows is None:
+        windows = os.name == "nt"
+    if windows:
+        bad = sorted({ch for ch in name if ch in _WINDOWS_INVALID_CHARS})
+        if bad:
+            return f"Invalid {kind.lower()}: '{name}' contains characters not allowed on Windows: {' '.join(bad)}"
+        if any(ord(ch) < 32 for ch in name):
+            return f"Invalid {kind.lower()}: '{name}' contains control characters."
+        if name.endswith((".", " ")):
+            return f"Invalid {kind.lower()}: '{name}' must not end with a dot or a space on Windows."
+        stem = name.split(".", 1)[0].rstrip(" ").upper()
+        if stem in _WINDOWS_RESERVED_NAMES:
+            return f"Invalid {kind.lower()}: '{name}' is a reserved device name on Windows."
+    elif "\0" in name:
+        return f"Invalid {kind.lower()}: '{name}' contains a NUL character."
+    return None
 
 
 def validate_folder_name(name: str, current_dir: str) -> str | None:
     """Validate a folder name against path traversal attacks.
 
     Returns an error message string if the name is invalid, or None if valid.
-    Rejects empty/whitespace names, ``.`` / ``..``, path separators, or names
-    that resolve outside the current directory via symlinks.
+    Rejects empty/whitespace names, ``.`` / ``..``, path separators, names
+    that resolve outside the current directory via symlinks, and (on
+    Windows) reserved device names and characters the filesystem refuses.
     """
-    if not name or not name.strip():
-        return "Folder name cannot be empty."
-    if name in (".", ".."):
-        return f"Invalid folder name: '{name}'."
-    if ".." in name or os.sep in name or (os.altsep and os.altsep in name):
-        return f"Invalid folder name: '{name}'."
+    error = _name_error(name, "Folder name")
+    if error:
+        return error
 
     new_path = os.path.join(current_dir, name)
     resolved = os.path.realpath(new_path)
     real_dir = os.path.realpath(current_dir)
-    if not (resolved == real_dir or resolved.startswith(real_dir + os.sep)):
-        return f"Invalid folder name: '{name}'."
+    if not is_within_directory(resolved, real_dir):
+        return f"Invalid folder name: '{name}' resolves outside the current folder."
 
+    return None
+
+
+def typed_name_error(typed_name: str, current_dir: str) -> str | None:
+    """Return why a typed file name would be rejected, or ``None`` if usable.
+
+    Mirrors :func:`build_selection_list`: empty input and absolute paths are
+    not errors (empty means "nothing typed", absolute is explicit intent);
+    relative names follow the same rules as :func:`validate_folder_name`.
+    """
+    typed_name = typed_name.strip()
+    if not typed_name or os.path.isabs(typed_name):
+        return None
+    error = _name_error(typed_name, "File name")
+    if error:
+        return error
+    real_dir = os.path.realpath(current_dir)
+    real_cand = os.path.realpath(os.path.join(current_dir, typed_name))
+    if not is_within_directory(real_cand, real_dir):
+        return f"Invalid file name: '{typed_name}' resolves outside the current folder."
     return None
 
 
@@ -205,7 +279,8 @@ def build_selection_list(
 
     If no files are selected, uses the typed filename to construct a path.
     Rejects typed names that escape *current_dir* (``..``, separators that
-    leave the directory). Absolute typed paths are kept as explicit intent.
+    leave the directory) or are invalid names (see :func:`typed_name_error`).
+    Absolute typed paths are kept as explicit intent.
     Returns a new list (does not mutate the input).
     """
     if not selected_files:
@@ -214,15 +289,9 @@ def build_selection_list(
             return []
         if os.path.isabs(typed_name):
             return [typed_name]
-        # Same rejection policy as validate_folder_name for relative names.
-        if ".." in typed_name or os.sep in typed_name or (os.altsep and os.altsep in typed_name):
+        if typed_name_error(typed_name, current_dir) is not None:
             return []
-        candidate = os.path.join(current_dir, typed_name)
-        real_dir = os.path.realpath(current_dir)
-        real_cand = os.path.realpath(candidate)
-        if not (real_cand == real_dir or real_cand.startswith(real_dir + os.sep)):
-            return []
-        return [candidate]
+        return [os.path.join(current_dir, typed_name)]
     return list(selected_files)
 
 
@@ -248,7 +317,8 @@ def resolve_archive_selection(
             max_size=max_size,
         )
         if not extracted:
-            inner = path.rsplit("|", 1)[-1].replace("\\", "/").strip("/")
+            split = split_archive_path(path)
+            inner = split[1].replace("\\", "/").strip("/") if split else ""
             name = inner.rsplit("/", 1)[-1] if inner else path
             return resolved, name
         resolved.append(extracted)

@@ -6,7 +6,6 @@ Tests all functions including is_mod_key_down() (mocked DPG).
 from __future__ import annotations
 
 import os
-import platform
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -423,14 +422,20 @@ class TestIsModKeyDown:
 
 
 class TestGetXdgDir:
+    """``_get_xdg_dir`` is fully mocked, so it runs on every host OS."""
+
     @pytest.fixture(autouse=True)
-    def _skip_non_linux(self):
-        if platform.system() != "Linux":
-            pytest.skip("Linux-only test")
+    def _isolate(self, tmp_path):
         import dpg_navigator._platform as plat
 
         # Earlier tests may have filled the process-wide XDG cache via
-        # get_special_dirs(); isolate each case so mocks actually run.
+        # get_special_dirs(); isolate each case so mocks actually run. Point
+        # XDG_CONFIG_HOME at an empty dir so the host's user-dirs.dirs is
+        # never read; these cases exercise the xdg-user-dir fallback.
+        plat._xdg_cache.clear()
+        plat._special_dirs_cache = None
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(tmp_path / "no-config")}):
+            yield
         plat._xdg_cache.clear()
         plat._special_dirs_cache = None
 
@@ -499,6 +504,137 @@ class TestGetXdgDir:
             mock_run.return_value = MagicMock(returncode=1, stdout="")
             result = _get_xdg_dir("DOCUMENTS")
         assert result is None
+
+    def test_command_result_equal_to_home_is_rejected(self, tmp_path):
+        """xdg-user-dir prints $HOME for an unset key; that is not a Downloads dir."""
+        from dpg_navigator._platform import _get_xdg_dir
+
+        home = tmp_path / "home"
+        home.mkdir()
+        with (
+            patch("dpg_navigator._platform.os.path.expanduser", return_value=str(home)),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout=str(home) + "/\n")
+            assert _get_xdg_dir("Downloads") is None
+
+    def test_user_dirs_file_is_read_before_command(self, tmp_path):
+        from dpg_navigator._platform import _get_xdg_dir
+
+        home = tmp_path / "home"
+        (home / "Pobrane").mkdir(parents=True)
+        config = tmp_path / "cfg"
+        config.mkdir()
+        (config / "user-dirs.dirs").write_text(
+            '# written by xdg-user-dirs-update\nXDG_DOWNLOAD_DIR="$HOME/Pobrane"\nXDG_MUSIC_DIR="$HOME/"\n',
+            encoding="utf-8",
+        )
+        with (
+            patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config)}),
+            patch("dpg_navigator._platform.os.path.expanduser", return_value=str(home)),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=1, stdout="")
+            result = _get_xdg_dir("Downloads")
+
+        assert result == f"{home}/Pobrane"
+        mock_run.assert_not_called()
+
+    def test_user_dirs_entry_equal_to_home_falls_back_and_is_rejected(self, tmp_path):
+        from dpg_navigator._platform import _get_xdg_dir
+
+        home = tmp_path / "home"
+        home.mkdir()
+        config = tmp_path / "cfg"
+        config.mkdir()
+        (config / "user-dirs.dirs").write_text('XDG_MUSIC_DIR="$HOME/"\n', encoding="utf-8")
+        with (
+            patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config)}),
+            patch("dpg_navigator._platform.os.path.expanduser", return_value=str(home)),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout=str(home) + "\n")
+            assert _get_xdg_dir("Music") is None
+        mock_run.assert_called_once()
+
+
+class TestReadUserDirs:
+    def test_parses_home_relative_absolute_and_escaped_values(self, tmp_path):
+        from dpg_navigator._platform import _read_user_dirs
+
+        (tmp_path / "user-dirs.dirs").write_text(
+            "\n".join(
+                [
+                    "# comment",
+                    'XDG_DESKTOP_DIR="$HOME/Pulpit"',
+                    'XDG_DOCUMENTS_DIR="/srv/docs"',
+                    'XDG_MUSIC_DIR="$HOME/My \\"Music\\""',
+                    "XDG_VIDEOS_DIR=$HOME/unquoted",
+                    'XDG_PICTURES_DIR="relative/path"',
+                    'NOT_XDG="x"',
+                ]
+            ),
+            encoding="utf-8",
+        )
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(tmp_path)}):
+            result = _read_user_dirs("/home/u")
+
+        assert result == {
+            "DESKTOP": "/home/u/Pulpit",
+            "DOCUMENTS": "/srv/docs",
+            "MUSIC": '/home/u/My "Music"',
+        }
+
+    def test_missing_file_returns_empty(self, tmp_path):
+        from dpg_navigator._platform import _read_user_dirs
+
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(tmp_path / "absent")}):
+            assert _read_user_dirs("/home/u") == {}
+
+
+class TestIsHiddenMacOSFlags:
+    """UF_HIDDEN (``chflags hidden``) is honored on macOS; mocked on any host."""
+
+    def _stat(self, flags):
+        return MagicMock(st_flags=flags)
+
+    # os.name is forced to "posix" so the Windows attribute branch (which
+    # runs first on nt) does not shadow the macOS one on a Windows host.
+    def test_uf_hidden_flag_marks_entry_hidden(self):
+        from dpg_navigator._platform import _UF_HIDDEN
+
+        with (
+            patch("dpg_navigator._platform._SYSTEM", "Darwin"),
+            patch("dpg_navigator._platform.os.name", "posix"),
+            patch("dpg_navigator._platform.os.lstat", return_value=self._stat(_UF_HIDDEN)),
+        ):
+            assert is_hidden("/Users/u/Library") is True
+
+    def test_without_flag_entry_is_visible(self):
+        with (
+            patch("dpg_navigator._platform._SYSTEM", "Darwin"),
+            patch("dpg_navigator._platform.os.name", "posix"),
+            patch("dpg_navigator._platform.os.lstat", return_value=self._stat(0)),
+        ):
+            assert is_hidden("/Users/u/Documents") is False
+
+    def test_lstat_error_means_visible(self):
+        with (
+            patch("dpg_navigator._platform._SYSTEM", "Darwin"),
+            patch("dpg_navigator._platform.os.name", "posix"),
+            patch("dpg_navigator._platform.os.lstat", side_effect=OSError("gone")),
+        ):
+            assert is_hidden("/Users/u/missing") is False
+
+    def test_flags_ignored_on_linux(self):
+        from dpg_navigator._platform import _UF_HIDDEN
+
+        with (
+            patch("dpg_navigator._platform._SYSTEM", "Linux"),
+            patch("dpg_navigator._platform.os.name", "posix"),
+            patch("dpg_navigator._platform.os.lstat", return_value=self._stat(_UF_HIDDEN)),
+        ):
+            assert is_hidden("/home/u/visible") is False
 
 
 # ── get_drives Darwin /Volumes fallback ────────────────────────
