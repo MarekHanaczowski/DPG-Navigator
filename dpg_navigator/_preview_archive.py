@@ -57,6 +57,14 @@ def _ratio(uncompressed: int, compressed: int) -> str:
     return f"{ratio:.1f}%"
 
 
+def _is_solid_7z(archive: Any) -> bool:
+    """True when py7zr reports the archive as solid (best effort)."""
+    try:
+        return bool(archive.archiveinfo().solid)
+    except Exception:
+        return False
+
+
 def load_zip_table(path: str, max_rows: int) -> ArchiveTable:
     """Load ZIP members sorted by uncompressed size descending."""
     rows: list[list[str]] = []
@@ -105,6 +113,7 @@ def load_7z_table(path: str, max_rows: int) -> ArchiveTable:
 
     try:
         with _py7zr.SevenZipFile(path, mode="r") as archive:
+            solid = _is_solid_7z(archive)
             info_list = archive.list()
             total_uncompressed = sum((info.uncompressed or 0) for info in info_list)
             # Top-k by size instead of a full sort (see load_zip_table).
@@ -115,14 +124,22 @@ def load_7z_table(path: str, max_rows: int) -> ArchiveTable:
             )
             for info in top:
                 uncompressed = info.uncompressed if info.uncompressed else 0
-                compressed = info.compressed if info.compressed else 0
                 date = info.creationtime.strftime("%Y-%m-%d") if info.creationtime else ""
+                # A solid block reports its packed size on one member and
+                # ``None`` on the rest, so per-member Packed/Ratio values
+                # would be fiction; show "-" instead.
+                if solid or info.compressed is None:
+                    packed = "-"
+                    ratio = "-"
+                else:
+                    packed = DirectoryLister.format_size(info.compressed)
+                    ratio = _ratio(uncompressed, info.compressed)
                 rows.append(
                     [
                         info.filename,
                         DirectoryLister.format_size(uncompressed),
-                        DirectoryLister.format_size(compressed),
-                        _ratio(uncompressed, compressed),
+                        packed,
+                        ratio,
                         date,
                     ]
                 )

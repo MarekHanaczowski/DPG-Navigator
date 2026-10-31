@@ -23,7 +23,6 @@ from dpg_navigator._filesystem import (
 from dpg_navigator._types import DialogConfig, FileEntry
 from dpg_navigator.dialog._state import DialogState
 from dpg_navigator.dialog._ui import DialogUIBuilder
-from dpg_navigator.vfs import VFSRegistry
 
 
 class TestSidebarDriveLoading:
@@ -291,6 +290,36 @@ class TestFileDialogArchiveSelection:
         finally:
             DirectoryLister.cleanup_temp_files()
 
+    def test_rejected_typed_name_shows_message_and_keeps_dialog_open(self, tmp_path):
+        dialog = self._dialog(tmp_path, [])
+        with patch("dpg_navigator._dialog.dpg") as mock_dpg:
+            mock_dpg.get_value.return_value = f"sub{os.sep}escape.txt"
+            mock_dpg.does_item_exist.return_value = True
+            dialog._return_selection()
+            status = mock_dpg.set_value.call_args[0][1]
+        dialog.hide.assert_not_called()
+        dialog._callback.assert_not_called()
+        assert status.startswith("Invalid file name:")
+        assert "path separator" in status
+
+    def test_valid_typed_name_returns_path(self, tmp_path):
+        dialog = self._dialog(tmp_path, [])
+        with patch("dpg_navigator._dialog.dpg") as mock_dpg:
+            mock_dpg.get_value.return_value = "new_report.txt"
+            mock_dpg.does_item_exist.return_value = True
+            dialog._return_selection()
+        dialog.hide.assert_called_once()
+        dialog._callback.assert_called_once_with([os.path.join(str(tmp_path), "new_report.txt")])
+
+    def test_empty_typed_name_still_returns_empty_selection(self, tmp_path):
+        dialog = self._dialog(tmp_path, [])
+        with patch("dpg_navigator._dialog.dpg") as mock_dpg:
+            mock_dpg.get_value.return_value = ""
+            mock_dpg.does_item_exist.return_value = True
+            dialog._return_selection()
+        dialog.hide.assert_called_once()
+        dialog._callback.assert_called_once_with([])
+
     def test_member_within_limit_invokes_callback(self, tmp_path):
         archive_path = tmp_path / "ok.zip"
         with zipfile.ZipFile(archive_path, "w") as zf:
@@ -316,53 +345,54 @@ class TestFileDialogArchiveSelection:
 
 
 class TestDoubleClickLogic:
-    """Test the double-click timing logic extracted from FileDialog.
-
-    This logic is a simple comparison (time_diff < threshold and same_sender)
-    that is unlikely to be extracted into a standalone function, so we
-    reproduce it here as a static method.
-    """
-
-    THRESHOLD = 0.5
+    """Exercise the real ``FileDialog._is_double_click`` with a patched clock."""
 
     @staticmethod
-    def _is_double_click(
-        current_time: float,
-        last_click_time: float,
-        current_sender: int,
-        last_sender: int | None,
-        threshold: float = 0.5,
-    ) -> bool:
-        """Reproduce the double-click detection logic."""
-        return current_time - last_click_time < threshold and last_sender == current_sender
+    def _dialog(last_time: float, last_sender: int | None) -> FileDialog:
+        dialog = FileDialog.__new__(FileDialog)
+        dialog.state = DialogState()
+        dialog.state.last_click_time = last_time
+        dialog.state.last_clicked_element = last_sender
+        return dialog
 
-    def test_fast_same_element_is_double(self):
-        assert self._is_double_click(1.2, 1.0, 42, 42) is True
+    @staticmethod
+    def _click(dialog: FileDialog, sender: int, now: float) -> bool:
+        with patch("dpg_navigator._dialog.time.time", return_value=now):
+            return dialog._is_double_click(sender)
+
+    def test_threshold_constant(self):
+        assert FileDialog.DOUBLE_CLICK_THRESHOLD == 0.5
+
+    def test_fast_same_element_is_double_and_resets(self):
+        dialog = self._dialog(1000.0, 42)
+        assert self._click(dialog, 42, 1000.2) is True
+        assert dialog.state.last_click_time == 0
+        assert dialog.state.last_clicked_element is None
 
     def test_slow_same_element_not_double(self):
-        assert self._is_double_click(2.0, 1.0, 42, 42) is False
+        dialog = self._dialog(1000.0, 42)
+        assert self._click(dialog, 42, 1001.0) is False
+        assert dialog.state.last_click_time == 1001.0
+        assert dialog.state.last_clicked_element == 42
 
     def test_fast_different_element_not_double(self):
-        assert self._is_double_click(1.2, 1.0, 42, 99) is False
+        dialog = self._dialog(1000.0, 42)
+        assert self._click(dialog, 99, 1000.2) is False
+        assert dialog.state.last_clicked_element == 99
 
     def test_exactly_at_threshold_not_double(self):
-        assert self._is_double_click(1.5, 1.0, 42, 42) is False
+        dialog = self._dialog(1000.0, 42)
+        assert self._click(dialog, 42, 1000.0 + FileDialog.DOUBLE_CLICK_THRESHOLD) is False
 
-    def test_just_under_threshold_is_double(self):
-        assert self._is_double_click(1.499, 1.0, 42, 42) is True
+    def test_no_previous_click_not_double(self):
+        dialog = self._dialog(0.0, None)
+        assert self._click(dialog, 42, 1000.0) is False
 
-    def test_none_last_sender_not_double(self):
-        assert self._is_double_click(1.2, 1.0, 42, None) is False
-
-    def test_zero_last_click_time(self):
-        """After reset (last_click_time=0), a quick click IS detected as double
-        because 0.3 - 0 = 0.3 < threshold.  In real code time.time() >> 0,
-        so this edge case never occurs — see test_reset_after_navigation."""
-        assert self._is_double_click(0.3, 0, 42, 42) is True
-
-    def test_reset_after_navigation(self):
-        """After navigation, last_click_time is set to 0."""
-        assert self._is_double_click(1000.0, 0, 42, 42) is False
+    def test_third_click_after_double_starts_over(self):
+        dialog = self._dialog(1000.0, 42)
+        assert self._click(dialog, 42, 1000.1) is True
+        assert self._click(dialog, 42, 1000.2) is False
+        assert self._click(dialog, 42, 1000.3) is True
 
 
 # ── Path traversal with symlinks ───────────────────────────────
@@ -402,182 +432,207 @@ class TestPathTraversalSymlinks:
 # ── Folder creation execution tests ────────────────────────────
 
 
+def _folder_logic(current_dir: str):
+    """Real DialogLogic with recording callbacks, for folder-creation tests."""
+    from dpg_navigator.dialog._logic import DialogLogic
+
+    state = DialogState()
+    state.current_dir = current_dir
+    errors: list[tuple[str, str]] = []
+    listings: list[list[FileEntry]] = []
+    logic = DialogLogic(
+        state=state,
+        config=DialogConfig(search_subfolders=False, show_dir_size=False),
+        refresh_ui_cb=lambda entries, _gen: listings.append(list(entries)),
+        show_error_cb=lambda title, msg: errors.append((title, msg)),
+        update_path_input_cb=lambda _path: None,
+        update_size_cell_cb=lambda *_args: None,
+    )
+    return logic, errors, listings
+
+
 class TestCreateNewFolderExecution:
-    """Test actual folder creation using validate_folder_name + os.makedirs."""
+    """Folder creation through the production ``DialogLogic._create_new_folder``."""
 
-    @staticmethod
-    def _create_folder(name: str, current_dir: str) -> str | None:
-        """Execute folder creation using the REAL validate_folder_name.
-
-        Returns error message on failure, None on success.
-        """
-        error = validate_folder_name(name, current_dir)
-        if error:
-            return error
-
-        try:
-            os.makedirs(os.path.join(current_dir, name), exist_ok=False)
-            return None
-        except FileExistsError:
-            return f"Folder '{name}' already exists."
-        except PermissionError:
-            return f"Permission denied to create '{name}'."
-        except OSError as e:
-            return f"Cannot create folder.\n\n{e}"
-
-    def test_successful_creation(self, tmp_path):
-        result = self._create_folder("new_folder", str(tmp_path))
-        assert result is None
+    def test_successful_creation_refreshes_listing(self, tmp_path):
+        logic, errors, listings = _folder_logic(str(tmp_path))
+        logic._create_new_folder("new_folder")
+        assert errors == []
         assert (tmp_path / "new_folder").is_dir()
+        assert any(entry.name == "new_folder" for entry in listings[-1])
+
+    def test_name_is_stripped(self, tmp_path):
+        logic, errors, _ = _folder_logic(str(tmp_path))
+        logic._create_new_folder("  padded  ")
+        assert errors == []
+        assert (tmp_path / "padded").is_dir()
 
     def test_already_exists(self, tmp_path):
         (tmp_path / "existing").mkdir()
-        result = self._create_folder("existing", str(tmp_path))
-        assert "already exists" in result
+        logic, errors, _ = _folder_logic(str(tmp_path))
+        logic._create_new_folder("existing")
+        assert errors == [("Folder exists", "A folder named 'existing' already exists.")]
+
+    def test_empty_name_rejected(self, tmp_path):
+        logic, errors, _ = _folder_logic(str(tmp_path))
+        logic._create_new_folder("   ")
+        assert errors == [("Invalid name", "Folder name cannot be empty.")]
 
     def test_path_traversal_blocked(self, tmp_path):
-        result = self._create_folder("..", str(tmp_path))
-        assert "Invalid folder name" in result
-        # Verify nothing was created
-        assert not (tmp_path / "..").exists() or (tmp_path / "..").is_dir()
+        before = sorted(os.listdir(tmp_path.parent))
+        logic, errors, _ = _folder_logic(str(tmp_path))
+        logic._create_new_folder("..")
+        assert errors and errors[0][0] == "Invalid folder name"
+        assert sorted(os.listdir(tmp_path.parent)) == before
 
     def test_separator_in_name_blocked(self, tmp_path):
-        name = f"a{os.sep}b"
-        result = self._create_folder(name, str(tmp_path))
-        assert "Invalid folder name" in result
+        logic, errors, _ = _folder_logic(str(tmp_path))
+        logic._create_new_folder(f"a{os.sep}b")
+        assert errors and errors[0][0] == "Invalid folder name"
+        assert not (tmp_path / "a").exists()
+
+    def test_nested_path_traversal_blocked(self, tmp_path):
+        logic, errors, _ = _folder_logic(str(tmp_path))
+        logic._create_new_folder("../../escape")
+        assert errors and errors[0][0] == "Invalid folder name"
 
     def test_unicode_name_created(self, tmp_path):
-        result = self._create_folder("Nowy Folder", str(tmp_path))
-        assert result is None
+        logic, errors, _ = _folder_logic(str(tmp_path))
+        logic._create_new_folder("Nowy Folder")
+        assert errors == []
         assert (tmp_path / "Nowy Folder").is_dir()
 
     def test_dot_prefix_allowed(self, tmp_path):
-        result = self._create_folder(".config", str(tmp_path))
-        assert result is None
+        logic, errors, _ = _folder_logic(str(tmp_path))
+        logic._create_new_folder(".config")
+        assert errors == []
         assert (tmp_path / ".config").is_dir()
 
-    def test_nested_path_traversal_blocked(self, tmp_path):
-        result = self._create_folder("../../escape", str(tmp_path))
-        assert "Invalid folder name" in result
+    def test_refused_inside_archive(self, tmp_path):
+        archive_path = tmp_path / "pack.zip"
+        with zipfile.ZipFile(archive_path, "w") as zf:
+            zf.writestr("a.txt", "x")
+        logic, errors, _ = _folder_logic(f"{archive_path}|/")
+        logic._create_new_folder("inner")
+        assert errors == [("Not supported", "Cannot create folders inside an archive.")]
+
+    def test_os_error_is_reported(self, tmp_path):
+        logic, errors, _ = _folder_logic(str(tmp_path))
+        with patch("dpg_navigator.dialog._logic.os.makedirs", side_effect=PermissionError("denied")):
+            logic._create_new_folder("locked")
+        assert len(errors) == 1
+        assert errors[0][0] == "Error"
+        assert "denied" in errors[0][1]
 
 
 # ── Async directory size cache logic ──────────────────────────
 
 
 class TestSizeCacheLogic:
-    """Test the directory size cache and generation counter logic.
+    """Directory-size cache behavior through the production code paths."""
 
-    Tests the data-layer behavior without requiring a running DPG context.
-    """
+    @staticmethod
+    def _logic(root, cells=None):
+        from dpg_navigator.dialog._logic import DialogLogic
+
+        state = DialogState()
+        state.current_dir = str(root)
+        return DialogLogic(
+            state=state,
+            config=DialogConfig(search_subfolders=False, show_dir_size=True),
+            refresh_ui_cb=lambda *_args: None,
+            show_error_cb=lambda *_args: None,
+            update_path_input_cb=lambda *_args: None,
+            update_size_cell_cb=(lambda p, text: cells.append((p, text))) if cells is not None else (lambda *_a: None),
+        )
+
+    @staticmethod
+    def _run_now(fn, *args, **kwargs):
+        fn(*args, **kwargs)
 
     def test_cache_ttl_constant(self):
         assert FileDialog._SIZE_CACHE_TTL == 60.0
 
-    def test_cache_hit_fresh(self):
-        """Fresh cache entry (within TTL) should be used."""
-        cache: dict[str, tuple[int | None, float]] = {
-            "/tmp/dir": (1024, time.time()),
-        }
-        size, ts = cache["/tmp/dir"]
-        assert time.time() - ts < FileDialog._SIZE_CACHE_TTL
-
-    def test_cache_miss_expired(self):
-        """Expired cache entry (beyond TTL) should be treated as miss."""
-        cache: dict[str, tuple[int | None, float]] = {
-            "/tmp/dir": (1024, time.time() - 120),
-        }
-        size, ts = cache["/tmp/dir"]
-        assert time.time() - ts >= FileDialog._SIZE_CACHE_TTL
-
-    def test_generation_counter_cancels_stale_thread(self):
-        """Background thread should stop when generation changes."""
-        generation = 1
-        current_gen = 2  # simulates _bg_generation incremented
-
-        # Thread should abort because generation != current_gen
-        assert generation != current_gen
-
-    def test_compute_sizes_bg_updates_cache(self, tmp_path):
-        """_compute_sizes_bg fills _size_cache for each directory."""
+    def test_size_job_fills_cache_and_cell(self, tmp_path):
         sub = tmp_path / "subdir"
         sub.mkdir()
         (sub / "data.txt").write_text("12345678")  # 8 bytes
+        cells: list[tuple[str, str]] = []
+        logic = self._logic(tmp_path, cells)
 
-        # Simulate the background computation directly
-        cache: dict[str, tuple[int | None, float]] = {}
-        path = str(sub)
-        size = VFSRegistry.get_provider(path).get_size(path, is_dir=True, show_dir_size=True)
-        cache[path] = (size, time.time())
+        with patch("dpg_navigator.dialog._logic.JobManager.submit", side_effect=self._run_now):
+            logic.start_size_computation([str(sub)])
 
-        assert path in cache
-        assert cache[path][0] == 8
+        size, stamp = logic.state.size_cache[str(sub)]
+        assert size == 8
+        assert time.time() - stamp < FileDialog._SIZE_CACHE_TTL
+        assert cells == [(str(sub), "8 B")]
 
-    def test_compute_sizes_bg_respects_generation(self, tmp_path):
-        """When generation changes mid-computation, remaining dirs are skipped."""
+    def test_empty_dir_caches_zero(self, tmp_path):
+        empty = tmp_path / "empty_dir"
+        empty.mkdir()
+        logic = self._logic(tmp_path)
+
+        with patch("dpg_navigator.dialog._logic.JobManager.submit", side_effect=self._run_now):
+            logic.start_size_computation([str(empty)])
+
+        assert logic.state.size_cache[str(empty)][0] == 0
+
+    def test_generation_change_stops_remaining_dirs(self, tmp_path):
         dirs = []
         for i in range(3):
             d = tmp_path / f"dir_{i}"
             d.mkdir()
             (d / "f.txt").write_text("x" * (i + 1))
             dirs.append(str(d))
+        logic = self._logic(tmp_path)
 
-        cache: dict[str, tuple[int | None, float]] = {}
-        generation = 5
-        current_gen = [5]  # mutable, simulates self._bg_generation
+        def bump_generation(_path, _text):
+            logic.state.bg_generation += 1  # e.g. the user navigated away
 
-        processed = []
-        for path in dirs:
-            if current_gen[0] != generation:
-                break
-            size = VFSRegistry.get_provider(path).get_size(path, is_dir=True, show_dir_size=True)
-            cache[path] = (size, time.time())
-            processed.append(path)
-            # Simulate generation change after first dir
-            if len(processed) == 1:
-                current_gen[0] = 6
+        logic.update_size_cell = bump_generation
+        with patch("dpg_navigator.dialog._logic.JobManager.submit", side_effect=self._run_now):
+            logic.start_size_computation(dirs)
 
-        assert len(processed) == 1
-        assert dirs[0] in cache
-        assert dirs[1] not in cache
-        assert dirs[2] not in cache
+        assert list(logic.state.size_cache) == [dirs[0]]
 
-    def test_f5_clears_cache(self):
-        """F5 refresh should clear the entire size cache."""
-        cache: dict[str, tuple[int | None, float]] = {
-            "/tmp/a": (100, time.time()),
-            "/tmp/b": (200, time.time()),
-        }
-        cache.clear()  # simulates _on_key_f5 behavior
-        assert len(cache) == 0
+    def test_size_job_skipped_when_nothing_to_measure(self, tmp_path):
+        logic = self._logic(tmp_path)
+        with patch("dpg_navigator.dialog._logic.JobManager.submit") as submit:
+            logic.start_size_computation([])
+        submit.assert_not_called()
 
-    def test_sort_uses_cached_size(self):
-        """Sort by size column should use cached value for directories."""
-        cache: dict[str, tuple[int | None, float]] = {
-            "/tmp/big": (1000, time.time()),
-            "/tmp/small": (10, time.time()),
-        }
+    def test_f5_clears_cache_and_refreshes(self):
+        dialog = FileDialog.__new__(FileDialog)
+        dialog.state = DialogState()
+        dialog.logic = MagicMock()
+        dialog.state.size_cache.update({"/tmp/a": (100, time.time()), "/tmp/b": (200, time.time())})
 
-        entry_big = MagicMock(is_dir=True, size_bytes=None, full_path="/tmp/big", name="big")
-        entry_small = MagicMock(is_dir=True, size_bytes=None, full_path="/tmp/small", name="small")
+        with (
+            patch.object(FileDialog, "_is_dialog_active", return_value=True),
+            patch.object(FileDialog, "_refresh_listing", create=True) as refresh,
+        ):
+            dialog._on_key_f5(None, None, None)
 
-        def get_sort_size(entry):
-            size = entry.size_bytes
-            if size is None and entry.is_dir:
-                cached = cache.get(entry.full_path)
-                if cached is not None:
-                    size = cached[0]
-            return size or 0
+        assert dialog.state.size_cache == {}
+        dialog.logic._dir_index.invalidate.assert_called_once()
+        refresh.assert_called_once()
 
-        assert get_sort_size(entry_big) == 1000
-        assert get_sort_size(entry_small) == 10
-        assert get_sort_size(entry_big) > get_sort_size(entry_small)
+    def test_sort_by_size_uses_cached_dir_size(self):
+        dialog = FileDialog.__new__(FileDialog)
+        dialog.state = DialogState()
+        big = FileEntry("big", "/tmp/big", True, None, 1.0, False)
+        small = FileEntry("small", "/tmp/small", True, None, 1.0, False)
+        dialog.state.row_entries = {11: small, 12: big}
+        dialog.state.size_cache = {"/tmp/big": (1000, time.time()), "/tmp/small": (10, time.time())}
 
-    def test_cache_stores_zero_for_empty_dir(self, tmp_path):
-        """Empty directory should cache size as 0, not None."""
-        empty = tmp_path / "empty_dir"
-        empty.mkdir()
-        size = VFSRegistry.get_provider(str(empty)).get_size(str(empty), is_dir=True, show_dir_size=True)
-        assert size == 0
+        with patch("dpg_navigator._dialog.dpg") as mock_dpg:
+            mock_dpg.get_item_children.side_effect = lambda _item, slot: (
+                [100, 101, 102, 103] if slot == 0 else [1, 11, 12]
+            )
+            dialog._on_sort("table", [(103, -1)], None)  # column 3 = Size, descending
+
+        mock_dpg.reorder_items.assert_called_once_with("table", 1, [1, 12, 11])
 
 
 # ── Polish characters in validation and selection ─────────────
@@ -631,9 +686,9 @@ class TestPolishCharactersValidation:
     def test_create_polish_folder(self, tmp_path):
         """Full folder creation flow with Polish name succeeds."""
         name = "Różne dokumenty"
-        error = validate_folder_name(name, str(tmp_path))
-        assert error is None
-        os.makedirs(os.path.join(str(tmp_path), name), exist_ok=False)
+        logic, errors, _ = _folder_logic(str(tmp_path))
+        logic._create_new_folder(name)
+        assert errors == []
         assert (tmp_path / name).is_dir()
 
 
@@ -671,38 +726,3 @@ class TestDialogCompatibilityAdapters:
         assert dialog.state.current_dir == "/tmp"
         assert dialog.state.focused_row_index == 2
         assert dialog.state.last_clicked_element == 11
-
-
-class TestCsvParsing:
-    """Test CSV delimiter detection logic."""
-
-    def test_sniffer_detects_semicolon(self):
-        import csv as csv_mod
-
-        sample = "a;b;c\n1;2;3\n"
-        dialect = csv_mod.Sniffer().sniff(sample)
-        assert dialect.delimiter == ";"
-
-    def test_sniffer_detects_comma(self):
-        import csv as csv_mod
-
-        sample = "a,b,c\n1,2,3\n"
-        dialect = csv_mod.Sniffer().sniff(sample)
-        assert dialect.delimiter == ","
-
-    def test_sniffer_detects_tab(self):
-        import csv as csv_mod
-
-        sample = "a\tb\tc\n1\t2\t3\n"
-        dialect = csv_mod.Sniffer().sniff(sample)
-        assert dialect.delimiter == "\t"
-
-    def test_sniffer_fallback_on_single_column(self):
-        """Sniffer may fail on single-column data; code falls back to comma."""
-        import csv as csv_mod
-
-        sample = "value\n1\n2\n"
-        try:
-            csv_mod.Sniffer().sniff(sample)
-        except csv_mod.Error:
-            pass  # expected — code falls back to comma

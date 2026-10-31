@@ -10,18 +10,66 @@ from collections.abc import Collection
 from .. import _platform
 from .._types import FileEntry
 from ._base import VFSProvider
+from ._paths import split_archive_path
 
 _log = logging.getLogger(__name__)
 
 MAX_SCAN_DEPTH = 3
 
 
+def _walk_depth(root: str, top: str) -> int:
+    """Return how many directory levels *root* lies below *top*.
+
+    ``os.path.relpath`` handles trailing separators and drive roots, which
+    a plain string ``replace`` of the prefix got wrong (``C:\\`` as *top*).
+    """
+    try:
+        rel = os.path.relpath(root, top)
+    except ValueError:
+        return 0
+    if rel == os.curdir:
+        return 0
+    return rel.count(os.sep) + 1
+
+
+def compute_dir_size_info(path: str) -> tuple[int, bool]:
+    """Return ``(total_bytes, truncated)`` for the directory tree at *path*.
+
+    Files at most ``MAX_SCAN_DEPTH - 1`` levels below *path* are summed.
+    *truncated* is True when the scan skipped content (deeper levels or an
+    unreadable subdirectory), so *total_bytes* is only a lower bound.
+    """
+    total = 0
+    truncated = False
+
+    def _on_error(err: OSError) -> None:
+        nonlocal truncated
+        if getattr(err, "filename", None) != path:
+            truncated = True
+
+    try:
+        for root, dirs, files in os.walk(path, onerror=_on_error):
+            if _walk_depth(root, path) >= MAX_SCAN_DEPTH:
+                if dirs or files:
+                    truncated = True
+                dirs.clear()
+                continue
+            for f in files:
+                try:
+                    total += os.path.getsize(os.path.join(root, f))
+                except OSError:
+                    pass  # broken symlink or vanished file: nothing to count
+    except OSError:
+        truncated = True
+    return total, truncated
+
+
 class LocalVFSProvider(VFSProvider):
     """Provides access to physical files via os.scandir."""
 
     def is_valid_path(self, path: str) -> bool:
-        """Local handles paths without virtual dividers."""
-        return "|" not in path
+        """Local handles every path that is not an ``archive|inner`` path."""
+        return split_archive_path(path) is None
 
     def list_dir(
         self,
@@ -87,21 +135,7 @@ class LocalVFSProvider(VFSProvider):
         if is_dir:
             if not show_dir_size:
                 return None
-            total = 0
-            try:
-                for root, dirs, files in os.walk(path):
-                    depth = root.replace(path, "", 1).count(os.sep)
-                    if depth >= MAX_SCAN_DEPTH:
-                        dirs.clear()
-                        continue
-                    for f in files:
-                        try:
-                            total += os.path.getsize(os.path.join(root, f))
-                        except OSError:
-                            pass
-            except OSError:
-                pass
-            return total
+            return compute_dir_size_info(path)[0]
         try:
             return os.path.getsize(path)
         except OSError:

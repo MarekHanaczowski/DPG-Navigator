@@ -65,7 +65,10 @@ class DialogUIBuilder:
         if entry.is_dir and self.config.show_dir_size and not relative_label:
             cached = self.state.size_cache.get(entry.full_path)
             if cached is not None and time.time() - cached[1] < self.dialog._SIZE_CACHE_TTL:
-                display_size = DirectoryLister.format_size(cached[0])
+                display_size = DirectoryLister.format_dir_size(
+                    cached[0],
+                    entry.full_path in self.state.size_truncated,
+                )
             else:
                 display_size = "..."
         else:

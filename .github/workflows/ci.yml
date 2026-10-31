@@ -36,7 +36,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
 
     steps:
       # Pin to commit SHA (not floating tags) for supply-chain integrity.
@@ -183,6 +183,17 @@ jobs:
       # html2image uses Chrome's ``--screenshot`` CLI (old headless). Full
       # Chrome for Testing hangs on that path; chrome-headless-shell is the
       # matching binary from Chrome for Testing.
+      #
+      # Integrity limitation (checked 2026-10-31): Chrome for Testing does not
+      # publish SHA-256 (or any) checksums for its downloads -- neither the
+      # JSON API endpoints nor the README list them, see
+      # https://github.com/GoogleChromeLabs/chrome-for-testing/issues/70.
+      # There is no independent digest to compare against, so the zip is only
+      # fetched over HTTPS from Google's storage.googleapis.com bucket
+      # (curl -f fails on any HTTP error), size-checked, tested with
+      # ``unzip -t``, and its SHA-256 is logged for after-the-fact auditing.
+      # This job runs untrusted-input previews only in the throwaway runner;
+      # if Google starts publishing digests, compare against them here.
       - name: Install chrome-headless-shell
         env:
           CHROME_VERSION: ${{ steps.setup-chrome.outputs.chrome-version }}

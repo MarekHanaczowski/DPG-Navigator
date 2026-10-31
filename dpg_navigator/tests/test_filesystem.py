@@ -16,8 +16,14 @@ from dpg_navigator._filesystem import (
     MAX_SCAN_DEPTH,
     DirectoryIndex,
     DirectoryLister,
+    _name_error,
+    build_selection_list,
     is_archive_virtual_path,
+    is_within_directory,
     resolve_archive_selection,
+    split_archive_path,
+    typed_name_error,
+    validate_folder_name,
 )
 from dpg_navigator._types import FileEntry
 
@@ -639,6 +645,181 @@ class TestArchiveVirtualPath:
         assert not is_archive_virtual_path("notes|v1")
         assert not is_archive_virtual_path("plain")
 
+    def test_splits_on_first_pipe_after_archive_name(self):
+        """A ``|`` inside a POSIX folder name precedes the real separator."""
+        path = "/data/notes|v1/pack.zip|/docs/a.txt"
+        assert split_archive_path(path) == ("/data/notes|v1/pack.zip", "/docs/a.txt")
+        assert is_archive_virtual_path(path)
+
+    def test_inner_pipe_stays_in_inner_path(self):
+        assert split_archive_path("C:\\x\\pack.7z|/a|b.txt") == ("C:\\x\\pack.7z", "/a|b.txt")
+
+    def test_extension_is_case_insensitive(self):
+        assert split_archive_path("/d/PACK.ZIP|/") == ("/d/PACK.ZIP", "/")
+
+    def test_no_archive_extension_returns_none(self):
+        assert split_archive_path("/data/a|b|c") is None
+        assert split_archive_path("/data/plain.zip") is None
+
+    def test_vfs_routing_uses_shared_split(self, tmp_path):
+        from dpg_navigator.vfs._archive import ArchiveVFSProvider
+        from dpg_navigator.vfs._local import LocalVFSProvider
+
+        path = "/data/notes|v1/pack.zip|/docs"
+        assert ArchiveVFSProvider().is_valid_path(path)
+        assert not LocalVFSProvider().is_valid_path(path)
+        assert LocalVFSProvider().is_valid_path("/data/notes|v1")
+
+    def test_failed_selection_name_uses_inner_path(self, tmp_path):
+        missing = f"{tmp_path / 'absent.zip'}|/docs/a|b.txt"
+        resolved, failed = resolve_archive_selection([missing])
+        assert resolved == []
+        assert failed == "a|b.txt"
+
+
+class TestIsWithinDirectory:
+    def test_child_and_self_are_inside(self, tmp_path):
+        assert is_within_directory(str(tmp_path / "a" / "b"), str(tmp_path))
+        assert is_within_directory(str(tmp_path), str(tmp_path))
+
+    def test_sibling_with_common_prefix_is_outside(self, tmp_path):
+        assert not is_within_directory(str(tmp_path) + "-evil", str(tmp_path))
+
+    def test_filesystem_root_contains_children(self):
+        root = os.path.abspath(os.sep)
+        assert is_within_directory(os.path.join(root, "child"), root)
+
+    def test_value_error_means_outside(self):
+        with patch("dpg_navigator.vfs._paths.os.path.commonpath", side_effect=ValueError("different drives")):
+            assert not is_within_directory("D:\\x", "C:\\y")
+
+    @pytest.mark.skipif(os.name != "nt", reason="Drive letters are Windows-only")
+    def test_different_drives_are_outside(self):
+        assert not is_within_directory("D:\\data", "C:\\data")
+
+    def test_validate_folder_name_at_filesystem_root(self):
+        """``real_dir + os.sep`` doubled the separator at a root and rejected every name."""
+        root = os.path.abspath(os.sep)
+        assert validate_folder_name("dpg_navigator_probe_folder", root) is None
+
+    def test_typed_name_at_filesystem_root(self):
+        root = os.path.abspath(os.sep)
+        assert build_selection_list([], "report.txt", root) == [os.path.join(root, "report.txt")]
+
+
+class TestNameValidation:
+    def test_dotdot_inside_a_name_is_allowed(self, tmp_path):
+        assert validate_folder_name("v1..2", str(tmp_path)) is None
+        assert validate_folder_name("..hidden", str(tmp_path)) is None
+        assert build_selection_list([], "archive..old.txt", str(tmp_path)) == [
+            os.path.join(str(tmp_path), "archive..old.txt")
+        ]
+
+    def test_exact_dotdot_still_rejected(self, tmp_path):
+        assert validate_folder_name("..", str(tmp_path)) is not None
+        assert build_selection_list([], "..", str(tmp_path)) == []
+
+    @pytest.mark.parametrize(
+        "name", ["CON", "prn", "Aux", "NUL", "COM1", "com9", "LPT1", "lpt9", "CON.txt", "nul .log"]
+    )
+    def test_windows_reserved_names(self, name):
+        error = _name_error(name, "Folder name", windows=True)
+        assert error is not None
+        assert "reserved" in error or "end with" in error
+
+    @pytest.mark.parametrize("name", ["COM0", "LPT10", "CONSOLE", "con-fig", "nullable"])
+    def test_similar_names_are_not_reserved(self, name):
+        assert _name_error(name, "Folder name", windows=True) is None
+
+    @pytest.mark.parametrize("char", list('<>:"|?*'))
+    def test_windows_invalid_characters(self, char):
+        error = _name_error(f"bad{char}name", "File name", windows=True)
+        assert error is not None
+        assert "not allowed on Windows" in error
+        assert char in error
+
+    def test_windows_control_characters(self):
+        error = _name_error("bad\x07name", "File name", windows=True)
+        assert error is not None and "control characters" in error
+
+    @pytest.mark.parametrize("name", ["trailing.", "trailing "])
+    def test_windows_trailing_dot_or_space(self, name):
+        error = _name_error(name, "Folder name", windows=True)
+        assert error is not None and "dot or a space" in error
+
+    def test_posix_allows_windows_only_restrictions(self):
+        assert _name_error("CON", "Folder name", windows=False) is None
+        assert _name_error("a:b?", "Folder name", windows=False) is None
+
+    @pytest.mark.skipif(os.name != "nt", reason="Windows rules apply to the host only on nt")
+    def test_validate_folder_name_uses_windows_rules_on_nt(self, tmp_path):
+        assert "reserved" in validate_folder_name("CON", str(tmp_path))
+        assert build_selection_list([], "a?.txt", str(tmp_path)) == []
+
+    def test_typed_name_error_messages(self, tmp_path):
+        assert typed_name_error("", str(tmp_path)) is None
+        assert typed_name_error(os.path.abspath("x.txt"), str(tmp_path)) is None
+        assert typed_name_error("ok.txt", str(tmp_path)) is None
+        assert "path separator" in typed_name_error(f"a{os.sep}b.txt", str(tmp_path))
+
+
+class TestComputeDirSizeInfo:
+    def _tree(self, root, depth):
+        path = root
+        for level in range(depth):
+            path = path / f"l{level}"
+            path.mkdir()
+            (path / "f.bin").write_bytes(b"x" * 1024)
+        return root
+
+    def test_shallow_tree_is_exact(self, tmp_path):
+        self._tree(tmp_path, MAX_SCAN_DEPTH - 1)
+        size, truncated = DirectoryLister.compute_dir_size_info(str(tmp_path))
+        assert size == 1024 * (MAX_SCAN_DEPTH - 1)
+        assert truncated is False
+
+    def test_deep_tree_is_lower_bound(self, tmp_path):
+        self._tree(tmp_path, MAX_SCAN_DEPTH + 2)
+        size, truncated = DirectoryLister.compute_dir_size_info(str(tmp_path))
+        assert size == 1024 * (MAX_SCAN_DEPTH - 1)
+        assert truncated is True
+        assert DirectoryLister.compute_dir_size(str(tmp_path)) == size
+
+    def test_trailing_separator_does_not_shift_depth(self, tmp_path):
+        """``root.replace(path, "")`` miscounted depth when *path* ended with a separator."""
+        self._tree(tmp_path, MAX_SCAN_DEPTH)
+        with_sep = str(tmp_path) + os.sep
+        expected = 1024 * (MAX_SCAN_DEPTH - 1)
+        assert DirectoryLister.compute_dir_size(with_sep) == expected
+        assert DirectoryLister.compute_dir_size(str(tmp_path)) == expected
+
+    def test_depth_counts_path_components(self):
+        from dpg_navigator.vfs._local import _walk_depth
+
+        top = os.path.join(os.path.abspath(os.sep), "base")
+        assert _walk_depth(top, top) == 0
+        assert _walk_depth(os.path.join(top, "a"), top) == 1
+        assert _walk_depth(os.path.join(top, "a", "b"), top + os.sep) == 2
+
+    def test_format_dir_size_marks_lower_bound_in_ascii(self):
+        assert DirectoryLister.format_dir_size(3 * 1024, True) == ">= 3 KB"
+        assert DirectoryLister.format_dir_size(3 * 1024, False) == "3 KB"
+        assert DirectoryLister.format_dir_size(None, True) == "-"
+        assert DirectoryLister.format_dir_size(5, True).isascii()
+
+    def test_archive_paths_are_not_truncated(self, tmp_path):
+        archive_path = tmp_path / "a.zip"
+        with zipfile.ZipFile(archive_path, "w") as zf:
+            zf.writestr("d/x.txt", "x")
+        assert DirectoryLister.compute_dir_size_info(f"{archive_path}|/d") == (0, False)
+
+
+class TestRemovedHelpers:
+    def test_filesystem_has_no_short_md5(self):
+        import dpg_navigator._filesystem as filesystem
+
+        assert not hasattr(filesystem, "_short_md5")
+
 
 class TestExtractPostWriteChecks:
     def test_rejects_when_written_size_exceeds_cap(self, tmp_path):
@@ -685,6 +866,155 @@ class TestExtractPostWriteChecks:
             assert extracted is None
         finally:
             DirectoryLister.cleanup_temp_files()
+
+
+def _files_under(root) -> list[str]:
+    return [os.path.join(r, f) for r, _dirs, files in os.walk(root) for f in files]
+
+
+class TestSevenZipExtraction:
+    """7z members stream through a budgeted ``py7zr.io.Py7zIO`` writer."""
+
+    def test_extracts_nested_member_content(self, tmp_path):
+        py7zr = pytest.importorskip("py7zr")
+        archive_path = tmp_path / "sample.7z"
+        payload = b"hello 7z " * 200
+        with py7zr.SevenZipFile(archive_path, "w") as archive:
+            archive.writestr(payload, "docs/readme.txt")
+            archive.writestr(b"other", "docs/other.txt")
+
+        try:
+            extracted = DirectoryLister.extract_from_archive(f"{archive_path}|/docs/readme.txt")
+            assert extracted is not None
+            with open(extracted, "rb") as handle:
+                assert handle.read() == payload
+            # Only the requested member is materialized.
+            assert [os.path.basename(p) for p in _files_under(DirectoryLister._session_temp_dir)] == ["readme.txt"]
+        finally:
+            DirectoryLister.cleanup_temp_files()
+
+    def test_streaming_budget_abort_leaves_no_file(self, tmp_path):
+        py7zr = pytest.importorskip("py7zr")
+        from dpg_navigator.vfs._archive import _extract_7z_member
+
+        archive_path = tmp_path / "big.7z"
+        with py7zr.SevenZipFile(archive_path, "w") as archive:
+            archive.writestr(b"x" * 100_000, "big.bin")
+        dest_root = tmp_path / "out"
+        dest_root.mkdir()
+
+        with py7zr.SevenZipFile(archive_path, "r") as archive, pytest.raises(OSError):
+            _extract_7z_member(archive, "big.bin", "big.bin", str(dest_root), 1024)
+
+        assert _files_under(dest_root) == []
+
+    def test_budget_abort_through_public_api_leaves_no_file(self, tmp_path):
+        """Metadata that under-reports the size is caught by the write budget."""
+        py7zr = pytest.importorskip("py7zr")
+        archive_path = tmp_path / "liar.7z"
+        with py7zr.SevenZipFile(archive_path, "w") as archive:
+            archive.writestr(b"x" * 100_000, "docs/big.txt")
+
+        real_list = py7zr.SevenZipFile.list
+
+        def lying_list(self):
+            infos = real_list(self)
+            for info in infos:
+                info.uncompressed = 1
+            return infos
+
+        try:
+            with patch.object(py7zr.SevenZipFile, "list", lying_list):
+                extracted = DirectoryLister.extract_from_archive(
+                    f"{archive_path}|/docs/big.txt",
+                    max_size=1024,
+                )
+            assert extracted is None
+            assert _files_under(DirectoryLister._session_temp_dir) == []
+        finally:
+            DirectoryLister.cleanup_temp_files()
+
+    def test_fallback_on_attribute_error_removes_partial_file(self, tmp_path):
+        """An incompatible py7zr (AttributeError) falls back to a plain extract."""
+        pytest.importorskip("py7zr")
+        from dpg_navigator.vfs._archive import _extract_7z_member
+
+        dest_root = tmp_path / "out"
+        dest_root.mkdir()
+        dest = dest_root / "a.txt"
+        seen_partial: list[bool] = []
+
+        class FakeArchive:
+            def extract(self, targets, path, factory=None):
+                if factory is not None:
+                    writer = factory.create("a.txt")
+                    writer.write(b"partial")
+                    raise AttributeError("'Writer' object has no attribute 'seek'")
+                seen_partial.append(dest.exists())
+                dest.write_bytes(b"complete")
+
+            def reset(self):
+                pass
+
+        result = _extract_7z_member(FakeArchive(), "a.txt", "a.txt", str(dest_root), 1024)
+
+        assert result == str(dest)
+        assert seen_partial == [False]
+        assert dest.read_bytes() == b"complete"
+
+    def test_fallback_budget_abort_removes_file(self, tmp_path):
+        from dpg_navigator.vfs._archive import _extract_7z_member
+
+        dest_root = tmp_path / "out"
+        dest_root.mkdir()
+
+        class OldArchive:
+            def extract(self, targets, path, **kwargs):
+                if "factory" in kwargs:
+                    raise TypeError("unexpected keyword argument 'factory'")
+                (dest_root / "a.txt").write_bytes(b"x" * 64)
+
+        with pytest.raises(OSError):
+            _extract_7z_member(OldArchive(), "a.txt", "a.txt", str(dest_root), 8)
+        assert _files_under(dest_root) == []
+
+    def test_fallback_error_removes_partial_file(self, tmp_path):
+        from dpg_navigator.vfs._archive import _extract_7z_member
+
+        dest_root = tmp_path / "out"
+        dest_root.mkdir()
+
+        class BrokenArchive:
+            def extract(self, targets, path, **kwargs):
+                (dest_root / "a.txt").write_bytes(b"half")
+                raise RuntimeError("CRC error")
+
+        with (
+            patch("dpg_navigator.vfs._archive._make_7z_budget_factory", return_value=None),
+            pytest.raises(RuntimeError),
+        ):
+            _extract_7z_member(BrokenArchive(), "a.txt", "a.txt", str(dest_root), None)
+        assert _files_under(dest_root) == []
+
+    def test_budget_writer_is_a_py7zio(self, tmp_path):
+        py7zr_io = pytest.importorskip("py7zr.io")
+        from dpg_navigator.vfs._archive import _make_7z_budget_factory
+
+        factory = _make_7z_budget_factory(str(tmp_path / "w.bin"), 4)
+        assert isinstance(factory, py7zr_io.WriterFactory)
+        writer = factory.create("w.bin")
+        try:
+            assert isinstance(writer, py7zr_io.Py7zIO)
+            assert writer.write(b"abcd") == 4
+            assert writer.size() == 4
+            writer.seek(0)
+            assert writer.read() == b"abcd"
+            writer.seek(0)
+            assert writer.write(b"ab") == 2  # rewrite within budget is fine
+            with pytest.raises(OSError):
+                writer.write(b"xyz")
+        finally:
+            factory.close_all()
 
 
 class TestZipSlipExtraction:

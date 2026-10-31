@@ -34,6 +34,25 @@ class SQLiteTable:
     table_name: str
 
 
+MAX_CELL_CHARS = 500
+"""Longest cell text shown in the preview; longer values end with ``...``."""
+
+
+def _format_cell(value: object) -> str:
+    """Render one SQLite value as bounded preview text.
+
+    BLOBs are summarized by length instead of dumping ``bytes`` reprs, and
+    long text is cut to :data:`MAX_CELL_CHARS` so one huge value cannot
+    bloat the table widget.
+    """
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return f"<BLOB {len(value)} bytes>"
+    text = str(value)
+    if len(text) > MAX_CELL_CHARS:
+        return text[:MAX_CELL_CHARS] + "..."
+    return text
+
+
 def _quote_identifier(identifier: str) -> str:
     """Escape an SQLite identifier for use between double quotes."""
     return identifier.replace('"', '""')
@@ -52,6 +71,14 @@ def load_sqlite_table(
         connection = sqlite3.connect(uri, uri=True, timeout=5)
     except sqlite3.Error as exc:
         raise SQLitePreviewError(str(exc)) from exc
+
+    try:
+        # Untrusted database: do not let schema objects (views, triggers,
+        # defaults) call application-defined or side-effecting SQL functions.
+        # Older SQLite builds (< 3.31) do not know the pragma; ignore that.
+        connection.execute("PRAGMA trusted_schema=OFF;")
+    except sqlite3.Error:
+        pass
 
     try:
         cursor = connection.cursor()
@@ -75,7 +102,7 @@ def load_sqlite_table(
             f'SELECT * FROM "{safe_table_name}" LIMIT ?;',  # nosec B608
             (max_rows,),
         )
-        rows = [[str(cell) for cell in row[:max_cols]] for row in cursor.fetchall()]
+        rows = [[_format_cell(cell) for cell in row[:max_cols]] for row in cursor.fetchall()]
 
         # Bounded count: scan at most MAX_COUNT_SCAN+1 rows instead of the whole
         # table, so a huge table cannot stall the preview on COUNT(*).

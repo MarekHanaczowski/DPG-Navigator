@@ -47,6 +47,8 @@ class DialogState:
 
     # Async Loading
     size_cache: dict[str, tuple[int | None, float]] = field(default_factory=dict)
+    size_truncated: set[str] = field(default_factory=set)
+    """Paths whose cached size is a lower bound (scan hit the depth cap)."""
     pending_size_cells: dict[str, int] = field(default_factory=dict)
     bg_generation: int = 0
 

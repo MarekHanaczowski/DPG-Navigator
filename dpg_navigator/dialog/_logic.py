@@ -11,7 +11,13 @@ import os
 import time
 from typing import Callable
 
-from .._filesystem import DirectoryIndex, DirectoryLister, is_archive_virtual_path, validate_folder_name
+from .._filesystem import (
+    DirectoryIndex,
+    DirectoryLister,
+    is_archive_virtual_path,
+    split_archive_path,
+    validate_folder_name,
+)
 from .._job_manager import JobManager
 from .._types import DialogConfig, DialogMode, FileEntry
 from ._state import DialogState
@@ -57,10 +63,10 @@ class DialogLogic:
 
     def go_up(self) -> None:
         """Navigate to the parent directory or archive member directory."""
-        if is_archive_virtual_path(self.state.current_dir):
-            parts = self.state.current_dir.split("|", 1)
-            archive_path = parts[0]
-            virtual_path = parts[1].strip("/")
+        split = split_archive_path(self.state.current_dir)
+        if split is not None:
+            archive_path = split[0]
+            virtual_path = split[1].replace("\\", "/").strip("/")
             if not virtual_path:
                 self.navigate_to(os.path.dirname(archive_path))
             else:
@@ -75,16 +81,16 @@ class DialogLogic:
 
     def navigate_to(self, path: str) -> None:
         """Validate a path, update navigation state, and refresh the listing."""
-        if is_archive_virtual_path(path):
-            parts = path.split("|", 1)
-            archive_path = parts[0]
-            virtual_inner = parts[1].replace("\\", "/").strip("/")
+        split = split_archive_path(path)
+        if split is not None:
+            archive_path = split[0]
+            virtual_inner = split[1].replace("\\", "/").strip("/")
             if os.path.isabs(archive_path):
                 resolved_archive = os.path.normpath(archive_path)
             else:
-                if is_archive_virtual_path(self.state.current_dir):
-                    current_archive = self.state.current_dir.split("|", 1)[0]
-                    base = os.path.dirname(current_archive)
+                current_split = split_archive_path(self.state.current_dir)
+                if current_split is not None:
+                    base = os.path.dirname(current_split[0])
                 else:
                     base = self.state.current_dir
                 resolved_archive = os.path.normpath(os.path.join(base, archive_path))
@@ -263,6 +269,11 @@ class DialogLogic:
                 get_generation=lambda: self.state.index_generation,
                 show_hidden=self.config.show_hidden,
             )
+            # A query typed while the index was still building ran its deep
+            # search against a not-ready index and got nothing; replay it now.
+            query = self.state.search_query
+            if gen == self.state.index_generation and query and root == self.state.current_dir:
+                self._perform_deep_search(query, gen)
 
         JobManager.submit(_build)
 
@@ -278,9 +289,13 @@ class DialogLogic:
             for path in paths:
                 if gen != self.state.bg_generation:
                     break
-                size = DirectoryLister.compute_dir_size(path)
+                size, truncated = DirectoryLister.compute_dir_size_info(path)
+                if truncated:
+                    self.state.size_truncated.add(path)
+                else:
+                    self.state.size_truncated.discard(path)
                 self.state.size_cache[path] = (size, time.time())
-                self.update_size_cell(path, DirectoryLister.format_size(size))
+                self.update_size_cell(path, DirectoryLister.format_dir_size(size, truncated))
 
         JobManager.submit(_compute)
 
@@ -290,11 +305,14 @@ class DialogLogic:
         When turning the option off, the background index is invalidated and
         the current listing is refreshed immediately so deep-search rows
         disappear. When turning it on, a cancellable index build is started
-        if one is not already ready.
+        unless a fresh index (younger than ``INDEX_TTL``) for the current
+        folder is already ready.
         """
         self.config.search_subfolders = enabled
         if enabled:
-            if not self._dir_index.ready:
+            # Rebuild when there is no index for this folder or it is older
+            # than INDEX_TTL (files may have changed since it was built).
+            if self._dir_index.is_stale() or self._dir_index.root != self.state.current_dir:
                 self.start_index_build()
             if self.state.search_query:
                 self.trigger_search(self.state.search_query)
