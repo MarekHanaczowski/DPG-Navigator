@@ -21,9 +21,14 @@ if os.environ.get("DPG_INTEGRATION") != "1":
     collect_ignore_glob = ["test_*.py"]
 
 
-@pytest.fixture
-def dpg_viewport():
-    """A DPG context + viewport, torn down after the test.
+@pytest.fixture(scope="session")
+def _dpg_context():
+    """One DPG context and viewport for the whole integration run.
+
+    Creating a second context in the same process and rendering frames in it
+    segfaults under xvfb with software GL (reproduced with bare DearPyGui 2.3.1
+    on Linux: one create/destroy cycle is fine, a second one crashes). Each test
+    therefore reuses this context and only tears down the dialogs it created.
 
     dearpygui is imported inside the fixture so collecting this module without
     ``DPG_INTEGRATION=1`` cannot pull in OpenGL.
@@ -38,3 +43,9 @@ def dpg_viewport():
         yield
     finally:
         dpg.destroy_context()
+
+
+@pytest.fixture
+def dpg_viewport(_dpg_context):
+    """The session-wide DPG context and viewport (see ``_dpg_context``)."""
+    yield
