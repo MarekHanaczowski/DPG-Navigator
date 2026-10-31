@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.0.0b7] - 2026-10-31
+
 ### Fixed
 
 - 7z extraction works again: the budget writer subclasses `py7zr.io.Py7zIO`
