@@ -68,14 +68,14 @@ can trail the first stable release.
   `ruff format --check .`. Format skips Markdown (`*.md`); Ruff 0.16+ would
   otherwise rewrite Python fences in README and audit notes.
 - **Whole-package mypy:** **DONE.** `[tool.mypy] files = ["dpg_navigator"]`
-  (tests excluded); CI runs `python -m mypy` on Python != 3.9. Flags:
+  (tests excluded); CI runs `python -m mypy` on every Python in the matrix. Flags:
   `check_untyped_defs`, `no_implicit_optional`, `disallow_untyped_defs`,
   `warn_return_any`, `disallow_any_generics`. Optional backends use
   `OptionalModule` / `require_optional()` instead of `cast(Any, None)`.
 - **`pre-commit`:** **DONE.** `.pre-commit-config.yaml` runs ruff check (with
   `--fix`), `ruff format`, and `python -m mypy` from the active `[dev]`
   environment (`language: system`, so versions match CI). Install with
-  `pre-commit install` after `pip install -e ".[dev]"` (Python >= 3.9).
+  `pre-commit install` after `pip install -e ".[dev]"` (Python >= 3.10).
 - **Coverage gate** (`pytest-cov`): **DONE.** Report is limited to preview
   loaders (`_preview_*.py`, not `PreviewPanel`), `vfs/`, and
   `dialog/_logic.py` + `_state.py`. `fail_under = 75` (measured ~80% on

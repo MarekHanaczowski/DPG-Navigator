@@ -1,10 +1,10 @@
 """Archive preview renderer."""
 
-from __future__ import annotations  # PEP 604/585 in signatures need this on py3.8/3.9
+from __future__ import annotations
 
 import logging
 import os
-from typing import Callable
+from collections.abc import Callable
 
 from .._filesystem import DirectoryLister
 from .._preview_archive import (

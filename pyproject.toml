@@ -8,14 +8,13 @@ dynamic = ["version"]
 description = "File dialog with rich preview panel for DearPyGui — images, PDF, Word, Excel, archives, and more"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 authors = [{ name = "HACE" }]
 keywords = ["dearpygui", "file-dialog", "gui", "file-picker", "navigator"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -61,10 +60,7 @@ dev = [
     # rules or change formatting and break CI on unrelated PRs. Dependabot
     # proposes the bumps (see .github/dependabot.yml); widen the pin there.
     "ruff==0.17.*",
-    # mypy 2.x needs Python >= 3.10. CI skips mypy on 3.9; the 1.19 series
-    # keeps the pre-commit mypy hook usable in a 3.9 dev environment.
-    "mypy==2.3.*; python_version >= '3.10'",
-    "mypy==1.19.*; python_version < '3.10'",
+    "mypy==2.3.*",
     # Type stubs for optional backends imported in mypy-checked modules —
     # without these CI reports import-untyped for markdown/openpyxl/pygments/bleach.
     "types-Markdown",
@@ -117,7 +113,7 @@ markers = [
 ]
 
 [tool.ruff]
-target-version = "py39"
+target-version = "py310"
 line-length = 120
 extend-exclude = [".pytest_tmp", ".pytest_tmp_cache"]
 

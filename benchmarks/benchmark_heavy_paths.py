@@ -16,10 +16,10 @@ import statistics
 import tempfile
 import time
 import zipfile
+from collections.abc import Callable
 from contextlib import closing
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable
 
 from dpg_navigator._filesystem import DirectoryIndex
 from dpg_navigator._preview_archive import load_zip_table

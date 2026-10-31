@@ -10,7 +10,7 @@ from __future__ import annotations
 # MIT licensed
 import os
 from abc import ABC, abstractmethod
-from typing import Callable
+from collections.abc import Callable
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 

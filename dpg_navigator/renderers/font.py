@@ -165,7 +165,7 @@ class FontRenderer(BaseRenderer):
         ctx.temp_font = self._font_ids[0]
 
         with dpg.child_window(parent=ctx.panel_id, height=-1, width=-1):
-            for font_id, size in zip(self._font_ids, _FONT_SIZES):
+            for font_id, size in zip(self._font_ids, _FONT_SIZES, strict=False):
                 # Bind the whole block so every line uses the preview face
                 # (per-item bind is flaky when the default atlas lacks glyphs).
                 with dpg.group() as block:

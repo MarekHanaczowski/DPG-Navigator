@@ -234,7 +234,7 @@ dpg.bind_font(ui_font)
 
 ## Requirements
 
-- Python >= 3.9
+- Python >= 3.10
 - [DearPyGui](https://pypi.org/project/dearpygui/) >= 2.2
 - [psutil](https://pypi.org/project/psutil/) >= 5.9.0
 - [bleach](https://pypi.org/project/bleach/) >= 6.0
@@ -249,7 +249,7 @@ python -m ruff format --check .
 python -m mypy
 pytest
 python -m pytest -q --cov=dpg_navigator --cov-report=term-missing
-# same ruff/mypy checks as a git hook (Python >= 3.9, venv must be active)
+# same ruff/mypy checks as a git hook (Python >= 3.10, venv must be active)
 pre-commit install
 pre-commit run --all-files
 # opt-in real DearPyGui smoke (needs a display). CI runs this under xvfb

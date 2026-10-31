@@ -5,9 +5,11 @@ Parses workbook sheets into table-ready rows without depending on DearPyGui.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 # MIT licensed
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from ._optional import OptionalCallable, as_optional
 from ._preview_registry import ooxml_exceeds_preview_limit

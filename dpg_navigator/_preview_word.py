@@ -5,9 +5,11 @@ Extracts document blocks without depending on DearPyGui.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 # MIT licensed
 from dataclasses import dataclass
-from typing import Any, Callable, Union
+from typing import Any
 
 from ._preview_registry import ooxml_exceeds_preview_limit
 
@@ -47,10 +49,9 @@ class WordTable:
     rows: list[list[str]]
 
 
-# Runtime type alias — a plain assignment (not an annotation), so
-# `from __future__ import annotations` does not stringify it; use Union so it
-# evaluates on Python < 3.10.
-WordBlock = Union[WordParagraph, WordTable]
+# Runtime type alias: a plain assignment (not an annotation), so it is
+# evaluated at import time; ``X | Y`` on classes needs Python >= 3.10.
+WordBlock = WordParagraph | WordTable
 
 
 @dataclass(frozen=True)

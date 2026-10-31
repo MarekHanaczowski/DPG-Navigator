@@ -1,6 +1,6 @@
 # Local entry point for the same ruff/mypy checks CI runs.
 # Requires an active environment: pip install -e ".[dev]"
-# Requires Python >= 3.9.
+# Requires Python >= 3.10.
 
 repos:
   - repo: local

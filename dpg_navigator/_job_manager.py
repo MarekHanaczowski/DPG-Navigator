@@ -12,8 +12,9 @@ import logging
 import queue
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import Future
-from typing import Any, Callable
+from typing import Any
 
 _log = logging.getLogger(__name__)
 

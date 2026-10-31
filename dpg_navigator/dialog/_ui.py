@@ -5,7 +5,7 @@ preview). Drive enumeration runs on a ``JobManager`` worker; sidebar
 widgets are updated on the DPG thread (``FileDialog`` frame poll / ``show()``).
 """
 
-from __future__ import annotations  # PEP 604/585 annotations need this on py3.8/3.9
+from __future__ import annotations
 
 import logging
 import os
