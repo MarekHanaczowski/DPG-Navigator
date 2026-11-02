@@ -60,7 +60,7 @@ dev = [
     # rules or change formatting and break CI on unrelated PRs. Dependabot
     # proposes the bumps (see .github/dependabot.yml); widen the pin there.
     "ruff==0.17.*",
-    "mypy==2.3.*",
+    "mypy>=2.3,<2.5",
     # Type stubs for optional backends imported in mypy-checked modules —
     # without these CI reports import-untyped for markdown/openpyxl/pygments/bleach.
     "types-Markdown",
