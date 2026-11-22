@@ -1,8 +1,8 @@
 """Cross-platform abstractions for the dpg_navigator package.
 
 Provides functions for drive enumeration, special directory discovery,
-hidden file detection, modifier key state, and file timestamp retrieval.
-Works on Windows, Linux, and macOS.
+hidden file detection, and modifier key state. Works on Windows, Linux,
+and macOS.
 """
 
 from __future__ import annotations
@@ -264,10 +264,27 @@ def is_hidden(filepath: str) -> bool:
     return False
 
 
-def get_file_time(filepath: str) -> float:
-    """Return file modification time (consistent cross-platform).
+def is_hidden_entry(entry: os.DirEntry[str]) -> bool:
+    """:func:`is_hidden` for an ``os.scandir`` entry, reusing its cached stat.
 
-    Uses st_mtime instead of getctime because ctime means different things
-    on Windows (creation time) vs Linux/macOS (inode change time).
+    Listing a folder asks this once per entry, so it must not cost a system
+    call of its own. On Windows the attributes arrive with the directory scan;
+    on macOS the single ``lstat`` is cached on the entry and shared with the
+    caller's later ``entry.stat()``. As in :func:`is_hidden`, a symlink is
+    judged by itself, not by its target.
     """
-    return os.stat(filepath).st_mtime
+    if entry.name.startswith("."):
+        return True
+    if os.name == "nt":
+        try:
+            attrs = getattr(entry.stat(follow_symlinks=False), "st_file_attributes", 0)
+        except (OSError, ValueError):
+            return False
+        return bool(attrs & _FILE_ATTRIBUTE_HIDDEN)
+    if _SYSTEM == "Darwin":
+        try:
+            flags = getattr(entry.stat(follow_symlinks=False), "st_flags", 0)
+        except (OSError, ValueError):
+            return False
+        return bool(flags & _UF_HIDDEN)
+    return False

@@ -8,6 +8,7 @@ injected callbacks (``refresh_ui_cb``, ``show_error_cb``, …).
 from __future__ import annotations
 
 import os
+import threading
 import time
 from collections.abc import Callable
 
@@ -45,7 +46,18 @@ class DialogLogic:
         self.update_size_cell = update_size_cell_cb
 
         self._dir_index = DirectoryIndex()
+        # Serializes every publish of listing/search results with the two
+        # events that make a result stale: a generation bump (navigation,
+        # refresh) and a newer typed query (``_search_seq``). A worker checks
+        # its ticket, stores ``_local_entries`` and notifies the UI as one
+        # step, so neither event can slip in between.
+        # Never held while listing a directory or searching the index. The UI
+        # callback does run under it (hence re-entrant); the order is this
+        # lock, then the dialog's own UI lock -- never the reverse.
+        self._entries_lock = threading.RLock()
         self._local_entries: list[FileEntry] = []
+        self._search_seq = 0  # ticket of the latest typed query
+        self._local_seq = 0  # ticket ``_local_entries`` was published under
 
     def go_back(self) -> None:
         """Pop the previous directory from the history stack."""
@@ -176,16 +188,39 @@ class DialogLogic:
             search_query=search_query,
             show_dir_size=False,
         )
-        self._local_entries = entries
-        self.refresh_ui(entries, self.state.index_generation)
+        self._publish_local_entries(entries, self.state.index_generation, self._search_seq)
 
         if self.config.search_subfolders and not search_query and not is_archive_virtual_path(self.state.current_dir):
             self.start_index_build()
 
+    def _is_current(self, gen: int, seq: int) -> bool:
+        """Whether a ``(generation, query ticket)`` pair is still the latest.
+
+        Binding only while ``_entries_lock`` is held. An unlocked call is an
+        early-out that the locked publish repeats.
+        """
+        return gen == self.state.index_generation and seq == self._search_seq
+
+    def _publish_local_entries(self, entries: list[FileEntry], gen: int, seq: int) -> bool:
+        """Store *entries* as the local listing and show them, unless stale.
+
+        Returns ``False`` (storing and showing nothing) when a navigation or
+        refresh bumped the generation, or a newer query was typed, since the
+        caller started.
+        """
+        with self._entries_lock:
+            if not self._is_current(gen, seq):
+                return False
+            self._local_entries = entries
+            self._local_seq = seq
+            self.refresh_ui(entries, gen)
+            return True
+
     def cancel_background_tasks(self) -> None:
         """Invalidate pending searches, index builds, and size computations."""
-        self.state.bg_generation += 1
-        self.state.index_generation += 1
+        with self._entries_lock:
+            self.state.bg_generation += 1
+            self.state.index_generation += 1
         self._dir_index.invalidate()
         if self.state.search_debounce_timer:
             JobManager.cancel_timer(self.state.search_debounce_timer)
@@ -193,18 +228,31 @@ class DialogLogic:
 
     def trigger_search(self, query: str) -> None:
         """Debounce shallow search and optionally append deep-search results."""
-        self.state.search_query = query
         if self.state.search_debounce_timer:
             JobManager.cancel_timer(self.state.search_debounce_timer)
+        # Cancelling the timer cannot stop a search that already left the
+        # debounce and is listing on a worker. The new ticket is what keeps
+        # that older query from publishing over this one.
+        with self._entries_lock:
+            self.state.search_query = query
+            self._search_seq += 1
+            seq = self._search_seq
         gen = self.state.index_generation
         self.state.search_debounce_timer = JobManager.schedule_timer(
             _SEARCH_DEBOUNCE,
             self._run_search,
-            args=(query, gen),
+            args=(query, gen, seq),
         )
 
-    def _run_search(self, query: str, gen: int) -> None:
-        if gen != self.state.index_generation:
+    def _run_search(self, query: str, gen: int, seq: int) -> None:
+        """List the current folder for *query* and publish the result.
+
+        Runs on a worker once the debounce expires. *gen* and *seq* are the
+        generation and query ticket captured when the query was typed; the
+        result is dropped if either has moved on since. A subfolder search
+        follows when that option is on.
+        """
+        if not self._is_current(gen, seq):
             return
         entries = DirectoryLister.list_directory(
             self.state.current_dir,
@@ -214,17 +262,22 @@ class DialogLogic:
             search_query=query,
             show_dir_size=False,
         )
-        if gen != self.state.index_generation:
+        if not self._publish_local_entries(entries, gen, seq):
             return
-        self._local_entries = entries
-        self.refresh_ui(entries, gen)
 
         if query and self.config.search_subfolders:
-            self._perform_deep_search(query, gen)
+            self._perform_deep_search(query, gen, seq)
 
-    def _perform_deep_search(self, query: str, gen: int) -> None:
+    def _perform_deep_search(self, query: str, gen: int, seq: int) -> None:
+        """Show subfolder index hits for *query* below its local listing.
+
+        Called right after that listing was published, and again by the index
+        build when it finishes for a query typed while it was still running.
+        Does nothing when the index is not ready, covers another folder, or
+        finds nothing the local listing does not already show.
+        """
         if (
-            gen != self.state.index_generation
+            not self._is_current(gen, seq)
             or not self._dir_index.ready
             or self._dir_index.root != self.state.current_dir
         ):
@@ -235,10 +288,11 @@ class DialogLogic:
             dirs_only=(self.config.mode == DialogMode.OPEN_DIRS),
             show_hidden=self.config.show_hidden,
         )
-        if gen != self.state.index_generation:
-            return
-
-        local_paths = {entry.full_path for entry in self._local_entries}
+        # The merge is built outside the lock from one snapshot of the local
+        # listing (the list is replaced, never mutated in place) and shown
+        # only if that snapshot is still the listing of this very query.
+        local_entries = self._local_entries
+        local_paths = {entry.full_path for entry in local_entries}
         extra = [entry for entry in deep_results if entry.full_path not in local_paths]
         if not extra:
             return
@@ -251,7 +305,13 @@ class DialogLogic:
             modified_time=0.0,
             is_hidden=False,
         )
-        self.refresh_ui(list(self._local_entries) + [separator] + extra, gen)
+        merged = list(local_entries) + [separator] + extra
+        with self._entries_lock:
+            # ``_local_seq`` rejects an index replay that ran for a query whose
+            # own listing is still in its debounce; the identity check rejects
+            # a snapshot that was replaced while the merge was being built.
+            if self._is_current(gen, seq) and self._local_seq == seq and self._local_entries is local_entries:
+                self.refresh_ui(merged, gen)
 
     def start_index_build(self) -> None:
         """Build the recursive search index in a cancellable background task."""
@@ -271,9 +331,11 @@ class DialogLogic:
             )
             # A query typed while the index was still building ran its deep
             # search against a not-ready index and got nothing; replay it now.
-            query = self.state.search_query
+            with self._entries_lock:
+                query = self.state.search_query
+                seq = self._search_seq
             if gen == self.state.index_generation and query and root == self.state.current_dir:
-                self._perform_deep_search(query, gen)
+                self._perform_deep_search(query, gen, seq)
 
         JobManager.submit(_build)
 
@@ -294,7 +356,7 @@ class DialogLogic:
                     self.state.size_truncated.add(path)
                 else:
                     self.state.size_truncated.discard(path)
-                self.state.size_cache[path] = (size, time.time())
+                self.state.size_cache[path] = (size, time.monotonic())
                 self.update_size_cell(path, DirectoryLister.format_dir_size(size, truncated))
 
         JobManager.submit(_compute)
@@ -318,7 +380,8 @@ class DialogLogic:
                 self.trigger_search(self.state.search_query)
             return
 
-        self.state.index_generation += 1
+        with self._entries_lock:
+            self.state.index_generation += 1
         self._dir_index.invalidate()
         if self.state.search_debounce_timer:
             JobManager.cancel_timer(self.state.search_debounce_timer)

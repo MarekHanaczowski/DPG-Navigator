@@ -22,7 +22,11 @@ _MAX_WORKERS = 8
 
 
 class TimerTask:
-    """Represents a scheduled timer task."""
+    """A scheduled call waiting in ``JobManager``'s timer heap.
+
+    ``execute_at`` is a ``time.monotonic()`` deadline, not a wall-clock time:
+    compare it only with ``time.monotonic()``.
+    """
 
     def __init__(
         self,
@@ -150,7 +154,7 @@ class JobManager:
                         cls._timer_thread = None
                     break
 
-                now = time.time()
+                now = time.monotonic()
                 next_task = cls._timer_queue[0]
 
                 if next_task.execute_at <= now:
@@ -171,7 +175,7 @@ class JobManager:
         kwargs: dict[str, Any] | None = None,
     ) -> TimerTask:
         """Schedule a function to run after a delay, tracking the timer."""
-        task = TimerTask(time.time() + interval, fn, args or (), kwargs or {})
+        task = TimerTask(time.monotonic() + interval, fn, args or (), kwargs or {})
 
         with cls._lock:
             if cls._shutting_down:
@@ -260,9 +264,9 @@ class JobManager:
             cls._work_queue.put(_Stop(generation))
 
         if wait:
-            deadline = time.time() + timeout
+            deadline = time.monotonic() + timeout
             for worker in workers:
-                remaining = deadline - time.time()
+                remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     break
                 worker.join(remaining)

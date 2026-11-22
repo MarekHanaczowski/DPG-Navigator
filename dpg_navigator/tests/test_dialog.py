@@ -357,7 +357,7 @@ class TestDoubleClickLogic:
 
     @staticmethod
     def _click(dialog: FileDialog, sender: int, now: float) -> bool:
-        with patch("dpg_navigator._dialog.time.time", return_value=now):
+        with patch("dpg_navigator._dialog.time.monotonic", return_value=now):
             return dialog._is_double_click(sender)
 
     def test_threshold_constant(self):
@@ -565,7 +565,8 @@ class TestSizeCacheLogic:
 
         size, stamp = logic.state.size_cache[str(sub)]
         assert size == 8
-        assert time.time() - stamp < FileDialog._SIZE_CACHE_TTL
+        # Stamped on the monotonic clock, the one the listing reads the TTL on.
+        assert 0 <= time.monotonic() - stamp < FileDialog._SIZE_CACHE_TTL
         assert cells == [(str(sub), "8 B")]
 
     def test_empty_dir_caches_zero(self, tmp_path):
@@ -606,7 +607,7 @@ class TestSizeCacheLogic:
         dialog = FileDialog.__new__(FileDialog)
         dialog.state = DialogState()
         dialog.logic = MagicMock()
-        dialog.state.size_cache.update({"/tmp/a": (100, time.time()), "/tmp/b": (200, time.time())})
+        dialog.state.size_cache.update({"/tmp/a": (100, time.monotonic()), "/tmp/b": (200, time.monotonic())})
 
         with (
             patch.object(FileDialog, "_is_dialog_active", return_value=True),
@@ -624,7 +625,7 @@ class TestSizeCacheLogic:
         big = FileEntry("big", "/tmp/big", True, None, 1.0, False)
         small = FileEntry("small", "/tmp/small", True, None, 1.0, False)
         dialog.state.row_entries = {11: small, 12: big}
-        dialog.state.size_cache = {"/tmp/big": (1000, time.time()), "/tmp/small": (10, time.time())}
+        dialog.state.size_cache = {"/tmp/big": (1000, time.monotonic()), "/tmp/small": (10, time.monotonic())}
 
         with patch("dpg_navigator._dialog.dpg") as mock_dpg:
             mock_dpg.get_item_children.side_effect = lambda _item, slot: (

@@ -1079,7 +1079,7 @@ class HTMLRenderer:
         try:
             with open(path, "rb") as f:
                 raw_bytes = f.read(_MAX_HTML_BYTES + 1)
-        except (OSError, PermissionError):
+        except OSError:
             return False
         if len(raw_bytes) > _MAX_HTML_BYTES:
             self._status_text = "File too large for preview"

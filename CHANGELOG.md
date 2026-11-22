@@ -10,8 +10,29 @@ All notable changes to this project will be documented in this file.
   = ">=3.10"`). Python 3.9 reached end of life in October 2025. On 3.9, pip
   keeps installing 1.0.0b7, the last release that supports it.
 
+### Fixed
+
+- A search finishing in the background while the user navigates can no
+  longer replace the new folder's internal listing with the old one. The
+  generation check and the write now happen under one lock, which the
+  generation bumps also take.
+- A slow search for an earlier query can no longer overwrite the results of
+  a later one: every typed query gets a ticket, and only the latest ticket
+  may publish. A subfolder index that finishes during the search debounce no
+  longer shows the new query's subfolder hits under the previous listing.
+- The search and HTML-resize debounce timers are timed with the monotonic
+  clock, so a system clock adjustment (an NTP step or a manual change) can
+  no longer delay them or fire them early. The same goes for the age of
+  the subfolder index, the folder-size cache and double-click detection.
+
 ### Changed
 
+- Listing a folder, building the subfolder index and computing folder sizes
+  read each entry's size, time and hidden flag from the directory scan
+  instead of making two more system calls per entry. On Windows a 5000-file
+  folder lists in about 35 ms instead of 690 ms. The listed size and time
+  are now the directory's own copy, as in Explorer, so a file that is still
+  being written can lag until it is closed.
 - Dev tooling: mypy is pinned to `2.3.*` on every supported Python (the
   separate `1.19.*` pin for 3.9 is gone) and runs on every CI job; ruff
   targets `py310`.

@@ -27,7 +27,7 @@ class DialogState:
 
     selected_files: list[str] = field(default_factory=list)
     selected_elements: list[int] = field(default_factory=list)
-    last_click_time: float = 0.0
+    last_click_time: float = 0.0  # time.monotonic() of the previous click
     last_clicked_element: int | None = None
     focused_row_index: int = -1
 
@@ -47,6 +47,7 @@ class DialogState:
 
     # Async Loading
     size_cache: dict[str, tuple[int | None, float]] = field(default_factory=dict)
+    """Directory path -> ``(size, time.monotonic() when it was computed)``."""
     size_truncated: set[str] = field(default_factory=set)
     """Paths whose cached size is a lower bound (scan hit the depth cap)."""
     pending_size_cells: dict[str, int] = field(default_factory=dict)

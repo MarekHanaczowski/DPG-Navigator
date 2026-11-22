@@ -342,7 +342,7 @@ class DirectoryIndex:
         self._entries: list[FileEntry] = []
         self._root: str = ""
         self._ready: bool = False
-        self._built_at: float = 0.0
+        self._built_at: float = 0.0  # time.monotonic() of the last build
         self._lock = threading.Lock()
 
     # ── public query API ───────────────────────────────────────
@@ -362,7 +362,7 @@ class DirectoryIndex:
         with self._lock:
             if not self._ready:
                 return True
-            return (time.time() - self._built_at) >= ttl
+            return (time.monotonic() - self._built_at) >= ttl
 
     def search(
         self,
@@ -431,7 +431,6 @@ class DirectoryIndex:
         try:
             self._walk(
                 root,
-                root,
                 entries,
                 0,
                 max_depth,
@@ -454,7 +453,7 @@ class DirectoryIndex:
                 return
             self._entries = entries
             self._root = root
-            self._built_at = time.time()
+            self._built_at = time.monotonic()
             self._ready = True
 
     def invalidate(self) -> None:
@@ -468,7 +467,6 @@ class DirectoryIndex:
 
     def _walk(
         self,
-        root: str,
         path: str,
         out: list[FileEntry],
         depth: int,
@@ -485,7 +483,7 @@ class DirectoryIndex:
 
         try:
             scanner = os.scandir(path)
-        except (PermissionError, OSError):
+        except OSError:
             return
 
         subdirs: list[str] = []
@@ -497,25 +495,25 @@ class DirectoryIndex:
                     if not is_dir and not is_file:
                         continue
 
-                    hidden = _platform.is_hidden(item.path)
+                    hidden = _platform.is_hidden_entry(item)
 
                     # Only index contents below the root (not root's own entries —
                     # those are served by the normal list_directory call)
                     if depth > 0:
                         if len(out) >= INDEX_MAX_ENTRIES:
                             raise _IndexFull
+                        # One cached stat for both fields; see
+                        # ``LocalVFSProvider.list_dir`` for the trade-off.
+                        mtime = 0.0
+                        size: int | None = None
                         try:
-                            mtime = item.stat(follow_symlinks=True).st_mtime
+                            st = item.stat(follow_symlinks=True)
                         except OSError:
-                            mtime = 0.0
-                        size: int | None
-                        if is_dir:
-                            size = None
+                            pass
                         else:
-                            try:
-                                size = os.path.getsize(item.path)
-                            except OSError:
-                                size = None
+                            mtime = st.st_mtime
+                            if not is_dir:
+                                size = st.st_size
 
                         out.append(
                             FileEntry(
@@ -534,12 +532,11 @@ class DirectoryIndex:
                     # caller opted into show_hidden.
                     if is_dir and not item.is_symlink() and (show_hidden or not hidden):
                         subdirs.append(item.path)
-                except (OSError, PermissionError):
+                except OSError:
                     continue
 
         for subdir in subdirs:
             self._walk(
-                root,
                 subdir,
                 out,
                 depth + 1,

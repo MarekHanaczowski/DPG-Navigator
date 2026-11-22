@@ -93,7 +93,7 @@ class TestSearchSubfoldersToggle:
             generation=logic.state.index_generation,
             get_generation=lambda: logic.state.index_generation,
         )
-        logic._run_search("needle", logic.state.index_generation)
+        logic._run_search("needle", logic.state.index_generation, logic._search_seq)
         assert any(e.name == "needle.txt" for e in listings[-1])
 
         logic.set_search_subfolders(False)
@@ -125,7 +125,7 @@ class TestSearchSubfoldersToggle:
             generation=logic.state.index_generation,
             get_generation=lambda: logic.state.index_generation,
         )
-        logic._run_search("needle", logic.state.index_generation)
+        logic._run_search("needle", logic.state.index_generation, logic._search_seq)
         assert not any(e.name == "needle.txt" for entries in listings for e in entries)
 
 
@@ -262,7 +262,7 @@ class TestGoUpShortcuts:
     def test_back_double_click_calls_go_up(self):
         dialog = self._dialog()
         sender = 7
-        dialog.state.last_click_time = time.time()
+        dialog.state.last_click_time = time.monotonic()
         dialog.state.last_clicked_element = sender
         with patch("dpg_navigator._dialog.dpg") as mock_dpg, patch("dpg_navigator._dialog._platform") as plat:
             plat.is_mod_key_down.return_value = False

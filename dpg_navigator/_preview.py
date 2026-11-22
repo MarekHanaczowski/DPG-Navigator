@@ -303,7 +303,7 @@ class PreviewPanel:
             if encoding is not None:
                 self._text_encoding = encoding
             return text, is_bin
-        except (OSError, PermissionError):
+        except OSError:
             return None, False
 
     def build_handlers(self, dialog_tag: str, is_active_fn: Callable[[], bool]) -> None:
