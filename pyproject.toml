@@ -172,6 +172,7 @@ skip_covered = true
 include = [
     "dpg_navigator/_preview_*.py",
     "dpg_navigator/_preview_limits.py",
+    "dpg_navigator/_frame_callback.py",
     "dpg_navigator/vfs/*.py",
     "dpg_navigator/dialog/_logic.py",
     "dpg_navigator/dialog/_state.py",

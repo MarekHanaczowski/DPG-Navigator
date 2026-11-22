@@ -91,6 +91,8 @@ Routing and rendering are split:
 
 **Search results are published under one lock.** `DialogLogic._entries_lock` (re-entrant) makes "check that the result is still current, store `_local_entries`, notify the UI" a single step, and the generation bumps take the same lock, so a navigation cannot slip in between. A generation alone does not order two queries typed in the same folder, so every typed query also gets a ticket (`_search_seq`) and only the latest ticket may publish. The lock is never held while listing a directory or searching the index. Lock order is `_entries_lock`, then `FileDialog._ui_lock` — never the reverse.
 
+**Frame polls are armed with `arm_frame_callback()`** (`_frame_callback.py`), never with a bare `dpg.set_frame_callback(dpg.get_frame_count() + 1, ...)`. A callback registered for a frame that has already started never fires, and a self-re-arming poll that misses once is dead. The helper re-reads the frame count after registering and retries further ahead.
+
 ### Shared-resource lifecycle
 
 Themes, Chrome process tracking, the extraction temp dir, and `JobManager` are process-wide, reference-counted by `FileDialog._instance_count`. They are only torn down when the **last** `FileDialog` is destroyed. Individual HTML renders have isolated temporary Chrome sessions that clean themselves up. When touching shared cleanup code, preserve the last-dialog rule.

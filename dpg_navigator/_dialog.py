@@ -34,6 +34,7 @@ from ._filesystem import (
     resolve_archive_selection,
     typed_name_error,
 )
+from ._frame_callback import arm_frame_callback
 from ._icons import IconRegistry
 from ._job_manager import JobManager
 from ._keyboard import KeyboardMixin
@@ -484,7 +485,9 @@ class FileDialog(KeyboardMixin):
             return
         cls._sidebar_poll_armed = True
         try:
-            dpg.set_frame_callback(int(dpg.get_frame_count()) + 1, cls._poll_sidebar_drives)
+            # False when no upcoming frame could be secured: stay unarmed so
+            # the next caller tries again instead of waiting on a dead poll.
+            cls._sidebar_poll_armed = arm_frame_callback(dpg, cls._poll_sidebar_drives)
         except Exception:
             cls._sidebar_poll_armed = False
 

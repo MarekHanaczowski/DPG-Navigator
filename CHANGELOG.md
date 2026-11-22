@@ -24,6 +24,12 @@ All notable changes to this project will be documented in this file.
   clock, so a system clock adjustment (an NTP step or a manual change) can
   no longer delay them or fire them early. The same goes for the age of
   the subfolder index, the folder-size cache and double-click detection.
+- The dialog could stop refreshing for good. Its frame poll re-armed itself
+  for "the next frame" from DearPyGui's callback thread; when that frame had
+  already started, the callback never fired and no listing, sidebar or size
+  update was applied again. The same applied to the HTML preview poll. A
+  registration is now checked against the frame count and repeated for a
+  later frame when it came too late.
 
 ### Changed
 
