@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.0.0b8] - 2026-11-22
+
 ### Removed
 
 - **Python 3.9 support.** The minimum is now Python 3.10 (`requires-python
