@@ -82,12 +82,14 @@ Routing and rendering are split:
 
 ### Concurrency (`_job_manager.py`)
 
-`JobManager` is a static class. `submit()` queues work on a **bounded pool of 8 daemon workers** so a burst of index/size/preview jobs cannot spawn one OS thread per task. `schedule_timer()`/`cancel_timer()` share **one** min-heap timer thread; due timers dispatch into the same pool. `shutdown()` cancels queued jobs, then joins.
+`JobManager` is a static class. `submit()` queues work on a **bounded pool of 8 daemon workers** so a burst of index/size/preview jobs cannot spawn one OS thread per task. `schedule_timer()`/`cancel_timer()` share **one** min-heap timer thread; due timers dispatch into the same pool. Timer deadlines are `time.monotonic()` values, never wall-clock. `shutdown()` cancels queued jobs, then joins.
 
 **DPG is single-threaded.** Two invariants follow:
 
 1. Background workers must not call DearPyGui at all. Listing, size, sidebar, HTML render, and HTML resize results are stored as plain Python state. HTML results are applied by a `set_frame_callback` poll while holding `dpg.mutex()` because DPG dispatches frame callbacks on its callback thread; DearPyGui 2.2 fixes the older mutex/GIL inversion and is the minimum supported version. A worker taking `dpg.mutex()` directly is still forbidden.
 2. Stale-result cancellation uses **generation counters** on `DialogState` (`bg_generation`, `index_generation`). A background task captures the counter value when it starts and bails if it no longer matches — navigating away or refreshing bumps the counter.
+
+**Search results are published under one lock.** `DialogLogic._entries_lock` (re-entrant) makes "check that the result is still current, store `_local_entries`, notify the UI" a single step, and the generation bumps take the same lock, so a navigation cannot slip in between. A generation alone does not order two queries typed in the same folder, so every typed query also gets a ticket (`_search_seq`) and only the latest ticket may publish. The lock is never held while listing a directory or searching the index. Lock order is `_entries_lock`, then `FileDialog._ui_lock` — never the reverse.
 
 ### Shared-resource lifecycle
 

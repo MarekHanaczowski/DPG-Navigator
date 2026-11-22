@@ -22,7 +22,11 @@ _MAX_WORKERS = 8
 
 
 class TimerTask:
-    """Represents a scheduled timer task."""
+    """A scheduled call waiting in ``JobManager``'s timer heap.
+
+    ``execute_at`` is a ``time.monotonic()`` deadline, not a wall-clock time:
+    compare it only with ``time.monotonic()``.
+    """
 
     def __init__(
         self,

@@ -20,6 +20,9 @@ All notable changes to this project will be documented in this file.
   a later one: every typed query gets a ticket, and only the latest ticket
   may publish. A subfolder index that finishes during the search debounce no
   longer shows the new query's subfolder hits under the previous listing.
+- The search and HTML-resize debounce timers are timed with the monotonic
+  clock, so a system clock adjustment (an NTP step or a manual change) can
+  no longer delay them or fire them early.
 
 ### Changed
 

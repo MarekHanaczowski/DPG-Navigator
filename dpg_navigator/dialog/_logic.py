@@ -245,6 +245,13 @@ class DialogLogic:
         )
 
     def _run_search(self, query: str, gen: int, seq: int) -> None:
+        """List the current folder for *query* and publish the result.
+
+        Runs on a worker once the debounce expires. *gen* and *seq* are the
+        generation and query ticket captured when the query was typed; the
+        result is dropped if either has moved on since. A subfolder search
+        follows when that option is on.
+        """
         if not self._is_current(gen, seq):
             return
         entries = DirectoryLister.list_directory(
@@ -262,6 +269,13 @@ class DialogLogic:
             self._perform_deep_search(query, gen, seq)
 
     def _perform_deep_search(self, query: str, gen: int, seq: int) -> None:
+        """Show subfolder index hits for *query* below its local listing.
+
+        Called right after that listing was published, and again by the index
+        build when it finishes for a query typed while it was still running.
+        Does nothing when the index is not ready, covers another folder, or
+        finds nothing the local listing does not already show.
+        """
         if (
             not self._is_current(gen, seq)
             or not self._dir_index.ready
