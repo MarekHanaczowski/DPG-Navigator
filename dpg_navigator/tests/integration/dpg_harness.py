@@ -31,6 +31,15 @@ def wait_until(predicate, timeout: float = 20.0, interval: float = 0.05) -> bool
     return False
 
 
+def show_preview(dialog: FileDialog, entry: FileEntry, timeout: float = 20.0) -> None:
+    """Select *entry* in the preview and pump frames until its load is applied.
+
+    Preview files load on a worker; the widgets appear on a later frame.
+    """
+    dialog._preview.update(entry)
+    assert wait_until(lambda: not dialog._preview.has_pending(), timeout=timeout), "preview load never applied"
+
+
 def make_dialog(tmp_path, **kwargs) -> FileDialog:
     defaults = {
         "default_path": str(tmp_path),

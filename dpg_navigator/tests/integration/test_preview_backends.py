@@ -18,7 +18,7 @@ from dpg_navigator._html import _CHROME_TIMEOUT, chrome_available
 from dpg_navigator._preview_registry import PreviewKind
 from dpg_navigator._preview_word import word_available
 
-from .dpg_harness import entry_named, make_dialog, pump, wait_until
+from .dpg_harness import entry_named, make_dialog, pump, show_preview, wait_until
 
 pytestmark = pytest.mark.integration
 
@@ -50,7 +50,7 @@ class TestPreviewAndListingPollsCoexist:
         try:
             dialog.show()
             pump()
-            dialog._preview.update(entry_named(dialog, "readme.md"))
+            show_preview(dialog, entry_named(dialog, "readme.md"))
             html = _document_renderer(dialog, PreviewKind.MARKDOWN)._html
             assert html is not None
             assert wait_until(lambda: not html.is_rendering, timeout=_HTML_RENDER_WAIT), "preview never finished"
@@ -79,7 +79,7 @@ class TestChromeHtmlPreview:
         try:
             dialog.show()
             pump()
-            dialog._preview.update(entry_named(dialog, "page.html"))
+            show_preview(dialog, entry_named(dialog, "page.html"))
             html = _document_renderer(dialog)._html
             assert html is not None
             assert wait_until(lambda: not html.is_rendering, timeout=_HTML_RENDER_WAIT)
@@ -105,9 +105,8 @@ class TestChromeHtmlPreview:
             safe.show()
             trusted.show()
             pump()
-            entry = entry_named(safe, "page.html")
-            safe._preview.update(entry)
-            trusted._preview.update(entry_named(trusted, "page.html"))
+            show_preview(safe, entry_named(safe, "page.html"))
+            show_preview(trusted, entry_named(trusted, "page.html"))
             safe_html = _document_renderer(safe)._html
             trusted_html = _document_renderer(trusted)._html
             assert safe_html is not None and trusted_html is not None
@@ -147,7 +146,7 @@ class TestChromeHtmlPreview:
         try:
             dialog.show()
             pump()
-            dialog._preview.update(entry_named(dialog, "page.html"))
+            show_preview(dialog, entry_named(dialog, "page.html"))
             html = _document_renderer(dialog)._html
             assert html is not None
             assert wait_until(lambda: not html.is_rendering, timeout=_HTML_RENDER_WAIT)
@@ -170,8 +169,8 @@ class TestChromeHtmlPreview:
             first.show()
             second.show()
             pump()
-            first._preview.update(entry_named(first, "one.html"))
-            second._preview.update(entry_named(second, "two.html"))
+            show_preview(first, entry_named(first, "one.html"))
+            show_preview(second, entry_named(second, "two.html"))
             first_html = _document_renderer(first)._html
             second_html = _document_renderer(second)._html
             assert first_html is not None and second_html is not None
@@ -195,7 +194,7 @@ class TestChromeHtmlPreview:
         try:
             dialog.show()
             pump()
-            dialog._preview.update(entry_named(dialog, "page.html"))
+            show_preview(dialog, entry_named(dialog, "page.html"))
             html = _document_renderer(dialog)._html
             assert html is not None
             html._on_resize_complete = late_callback
@@ -230,7 +229,7 @@ class TestWordPreviewSwitch:
             dialog.show()
             pump()
             with patch("dpg_navigator.renderers.document.chrome_available", return_value=False):
-                dialog._preview.update(entry_named(dialog, "note.docx"))
+                show_preview(dialog, entry_named(dialog, "note.docx"))
             pump()
             renderer = _document_renderer(dialog, PreviewKind.WORD)
             assert renderer._html is None or not renderer._html.is_open
@@ -251,7 +250,7 @@ class TestWordPreviewSwitch:
         try:
             dialog.show()
             pump()
-            dialog._preview.update(entry_named(dialog, "note.docx"))
+            show_preview(dialog, entry_named(dialog, "note.docx"))
             renderer = _document_renderer(dialog, PreviewKind.WORD)
             html = renderer._html
             if html is None:

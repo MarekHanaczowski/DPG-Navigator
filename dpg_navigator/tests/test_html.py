@@ -384,6 +384,58 @@ class TestOpenPolicyAndLimits:
         assert "large" in renderer.status_text.lower()
 
 
+class TestPreparedHtml:
+    """The worker-side half of HTML preview: read + sanitize, no DPG."""
+
+    def test_prepare_file_is_safe_by_default(self, tmp_path):
+        page = tmp_path / "page.html"
+        page.write_text("<script>x()</script><p>hi</p>", encoding="utf-8")
+        prepared = htmlmod.prepare_html_file(str(page))
+        assert prepared.content is not None and prepared.error == ""
+        assert prepared.path == str(page)
+        assert prepared.trusted is False
+        assert "<script" not in prepared.content
+
+    def test_prepare_file_reports_missing_and_oversized(self, tmp_path):
+        assert htmlmod.prepare_html_file(str(tmp_path / "nope.html")).error == "Cannot read file"
+        big = tmp_path / "big.html"
+        big.write_bytes(b"x" * (htmlmod._MAX_HTML_BYTES + 1))
+        prepared = htmlmod.prepare_html_file(str(big))
+        assert prepared.content is None
+        assert prepared.error == "File too large for preview"
+
+    def test_prepare_string_rejects_oversized(self):
+        prepared = htmlmod.prepare_html_string("x" * (htmlmod._MAX_HTML_BYTES + 10))
+        assert prepared.content is None
+        assert prepared.error == "Content too large for preview"
+
+    def test_prepare_does_not_touch_dpg(self, tmp_path, mock_html_dpg):
+        page = tmp_path / "page.html"
+        page.write_text("<p>hi</p>", encoding="utf-8")
+        mock_html_dpg.reset_mock()
+        htmlmod.prepare_html_file(str(page), trusted=True)
+        htmlmod.prepare_html_string("<p>hi</p>", wrapper_class="md-wrapper")
+        assert mock_html_dpg.mock_calls == []
+
+    def test_open_prepared_failure_shows_the_reason(self):
+        renderer = HTMLRenderer("test")
+        failed = htmlmod.PreparedHTML(None, error="Cannot read file")
+        with patch.object(renderer, "_recreate_texture"), patch.object(renderer, "_start_render") as start:
+            assert renderer.open_prepared(failed, 100, 100) is False
+        start.assert_not_called()
+        assert renderer.status_text == "Cannot read file"
+
+    def test_open_prepared_starts_the_render(self):
+        renderer = HTMLRenderer("test")
+        prepared = htmlmod.PreparedHTML("<p>x</p>", path="a.html", trusted=True)
+        done = MagicMock()
+        with patch.object(renderer, "_recreate_texture"), patch.object(renderer, "_start_render") as start:
+            assert renderer.open_prepared(prepared, 100, 100, on_complete=done)
+        start.assert_called_once()
+        assert renderer._html_content == "<p>x</p>"
+        assert renderer._trusted is True
+
+
 class TestRenderQualityHelpers:
     def test_auto_trim_reduces_a_truly_blank_document(self):
         image = pytest.importorskip("PIL.Image")

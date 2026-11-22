@@ -203,6 +203,43 @@ class TestStaleRegistration:
         assert calls == []
         assert dpg.registered == [11, 12]
 
+    def test_dearpygui_is_never_called_under_the_helpers_lock(self):
+        """Every DearPyGui call takes DPG's mutex. A frame poll can hold that
+        mutex and arm a callback while another thread arms one too, so the
+        helper's lock must not be held across a DearPyGui call."""
+        held: list[str] = []
+
+        class _CheckingDpg(_FakeDpg):
+            def get_frame_count(self) -> int:
+                if _frame_callback._lock.locked():
+                    held.append("get_frame_count")
+                return super().get_frame_count()
+
+            def set_frame_callback(self, frame: int, callback: object) -> None:
+                if _frame_callback._lock.locked():
+                    held.append("set_frame_callback")
+                super().set_frame_callback(frame, callback)
+
+        dpg = _CheckingDpg(jumps=[1])
+        assert arm_frame_callback(dpg, lambda: None) is True
+        assert arm_frame_callback(dpg, lambda: None) is True
+        dpg.render_frame()
+        assert held == []
+
+    def test_a_failed_registration_does_not_forget_another_threads(self):
+        """Arming outside the lock: a call that secured no frame must not
+        clear a target that another call registered in the meantime."""
+        dpg = _FakeDpg(start=10)
+
+        def racing_register(fake):
+            _frame_callback._target = 11  # another thread registered frame 11
+            fake.slots[11] = _frame_callback._dispatch
+            return None  # ...while this call's attempts were all overtaken
+
+        with patch.object(_frame_callback, "_register", side_effect=racing_register):
+            assert arm_frame_callback(dpg, lambda: None) is False
+        assert _frame_callback._target == 11
+
 
 class TestPollsUseTheSharedPump:
     """The dialog poll and the HTML preview poll must not register frames

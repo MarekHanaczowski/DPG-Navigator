@@ -37,19 +37,34 @@ def arm_frame_callback(dpg: Any, callback: Callable[[], Any]) -> bool:
 
     *dpg* is the ``dearpygui.dearpygui`` module, passed in so the caller's
     own (possibly mocked) reference is the one used.
+
+    ``_lock`` is a leaf lock: DearPyGui is never called while it is held.
+    Every DearPyGui call takes DearPyGui's own mutex, and a caller may
+    already hold that mutex (a frame poll applying results under
+    ``dpg.mutex()``) while another thread waits here. Calling DearPyGui
+    under ``_lock`` would invert that order and deadlock both threads.
     """
     global _target
     with _lock:
         if callback not in _pending:
             _pending.append(callback)
-        frame = int(dpg.get_frame_count())
-        # A registration is trusted only while its frame is still ahead and
-        # near: a passed frame has been dispatched (or lost), and a far one
-        # belongs to a DearPyGui context that no longer exists.
-        if _target is not None and frame < _target <= frame + max(_LEADS):
-            return True
-        _target = _register(dpg)
-        return _target is not None
+        target = _target
+    # The frame is read after the callback is queued: if a dispatch drained
+    # the queue before it, that dispatch's frame has started and the check
+    # below fails, so the callback gets a fresh registration.
+    frame = int(dpg.get_frame_count())
+    # A registration is trusted only while its frame is still ahead and
+    # near: a passed frame has been dispatched (or lost), and a far one
+    # belongs to a DearPyGui context that no longer exists.
+    if target is not None and frame < target <= frame + max(_LEADS):
+        return True
+    registered = _register(dpg)
+    with _lock:
+        # Another thread may have registered meanwhile. Both registrations
+        # dispatch, so keep whichever one this call secured, or the other's.
+        if registered is not None or _target == target:
+            _target = registered
+    return registered is not None
 
 
 def _register(dpg: Any) -> int | None:

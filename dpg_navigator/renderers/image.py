@@ -20,11 +20,12 @@ from .._preview_limits import (
     PreviewLimitError,
     assert_image_within_limits,
     exceeds_bytes,
+    fast_rgba_conversion,
     load_preview_rgba,
     probe_image_size,
 )
 from .._types import FileEntry
-from ._base import BaseRenderer, PreviewContext
+from ._base import BackgroundRenderer, PreviewContext, PreviewFinish, PreviewJob, run_preview_job
 
 _PILImage: OptionalModule | None
 try:
@@ -102,7 +103,7 @@ def zoom_offset_to_cursor(
     )
 
 
-class ImageRenderer(BaseRenderer):
+class ImageRenderer(BackgroundRenderer):
     """Fit a raster into the preview pane and let the user zoom and pan it.
 
     STB (via ``dpg.load_image``) is used for common formats; Pillow covers
@@ -201,60 +202,82 @@ class ImageRenderer(BaseRenderer):
 
     def render(self, entry: FileEntry, ctx: PreviewContext) -> None:
         """Load *entry* and show it fitted to the pane (zoom and pan reset)."""
-        if ctx.panel_id is None:
-            return
+        run_preview_job(self.prepare(entry, ctx))
+
+    def prepare(self, entry: FileEntry, ctx: PreviewContext) -> PreviewJob:
+        """Return the worker job that checks limits and decodes the picture.
+
+        Pillow decodes on the worker. Without Pillow, STB formats fall back
+        to ``dpg.load_image`` in the finish step, because DearPyGui must not
+        be called from a worker.
+        """
+        return lambda: self._decode(entry, ctx)
+
+    def _decode(self, entry: FileEntry, ctx: PreviewContext) -> PreviewFinish:
+        """Worker: size gates, then a Pillow decode (no DearPyGui calls)."""
+
+        def error(message: str, detail: str) -> PreviewFinish:
+            return lambda: ctx.show_error(message, detail)
 
         try:
             if exceeds_bytes(entry.full_path, self._MAX_IMAGE_BYTES):
-                ctx.show_error("Preview unavailable", "File too large for preview")
-                return
+                return error("Preview unavailable", "File too large for preview")
         except OSError as exc:
-            ctx.show_error("Failed to load image", str(exc))
-            return
+            return error("Failed to load image", str(exc))
 
         ext = os.path.splitext(entry.name)[1].lower()
-        use_pillow = ext not in self._STB_IMAGE_EXTS
+        is_stb = ext in self._STB_IMAGE_EXTS
 
         try:
             probed = probe_image_size(entry.full_path)
             if probed is not None:
                 assert_image_within_limits(*probed)
-            elif not use_pillow:
-                if _PILImage is None:
-                    ctx.show_error("Preview unavailable", "Cannot determine image dimensions")
-                    return
-                use_pillow = True
+            elif is_stb and _PILImage is None:
+                return error("Preview unavailable", "Cannot determine image dimensions")
         except PreviewLimitError as exc:
-            ctx.show_error("Preview unavailable", str(exc))
-            return
+            return error("Preview unavailable", str(exc))
 
-        if use_pillow:
+        if is_stb and (_PILImage is None or not fast_rgba_conversion()):
+            # Without NumPy, Pillow's float conversion is a per-byte Python
+            # loop, far slower than STB even on the DearPyGui thread.
+            return lambda: self._show_with_stb(entry, ctx)
+        try:
+            img_w, img_h, data = self.load_image_pillow(entry.full_path)
+        except Exception as e:
+            if is_stb and probed is not None:
+                # STB reads a few variants Pillow rejects; try it on the DPG thread.
+                return lambda: self._show_with_stb(entry, ctx)
+            return error("Preview failed", str(e))
+        return lambda: self._show(ctx, img_w, img_h, data)
+
+    def _show_with_stb(self, entry: FileEntry, ctx: PreviewContext) -> None:
+        """Finish: decode with DearPyGui's STB loader (DPG thread only)."""
+        ext = os.path.splitext(entry.name)[1].lower()
+        try:
+            img_w, img_h, _, data = dpg.load_image(entry.full_path)
+        except Exception:
             try:
-                img_w, img_h, data = self.load_image_pillow(entry.full_path)
-            except Exception as e:
-                ctx.show_error("Preview failed", str(e))
-                return
-        else:
-            try:
-                img_w, img_h, _, data = dpg.load_image(entry.full_path)
-            except Exception:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+                    tmp_path = tmp.name
                 try:
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
-                        tmp_path = tmp.name
+                    import shutil
+
+                    shutil.copy2(entry.full_path, tmp_path)
+                    img_w, img_h, _, data = dpg.load_image(tmp_path)
+                finally:
                     try:
-                        import shutil
+                        os.unlink(tmp_path)
+                    except OSError:
+                        pass
+            except Exception as e:
+                ctx.show_error("Failed to load image", str(e))
+                return
+        self._show(ctx, img_w, img_h, data)
 
-                        shutil.copy2(entry.full_path, tmp_path)
-                        img_w, img_h, _, data = dpg.load_image(tmp_path)
-                    finally:
-                        try:
-                            os.unlink(tmp_path)
-                        except OSError:
-                            pass
-                except Exception as e:
-                    ctx.show_error("Failed to load image", str(e))
-                    return
-
+    def _show(self, ctx: PreviewContext, img_w: int, img_h: int, data: Any) -> None:
+        """Finish: upload the texture and draw it fitted to the pane."""
+        if ctx.panel_id is None:
+            return
         tex_tag = f"_preview_tex_{ctx.config_tag}"
         if dpg.does_item_exist(tex_tag):
             dpg.delete_item(tex_tag)

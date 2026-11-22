@@ -1,4 +1,12 @@
-"""Base interfaces for modular preview renderers."""
+"""Base interfaces for modular preview renderers.
+
+Slow previews load in two steps. ``prepare(entry, ctx)`` runs on the
+DearPyGui thread, reads whatever it needs from DPG (panel size) and
+returns a ``PreviewJob``. The job runs on a worker thread, must not call
+DearPyGui, and returns a ``PreviewFinish``. The finish runs back on the
+DearPyGui thread and builds the widgets. ``render()`` runs the three steps
+in a row for callers that want a synchronous preview.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +17,21 @@ import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
 from .._preview_registry import PreviewCapabilities
 from .._types import FileEntry
+
+PreviewFinish = Callable[[], None]
+"""Builds the preview widgets. Runs on the DearPyGui thread."""
+
+PreviewJob = Callable[[], PreviewFinish]
+"""Loads and parses a file. Runs on a worker thread; never calls DearPyGui."""
+
+
+def run_preview_job(job: PreviewJob) -> None:
+    """Run *job* and its finish step on the calling thread."""
+    job()()
+
+
+def _run_now(label: str, job: PreviewJob) -> None:
+    run_preview_job(job)
 
 
 class PreviewContext:
@@ -31,6 +54,12 @@ class PreviewContext:
         # Callbacks injected by the panel
         self.on_clear: Callable[[], None] = lambda: None
         self.on_show_error: Callable[[str, str], None] = lambda m, d: None
+        # Runs a follow-up load inside the current preview (another sheet,
+        # another table, an archive member) off the DearPyGui thread. The
+        # finish step runs as-is, without the panel clearing first. *label*
+        # names the item in the "Loading ..." placeholder. The default runs
+        # the job synchronously; PreviewPanel injects its background loader.
+        self.run_in_background: Callable[[str, PreviewJob], None] = _run_now
 
         # State shared across renderers, e.g. text pagination or images
         self.image_cache: tuple[int, int, int | str] | None = None
@@ -55,6 +84,14 @@ class BaseRenderer(Protocol):
 
     def clear(self) -> None:
         """Clear any state held by this renderer."""
+        ...
+
+
+class BackgroundRenderer(BaseRenderer, Protocol):
+    """A renderer whose file loading can run off the DearPyGui thread."""
+
+    def prepare(self, entry: FileEntry, ctx: PreviewContext) -> PreviewJob:
+        """Capture DPG-side inputs and return the worker job (DPG thread)."""
         ...
 
 

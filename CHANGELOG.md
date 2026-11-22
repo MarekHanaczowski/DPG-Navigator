@@ -6,8 +6,32 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- **Previews load in the background.** Selecting a large image, a Word
+  document, a presentation with pictures, Markdown, HTML, a spreadsheet, a
+  SQLite database or an archive no longer freezes the dialog while the file
+  is read and parsed. The file is decoded on a worker; only the widgets are
+  created on the DearPyGui thread. Before, a 12 MP photo held the dialog for
+  about 1 s and a PowerPoint deck with images for about 2.5 s.
+- While a preview loads, the previous one stays on screen. If loading takes
+  longer than 0.1 s, the panel shows "Loading <name>...". When files are
+  selected quickly one after another, only the last one is loaded.
+- Switching the Excel sheet or SQLite table, and opening a file inside an
+  archive, also load in the background.
+- PowerPoint pictures are decoded at the width they are shown at, instead
+  of at full size, which uses less memory.
 - Dev tooling: mypy is pinned to `2.4.*` (was `2.3.*`). The package type
   checks clean under 2.4 without code changes.
+
+### Fixed
+
+- The textures of PowerPoint pictures were not freed when the preview was
+  cleared.
+- Arming a frame poll could deadlock the application. The shared frame
+  pump held its own lock while calling DearPyGui, which waits for
+  DearPyGui's mutex. A poll that already held that mutex and armed another
+  poll at the same time (for example, an HTML preview being applied while
+  the application resized it or called `show()`) waited for the same lock.
+  The pump no longer calls DearPyGui while holding its lock.
 
 ## [1.0.0b8] - 2026-11-22
 

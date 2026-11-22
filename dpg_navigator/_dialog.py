@@ -234,6 +234,8 @@ class FileDialog(KeyboardMixin):
                 preview_width=self._config.preview_width,
                 show=self._config.show_preview,
             )
+            # Preview files load on a worker; the frame pump applies them.
+            self._preview.set_notifier(self._schedule_ui_poll)
 
             # Initialize icons
             images_dir = os.path.join(os.path.dirname(__file__), "images")
@@ -509,9 +511,21 @@ class FileDialog(KeyboardMixin):
                 return
             dpg.configure_item(self._path_input, default_value=path)
 
+    def _apply_pending_preview(self) -> None:
+        """Apply a finished background preview load. Must run on the DPG thread."""
+        preview = getattr(self, "_preview", None)
+        if self._destroyed or preview is None or not preview.has_pending():
+            return
+        with dpg.mutex():
+            if self._destroyed:
+                return
+            preview.apply_pending()
+
     def _has_pending_ui(self) -> bool:
+        preview = getattr(self, "_preview", None)
         return bool(
-            self._awaiting_sidebar_drives
+            (preview is not None and preview.has_pending())
+            or self._awaiting_sidebar_drives
             or getattr(self, "_pending_listing", None) is not None
             or getattr(getattr(self, "state", None), "row_backlog", None) is not None
             or getattr(self, "_pending_sidebar_drives", None) is not None
@@ -554,6 +568,7 @@ class FileDialog(KeyboardMixin):
                 dialog._apply_pending_sidebar_drives()
                 dialog._apply_pending_size_cells()
                 dialog._apply_pending_path_input()
+                dialog._apply_pending_preview()
             except Exception:
                 _log.exception("FileDialog UI poll failed for %s", getattr(dialog._config, "tag", "?"))
             if not dialog._destroyed and dialog._has_pending_ui():

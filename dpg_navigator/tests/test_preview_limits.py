@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import io
 import struct
 import zipfile
 from unittest.mock import patch
@@ -143,6 +144,16 @@ class TestImageLimits:
         blob = path.read_bytes()
         dec_w, dec_h, _dec = decode_preview_rgba_bytes(blob)
         assert (dec_w, dec_h) == (4, 3)
+
+    def test_decode_shrinks_to_max_width_keeping_aspect(self):
+        image = pytest.importorskip("PIL.Image")
+        buf = io.BytesIO()
+        image.new("RGB", (400, 100), (0, 0, 255)).save(buf, "PNG")
+        width, height, data = decode_preview_rgba_bytes(buf.getvalue(), max_width=100)
+        assert (width, height) == (100, 25)
+        assert len(data) == 100 * 25 * 4
+        # A narrower image is never upscaled.
+        assert decode_preview_rgba_bytes(buf.getvalue(), max_width=1000)[:2] == (400, 100)
 
     def test_decode_rejects_header_bomb(self):
         with pytest.raises(PreviewLimitError):

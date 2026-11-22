@@ -155,8 +155,12 @@ def load_preview_rgba(path: str) -> tuple[int, int, Any]:
         return _rgba_to_float(rgba)
 
 
-def decode_preview_rgba_bytes(blob: bytes) -> tuple[int, int, Any]:
-    """Decode an embedded image blob with the same pixel gate as file images."""
+def decode_preview_rgba_bytes(blob: bytes, *, max_width: int | None = None) -> tuple[int, int, Any]:
+    """Decode an embedded image blob with the same pixel gate as file images.
+
+    *max_width* additionally shrinks a wider image (aspect ratio kept), so a
+    caller that shows it at a known width does not upload a full-size texture.
+    """
     header = read_image_header_bytes(blob)
     if header is not None:
         assert_image_within_limits(*header)
@@ -165,8 +169,11 @@ def decode_preview_rgba_bytes(blob: bytes) -> tuple[int, int, Any]:
     with _PILImage.open(io.BytesIO(blob)) as image:
         if header is None:
             assert_image_within_limits(int(image.size[0]), int(image.size[1]))
-        if image.size[0] > IMAGE_PREVIEW_MAX_DIMENSION or image.size[1] > IMAGE_PREVIEW_MAX_DIMENSION:
-            image.thumbnail((IMAGE_PREVIEW_MAX_DIMENSION, IMAGE_PREVIEW_MAX_DIMENSION))
+        box_w = (
+            IMAGE_PREVIEW_MAX_DIMENSION if max_width is None else max(1, min(max_width, IMAGE_PREVIEW_MAX_DIMENSION))
+        )
+        if image.size[0] > box_w or image.size[1] > IMAGE_PREVIEW_MAX_DIMENSION:
+            image.thumbnail((box_w, IMAGE_PREVIEW_MAX_DIMENSION))
         rgba = image.convert("RGBA") if image.mode != "RGBA" else image
         return _rgba_to_float(rgba)
 
@@ -241,6 +248,11 @@ def is_safe_data_image(value: str) -> bool:
     except PreviewLimitError:
         return False
     return True
+
+
+def fast_rgba_conversion() -> bool:
+    """True when NumPy converts decoded pixels; without it, conversion is a slow Python loop."""
+    return _np is not None
 
 
 def _rgba_to_float(rgba: Any) -> tuple[int, int, Any]:
