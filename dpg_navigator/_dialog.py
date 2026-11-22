@@ -34,7 +34,7 @@ from ._filesystem import (
     resolve_archive_selection,
     typed_name_error,
 )
-from ._frame_callback import arm_frame_callback
+from ._frame_callback import arm_frame_callback, reset_frame_callbacks
 from ._icons import IconRegistry
 from ._job_manager import JobManager
 from ._keyboard import KeyboardMixin
@@ -660,6 +660,7 @@ class FileDialog(KeyboardMixin):
                     setattr(FileDialog, attr, None)
                 FileDialog._instance_count = 0
                 FileDialog._sidebar_poll_armed = False
+                reset_frame_callbacks()
 
     def change_callback(self, callback: SelectionCallback) -> None:
         """Change the callback function. Does NOT modify the OK button directly."""

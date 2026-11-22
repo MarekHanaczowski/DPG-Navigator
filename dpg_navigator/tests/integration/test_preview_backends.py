@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 import dearpygui.dearpygui as dpg
 import pytest
 
+from dpg_navigator._availability import markdown_available
 from dpg_navigator._html import _CHROME_TIMEOUT, chrome_available
 from dpg_navigator._preview_registry import PreviewKind
 from dpg_navigator._preview_word import word_available
@@ -28,6 +29,42 @@ _HTML_RENDER_WAIT = _CHROME_TIMEOUT + 15.0
 
 def _document_renderer(dialog, kind=PreviewKind.HTML):
     return dialog._preview._renderers[kind]
+
+
+class TestPreviewAndListingPollsCoexist:
+    """The HTML preview poll and the dialog's listing poll both need a frame
+    callback every frame, and DearPyGui keeps one callback per frame. When
+    each registered its own, one of them starved: either the preview stayed
+    on "Rendering..." or the listing stopped updating."""
+
+    def test_markdown_preview_finishes_and_the_listing_still_updates(self, dpg_viewport, tmp_path):
+        if not chrome_available():
+            pytest.skip("Chrome/Chromium not resolvable")
+        if not markdown_available():
+            pytest.skip("markdown backend not installed")
+        (tmp_path / "readme.md").write_text("# Title\n\nSome **bold** text.\n", encoding="utf-8")
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        (sub / "inner.txt").write_text("x", encoding="utf-8")
+        dialog = make_dialog(tmp_path)
+        try:
+            dialog.show()
+            pump()
+            dialog._preview.update(entry_named(dialog, "readme.md"))
+            html = _document_renderer(dialog, PreviewKind.MARKDOWN)._html
+            assert html is not None
+            assert wait_until(lambda: not html.is_rendering, timeout=_HTML_RENDER_WAIT), "preview never finished"
+            assert "fail" not in html.status_text.lower()
+            assert html.tex_id is not None
+
+            dialog.logic.navigate_to(str(sub))
+            assert wait_until(
+                lambda: [entry.name for entry in dialog.state.row_entries.values()] == ["inner.txt"],
+                timeout=10.0,
+            ), "listing was not applied after a preview render"
+        finally:
+            dialog.destroy()
+            pump()
 
 
 class TestChromeHtmlPreview:

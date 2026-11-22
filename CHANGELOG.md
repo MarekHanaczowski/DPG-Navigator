@@ -30,6 +30,11 @@ All notable changes to this project will be documented in this file.
   update was applied again. The same applied to the HTML preview poll. A
   registration is now checked against the frame count and repeated for a
   later frame when it came too late.
+- Markdown, HTML and Word previews could stay on "Rendering..." forever, or
+  the file list could stop updating after such a preview. The preview poll
+  and the dialog's own poll each registered a callback for the next frame,
+  and DearPyGui keeps only one callback per frame, so one of them was never
+  called again. Both now share a single frame callback.
 
 ### Changed
 
