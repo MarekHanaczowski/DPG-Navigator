@@ -8,7 +8,7 @@
 # pip: runtime dependencies in pyproject.toml use lower bounds (>=) so users
 #   are not boxed in; Dependabot raises those floors only when a security
 #   advisory or a needed feature justifies it. Dev tools are pinned to a
-#   minor series ("ruff==0.17.*", "mypy==2.3.*") so a new lint rule or
+#   minor series ("ruff==0.17.*", "mypy==2.4.*") so a new lint rule or
 #   formatter change cannot break CI on an unrelated PR. Dependabot proposes
 #   each new minor as one grouped PR; merge it together with any code fixes
 #   the new tool version requires, after the CI run on that PR is green.
