@@ -82,7 +82,7 @@ class LocalVFSProvider(VFSProvider):
         entries: list[FileEntry] = []
         try:
             scanner = os.scandir(path)
-        except (PermissionError, OSError) as e:
+        except OSError as e:
             _log.debug("Failed to list directory %s: %s", path, e)
             return entries
 
@@ -129,7 +129,7 @@ class LocalVFSProvider(VFSProvider):
                             is_hidden=hidden,
                         )
                     )
-                except (OSError, PermissionError):
+                except OSError:
                     continue
 
         entries.sort(key=lambda e: (not e.is_dir, e.name.lower()))

@@ -13,7 +13,6 @@ import pytest
 from dpg_navigator._platform import (
     _INVALID_FILE_ATTRIBUTES,
     get_drives,
-    get_file_time,
     get_special_dirs,
     is_hidden,
     is_hidden_entry,
@@ -82,43 +81,6 @@ class TestIsHidden:
         finally:
             # Remove hidden attribute
             ctypes.windll.kernel32.SetFileAttributesW(str(f), 0)
-
-
-# ── get_file_time ───────────────────────────────────────────────
-
-
-class TestGetFileTime:
-    def test_returns_float(self, tmp_path):
-        f = tmp_path / "test.txt"
-        f.write_text("hello")
-        result = get_file_time(str(f))
-        assert isinstance(result, float)
-
-    def test_positive_value(self, tmp_path):
-        f = tmp_path / "test.txt"
-        f.write_text("hello")
-        result = get_file_time(str(f))
-        assert result > 0
-
-    def test_recent_file_time(self, tmp_path):
-        """Newly created file should have a recent modification time."""
-        import time
-
-        f = tmp_path / "new.txt"
-        f.write_text("data")
-        result = get_file_time(str(f))
-        assert abs(result - time.time()) < 5  # within 5 seconds
-
-    def test_directory_time(self, tmp_path):
-        d = tmp_path / "mydir"
-        d.mkdir()
-        result = get_file_time(str(d))
-        assert isinstance(result, float)
-        assert result > 0
-
-    def test_nonexistent_raises(self, tmp_path):
-        with pytest.raises(OSError):
-            get_file_time(str(tmp_path / "nonexistent"))
 
 
 # ── get_special_dirs ────────────────────────────────────────────

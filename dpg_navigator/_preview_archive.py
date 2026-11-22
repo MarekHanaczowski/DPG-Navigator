@@ -143,7 +143,7 @@ def load_7z_table(path: str, max_rows: int) -> ArchiveTable:
                         date,
                     ]
                 )
-    except (OSError, PermissionError) as exc:
+    except OSError as exc:
         raise ArchivePreviewError from exc
     except Exception as exc:
         message = str(exc).lower()

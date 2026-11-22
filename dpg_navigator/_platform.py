@@ -1,8 +1,8 @@
 """Cross-platform abstractions for the dpg_navigator package.
 
 Provides functions for drive enumeration, special directory discovery,
-hidden file detection, modifier key state, and file timestamp retrieval.
-Works on Windows, Linux, and macOS.
+hidden file detection, and modifier key state. Works on Windows, Linux,
+and macOS.
 """
 
 from __future__ import annotations
@@ -288,12 +288,3 @@ def is_hidden_entry(entry: os.DirEntry[str]) -> bool:
             return False
         return bool(flags & _UF_HIDDEN)
     return False
-
-
-def get_file_time(filepath: str) -> float:
-    """Return file modification time (consistent cross-platform).
-
-    Uses st_mtime instead of getctime because ctime means different things
-    on Windows (creation time) vs Linux/macOS (inode change time).
-    """
-    return os.stat(filepath).st_mtime

@@ -431,7 +431,6 @@ class DirectoryIndex:
         try:
             self._walk(
                 root,
-                root,
                 entries,
                 0,
                 max_depth,
@@ -468,7 +467,6 @@ class DirectoryIndex:
 
     def _walk(
         self,
-        root: str,
         path: str,
         out: list[FileEntry],
         depth: int,
@@ -485,7 +483,7 @@ class DirectoryIndex:
 
         try:
             scanner = os.scandir(path)
-        except (PermissionError, OSError):
+        except OSError:
             return
 
         subdirs: list[str] = []
@@ -534,12 +532,11 @@ class DirectoryIndex:
                     # caller opted into show_hidden.
                     if is_dir and not item.is_symlink() and (show_hidden or not hidden):
                         subdirs.append(item.path)
-                except (OSError, PermissionError):
+                except OSError:
                     continue
 
         for subdir in subdirs:
             self._walk(
-                root,
                 subdir,
                 out,
                 depth + 1,
