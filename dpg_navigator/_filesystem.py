@@ -342,7 +342,7 @@ class DirectoryIndex:
         self._entries: list[FileEntry] = []
         self._root: str = ""
         self._ready: bool = False
-        self._built_at: float = 0.0
+        self._built_at: float = 0.0  # time.monotonic() of the last build
         self._lock = threading.Lock()
 
     # ── public query API ───────────────────────────────────────
@@ -362,7 +362,7 @@ class DirectoryIndex:
         with self._lock:
             if not self._ready:
                 return True
-            return (time.time() - self._built_at) >= ttl
+            return (time.monotonic() - self._built_at) >= ttl
 
     def search(
         self,
@@ -454,7 +454,7 @@ class DirectoryIndex:
                 return
             self._entries = entries
             self._root = root
-            self._built_at = time.time()
+            self._built_at = time.monotonic()
             self._ready = True
 
     def invalidate(self) -> None:

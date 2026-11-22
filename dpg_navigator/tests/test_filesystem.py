@@ -1582,6 +1582,14 @@ class TestDirectoryIndex:
         assert not idx.is_stale(ttl=60.0)
         assert idx.is_stale(ttl=0.0)
 
+    def test_wall_clock_jump_does_not_age_the_index(self, nested_tree):
+        """The index age is measured on the monotonic clock, so setting the
+        system clock an hour ahead must not make a fresh index stale."""
+        idx = DirectoryIndex()
+        self._build_sync(idx, str(nested_tree))
+        with patch("time.time", return_value=time.time() + 3600):
+            assert not idx.is_stale(ttl=60.0)
+
     def test_hidden_dir_not_descended_by_default(self, tmp_path):
         """Contents of hidden dirs are absent unless show_hidden is set."""
         secret = tmp_path / ".secret"

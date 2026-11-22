@@ -356,7 +356,7 @@ class DialogLogic:
                     self.state.size_truncated.add(path)
                 else:
                     self.state.size_truncated.discard(path)
-                self.state.size_cache[path] = (size, time.time())
+                self.state.size_cache[path] = (size, time.monotonic())
                 self.update_size_cell(path, DirectoryLister.format_dir_size(size, truncated))
 
         JobManager.submit(_compute)

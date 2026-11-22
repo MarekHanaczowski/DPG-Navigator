@@ -644,7 +644,7 @@ class FileDialog(KeyboardMixin):
 
     def _is_double_click(self, sender: int) -> bool:
         """Check if this click constitutes a double-click on the same element."""
-        current_time = time.time()
+        current_time = time.monotonic()
         is_double = (
             current_time - self.state.last_click_time < self.DOUBLE_CLICK_THRESHOLD
             and self.state.last_clicked_element == sender

@@ -22,7 +22,8 @@ All notable changes to this project will be documented in this file.
   longer shows the new query's subfolder hits under the previous listing.
 - The search and HTML-resize debounce timers are timed with the monotonic
   clock, so a system clock adjustment (an NTP step or a manual change) can
-  no longer delay them or fire them early.
+  no longer delay them or fire them early. The same goes for the age of
+  the subfolder index, the folder-size cache and double-click detection.
 
 ### Changed
 

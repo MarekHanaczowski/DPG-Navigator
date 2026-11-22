@@ -82,7 +82,7 @@ Routing and rendering are split:
 
 ### Concurrency (`_job_manager.py`)
 
-`JobManager` is a static class. `submit()` queues work on a **bounded pool of 8 daemon workers** so a burst of index/size/preview jobs cannot spawn one OS thread per task. `schedule_timer()`/`cancel_timer()` share **one** min-heap timer thread; due timers dispatch into the same pool. Timer deadlines are `time.monotonic()` values, never wall-clock. `shutdown()` cancels queued jobs, then joins.
+`JobManager` is a static class. `submit()` queues work on a **bounded pool of 8 daemon workers** so a burst of index/size/preview jobs cannot spawn one OS thread per task. `schedule_timer()`/`cancel_timer()` share **one** min-heap timer thread; due timers dispatch into the same pool. Timer deadlines are `time.monotonic()` values, never wall-clock; the same holds for every in-process TTL (index age, size cache, double-click window). `time.time()` is not used in the package. `shutdown()` cancels queued jobs, then joins.
 
 **DPG is single-threaded.** Two invariants follow:
 
