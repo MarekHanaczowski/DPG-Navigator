@@ -6,6 +6,7 @@ Tests all functions including is_mod_key_down() (mocked DPG).
 from __future__ import annotations
 
 import os
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -648,6 +649,38 @@ class TestIsHiddenEntry:
             assert is_hidden_entry(_scan(tmp_path)["win_hidden.txt"]) is True
         finally:
             ctypes.windll.kernel32.SetFileAttributesW(str(target), 0x80)
+
+    @pytest.mark.skipif(sys.platform != "darwin", reason="macOS UF_HIDDEN flag")
+    def test_macos_hidden_flag_on_real_entries(self, tmp_path):
+        """``chflags hidden`` set on real files, read back through ``scandir``.
+
+        The mocked tests below only prove the bit is tested; this one proves a
+        real entry's cached ``lstat`` carries ``st_flags`` on macOS.
+        """
+        import stat
+
+        flagged = tmp_path / "flagged.txt"
+        flagged.write_text("x")
+        (tmp_path / "plain.txt").write_text("x")
+        flagged_dir = tmp_path / "flagged_dir"
+        flagged_dir.mkdir()
+        os.symlink(flagged, tmp_path / "link_to_flagged")
+        for path in (flagged, flagged_dir):
+            os.chflags(path, stat.UF_HIDDEN)
+        try:
+            entries = _scan(tmp_path)
+
+            assert is_hidden_entry(entries["flagged.txt"]) is True
+            assert is_hidden_entry(entries["flagged_dir"]) is True
+            assert is_hidden_entry(entries["plain.txt"]) is False
+            # A symlink is judged by its own flags, not by its target's.
+            assert is_hidden_entry(entries["link_to_flagged"]) is False
+            assert {name: is_hidden_entry(entry) for name, entry in entries.items()} == {
+                name: is_hidden(entry.path) for name, entry in entries.items()
+            }
+        finally:
+            for path in (flagged, flagged_dir):
+                os.chflags(path, 0)
 
     def test_windows_attribute_comes_from_the_entry_itself(self):
         entry = self._entry("report.txt", st_file_attributes=0x2 | 0x20)
