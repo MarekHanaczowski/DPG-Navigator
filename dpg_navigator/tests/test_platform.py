@@ -16,6 +16,7 @@ from dpg_navigator._platform import (
     get_file_time,
     get_special_dirs,
     is_hidden,
+    is_hidden_entry,
     is_mod_key_down,
 )
 
@@ -635,6 +636,104 @@ class TestIsHiddenMacOSFlags:
             patch("dpg_navigator._platform.os.lstat", return_value=self._stat(_UF_HIDDEN)),
         ):
             assert is_hidden("/home/u/visible") is False
+
+
+# ── is_hidden_entry (scandir entries) ──────────────────────────
+
+
+def _scan(folder) -> dict:
+    with os.scandir(folder) as scanner:
+        return {entry.name: entry for entry in scanner}
+
+
+class TestIsHiddenEntry:
+    """Same answers as ``is_hidden``, taken from the scandir entry itself."""
+
+    def _entry(self, name, **stat_fields):
+        entry = MagicMock()
+        entry.name = name
+        entry.stat.return_value = MagicMock(**stat_fields)
+        return entry
+
+    def test_matches_path_based_check_for_real_entries(self, tmp_path):
+        (tmp_path / ".dotfile").write_text("x")
+        (tmp_path / "plain.txt").write_text("x")
+        (tmp_path / ".dotdir").mkdir()
+        (tmp_path / "plaindir").mkdir()
+
+        entries = _scan(tmp_path)
+
+        assert {name: is_hidden_entry(entry) for name, entry in entries.items()} == {
+            name: is_hidden(entry.path) for name, entry in entries.items()
+        }
+        assert is_hidden_entry(entries[".dotfile"]) is True
+        assert is_hidden_entry(entries["plain.txt"]) is False
+
+    def test_dot_prefix_needs_no_stat(self):
+        entry = self._entry(".git")
+
+        assert is_hidden_entry(entry) is True
+        entry.stat.assert_not_called()
+
+    @pytest.mark.skipif(os.name != "nt", reason="NTFS hidden attribute")
+    def test_windows_hidden_attribute(self, tmp_path):
+        import ctypes
+
+        target = tmp_path / "win_hidden.txt"
+        target.write_text("x")
+        ctypes.windll.kernel32.SetFileAttributesW(str(target), 0x2)
+        try:
+            assert is_hidden_entry(_scan(tmp_path)["win_hidden.txt"]) is True
+        finally:
+            ctypes.windll.kernel32.SetFileAttributesW(str(target), 0x80)
+
+    def test_windows_attribute_comes_from_the_entry_itself(self):
+        entry = self._entry("report.txt", st_file_attributes=0x2 | 0x20)
+
+        with patch("dpg_navigator._platform.os.name", "nt"):
+            assert is_hidden_entry(entry) is True
+        entry.stat.assert_called_once_with(follow_symlinks=False)
+
+    def test_windows_without_hidden_bit_is_visible(self):
+        entry = self._entry("report.txt", st_file_attributes=0x20)
+
+        with patch("dpg_navigator._platform.os.name", "nt"):
+            assert is_hidden_entry(entry) is False
+
+    def test_macos_uf_hidden_flag(self):
+        from dpg_navigator._platform import _UF_HIDDEN
+
+        entry = self._entry("Library", st_flags=_UF_HIDDEN)
+
+        with (
+            patch("dpg_navigator._platform._SYSTEM", "Darwin"),
+            patch("dpg_navigator._platform.os.name", "posix"),
+        ):
+            assert is_hidden_entry(entry) is True
+        entry.stat.assert_called_once_with(follow_symlinks=False)
+
+    def test_flags_ignored_on_linux_without_a_stat(self):
+        from dpg_navigator._platform import _UF_HIDDEN
+
+        entry = self._entry("visible", st_flags=_UF_HIDDEN)
+
+        with (
+            patch("dpg_navigator._platform._SYSTEM", "Linux"),
+            patch("dpg_navigator._platform.os.name", "posix"),
+        ):
+            assert is_hidden_entry(entry) is False
+        entry.stat.assert_not_called()
+
+    @pytest.mark.parametrize(("system", "os_name"), [("Windows", "nt"), ("Darwin", "posix")])
+    def test_stat_error_means_visible(self, system, os_name):
+        entry = self._entry("vanished.txt")
+        entry.stat.side_effect = OSError("gone")
+
+        with (
+            patch("dpg_navigator._platform._SYSTEM", system),
+            patch("dpg_navigator._platform.os.name", os_name),
+        ):
+            assert is_hidden_entry(entry) is False
 
 
 # ── get_drives Darwin /Volumes fallback ────────────────────────

@@ -497,25 +497,25 @@ class DirectoryIndex:
                     if not is_dir and not is_file:
                         continue
 
-                    hidden = _platform.is_hidden(item.path)
+                    hidden = _platform.is_hidden_entry(item)
 
                     # Only index contents below the root (not root's own entries —
                     # those are served by the normal list_directory call)
                     if depth > 0:
                         if len(out) >= INDEX_MAX_ENTRIES:
                             raise _IndexFull
+                        # One cached stat for both fields; see
+                        # ``LocalVFSProvider.list_dir`` for the trade-off.
+                        mtime = 0.0
+                        size: int | None = None
                         try:
-                            mtime = item.stat(follow_symlinks=True).st_mtime
+                            st = item.stat(follow_symlinks=True)
                         except OSError:
-                            mtime = 0.0
-                        size: int | None
-                        if is_dir:
-                            size = None
+                            pass
                         else:
-                            try:
-                                size = os.path.getsize(item.path)
-                            except OSError:
-                                size = None
+                            mtime = st.st_mtime
+                            if not is_dir:
+                                size = st.st_size
 
                         out.append(
                             FileEntry(

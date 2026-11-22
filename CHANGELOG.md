@@ -23,6 +23,12 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Listing a folder, building the subfolder index and computing folder sizes
+  read each entry's size, time and hidden flag from the directory scan
+  instead of making two more system calls per entry. On Windows a 5000-file
+  folder lists in about 35 ms instead of 690 ms. The listed size and time
+  are now the directory's own copy, as in Explorer, so a file that is still
+  being written can lag until it is closed.
 - Dev tooling: mypy is pinned to `2.3.*` on every supported Python (the
   separate `1.19.*` pin for 3.9 is gone) and runs on every CI job; ruff
   targets `py310`.

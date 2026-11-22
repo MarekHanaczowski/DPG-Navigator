@@ -17,50 +17,49 @@ _log = logging.getLogger(__name__)
 MAX_SCAN_DEPTH = 3
 
 
-def _walk_depth(root: str, top: str) -> int:
-    """Return how many directory levels *root* lies below *top*.
-
-    ``os.path.relpath`` handles trailing separators and drive roots, which
-    a plain string ``replace`` of the prefix got wrong (``C:\\`` as *top*).
-    """
-    try:
-        rel = os.path.relpath(root, top)
-    except ValueError:
-        return 0
-    if rel == os.curdir:
-        return 0
-    return rel.count(os.sep) + 1
-
-
 def compute_dir_size_info(path: str) -> tuple[int, bool]:
     """Return ``(total_bytes, truncated)`` for the directory tree at *path*.
 
     Files at most ``MAX_SCAN_DEPTH - 1`` levels below *path* are summed.
     *truncated* is True when the scan skipped content (deeper levels or an
-    unreadable subdirectory), so *total_bytes* is only a lower bound.
+    unreadable subdirectory), so *total_bytes* is only a lower bound. An
+    unreadable or missing *path* itself reports ``(0, False)``.
+
+    Sizes come from each ``os.scandir`` entry's cached stat rather than a
+    second ``stat`` per file. Symlinked files count their target; symlinked
+    directories are not entered.
     """
     total = 0
     truncated = False
+    pending: list[tuple[str, int]] = [(path, 0)]
 
-    def _on_error(err: OSError) -> None:
-        nonlocal truncated
-        if getattr(err, "filename", None) != path:
-            truncated = True
-
-    try:
-        for root, dirs, files in os.walk(path, onerror=_on_error):
-            if _walk_depth(root, path) >= MAX_SCAN_DEPTH:
-                if dirs or files:
-                    truncated = True
-                dirs.clear()
-                continue
-            for f in files:
-                try:
-                    total += os.path.getsize(os.path.join(root, f))
-                except OSError:
-                    pass  # broken symlink or vanished file: nothing to count
-    except OSError:
-        truncated = True
+    while pending:
+        current, depth = pending.pop()
+        try:
+            scanner = os.scandir(current)
+        except OSError:
+            if depth > 0:
+                truncated = True
+            continue
+        with scanner:
+            try:
+                if depth >= MAX_SCAN_DEPTH:
+                    # Past the cap nothing is summed; only note whether
+                    # anything was left uncounted.
+                    if next(scanner, None) is not None:
+                        truncated = True
+                    continue
+                for item in scanner:
+                    try:
+                        if item.is_dir():
+                            if not item.is_symlink():
+                                pending.append((item.path, depth + 1))
+                        else:
+                            total += item.stat().st_size
+                    except OSError:
+                        pass  # broken symlink or vanished file: nothing to count
+            except OSError:
+                truncated = True
     return total, truncated
 
 
@@ -95,7 +94,7 @@ class LocalVFSProvider(VFSProvider):
                     if not is_dir and not is_file:
                         continue
 
-                    hidden = _platform.is_hidden(item.path)
+                    hidden = _platform.is_hidden_entry(item)
                     if hidden and not show_hidden:
                         continue
 
@@ -112,8 +111,13 @@ class LocalVFSProvider(VFSProvider):
                     ):
                         continue
 
-                    size = self.get_size(item.path, is_dir, show_dir_size)
-                    mtime = item.stat(follow_symlinks=True).st_mtime
+                    # One stat serves size and time. ``DirEntry`` caches it,
+                    # and on Windows it is the directory's own copy from the
+                    # scan (as Explorer shows it), so a file still being
+                    # written can lag until its handle is closed.
+                    st = item.stat(follow_symlinks=True)
+                    size = self.get_size(item.path, True, show_dir_size) if is_dir else st.st_size
+                    mtime = st.st_mtime
 
                     entries.append(
                         FileEntry(

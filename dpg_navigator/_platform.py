@@ -264,6 +264,32 @@ def is_hidden(filepath: str) -> bool:
     return False
 
 
+def is_hidden_entry(entry: os.DirEntry[str]) -> bool:
+    """:func:`is_hidden` for an ``os.scandir`` entry, reusing its cached stat.
+
+    Listing a folder asks this once per entry, so it must not cost a system
+    call of its own. On Windows the attributes arrive with the directory scan;
+    on macOS the single ``lstat`` is cached on the entry and shared with the
+    caller's later ``entry.stat()``. As in :func:`is_hidden`, a symlink is
+    judged by itself, not by its target.
+    """
+    if entry.name.startswith("."):
+        return True
+    if os.name == "nt":
+        try:
+            attrs = getattr(entry.stat(follow_symlinks=False), "st_file_attributes", 0)
+        except (OSError, ValueError):
+            return False
+        return bool(attrs & _FILE_ATTRIBUTE_HIDDEN)
+    if _SYSTEM == "Darwin":
+        try:
+            flags = getattr(entry.stat(follow_symlinks=False), "st_flags", 0)
+        except (OSError, ValueError):
+            return False
+        return bool(flags & _UF_HIDDEN)
+    return False
+
+
 def get_file_time(filepath: str) -> float:
     """Return file modification time (consistent cross-platform).
 

@@ -438,7 +438,7 @@ class TestListDirectory:
         assert size == 16
 
     def test_depth_limited_dir_size(self, tmp_path):
-        """os.walk stops at MAX_SCAN_DEPTH to prevent runaway scanning."""
+        """The scan stops at MAX_SCAN_DEPTH to prevent runaway scanning."""
         root = tmp_path / "root"
         current = root
         for i in range(MAX_SCAN_DEPTH + 2):
@@ -793,13 +793,28 @@ class TestComputeDirSizeInfo:
         assert DirectoryLister.compute_dir_size(with_sep) == expected
         assert DirectoryLister.compute_dir_size(str(tmp_path)) == expected
 
-    def test_depth_counts_path_components(self):
-        from dpg_navigator.vfs._local import _walk_depth
+    def test_missing_root_is_zero_and_not_a_lower_bound(self, tmp_path):
+        assert DirectoryLister.compute_dir_size_info(str(tmp_path / "missing")) == (0, False)
 
-        top = os.path.join(os.path.abspath(os.sep), "base")
-        assert _walk_depth(top, top) == 0
-        assert _walk_depth(os.path.join(top, "a"), top) == 1
-        assert _walk_depth(os.path.join(top, "a", "b"), top + os.sep) == 2
+    def test_symlinked_file_counts_its_target(self, tmp_path):
+        root = tmp_path / "root"
+        root.mkdir()
+        target = tmp_path / "target.bin"
+        target.write_bytes(b"x" * 300)
+        _symlink_or_skip(target, root / "link.bin")
+
+        assert DirectoryLister.compute_dir_size_info(str(root)) == (300, False)
+
+    def test_symlinked_dir_is_neither_entered_nor_a_lower_bound(self, tmp_path):
+        root = tmp_path / "root"
+        root.mkdir()
+        (root / "own.bin").write_bytes(b"x" * 10)
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "big.bin").write_bytes(b"x" * 5000)
+        _symlink_or_skip(outside, root / "link", target_is_directory=True)
+
+        assert DirectoryLister.compute_dir_size_info(str(root)) == (10, False)
 
     def test_format_dir_size_marks_lower_bound_in_ascii(self):
         assert DirectoryLister.format_dir_size(3 * 1024, True) == ">= 3 KB"
@@ -812,6 +827,129 @@ class TestComputeDirSizeInfo:
         with zipfile.ZipFile(archive_path, "w") as zf:
             zf.writestr("d/x.txt", "x")
         assert DirectoryLister.compute_dir_size_info(f"{archive_path}|/d") == (0, False)
+
+
+def _symlink_or_skip(target, link, *, target_is_directory: bool = False) -> None:
+    try:
+        os.symlink(str(target), str(link), target_is_directory=target_is_directory)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlink creation not permitted on this platform")
+
+
+class _StatCounter:
+    """Counts Python-level ``os.stat``/``os.lstat`` calls (``os.path.getsize``,
+    ``os.path.isdir``… all go through them). ``DirEntry`` methods do not: they
+    answer from the directory scan or their own cached stat."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self._stat = os.stat
+        self._lstat = os.lstat
+
+    def stat(self, *args, **kwargs):
+        self.calls += 1
+        return self._stat(*args, **kwargs)
+
+    def lstat(self, *args, **kwargs):
+        self.calls += 1
+        return self._lstat(*args, **kwargs)
+
+    def __enter__(self):
+        self._patches = [patch("os.stat", self.stat), patch("os.lstat", self.lstat)]
+        for active in self._patches:
+            active.start()
+        return self
+
+    def __exit__(self, *exc):
+        for active in self._patches:
+            active.stop()
+
+
+class TestOneStatPerEntry:
+    """Listing, indexing and sizing answer from the scan, not from extra
+    per-entry system calls.
+
+    The bound is "fewer calls than entries", not zero: tooling such as
+    coverage may stat a source file the first time it traces it, while a
+    per-entry regression costs at least one call per file.
+    """
+
+    def _folder(self, tmp_path, count=40):
+        folder = tmp_path / "many"
+        folder.mkdir()
+        for i in range(count):
+            (folder / f"f{i:02d}.txt").write_bytes(b"x" * (i + 1))
+        return folder
+
+    def test_listing_does_not_stat_each_entry_again(self, tmp_path):
+        folder = self._folder(tmp_path)
+
+        with _StatCounter() as counter, patch("dpg_navigator._platform.is_hidden") as path_based_hidden:
+            entries = DirectoryLister.list_directory(str(folder))
+
+        assert [e.size_bytes for e in entries] == list(range(1, 41))
+        assert counter.calls < 40
+        path_based_hidden.assert_not_called()
+
+    def test_index_build_does_not_stat_each_entry_again(self, tmp_path):
+        root = tmp_path / "root"
+        root.mkdir()
+        self._folder(root)
+        index = DirectoryIndex()
+
+        with _StatCounter() as counter, patch("dpg_navigator._platform.is_hidden") as path_based_hidden:
+            index.build(str(root), generation=0, get_generation=lambda: 0)
+
+        found = index.search("f")
+        assert sorted(e.size_bytes for e in found) == list(range(1, 41))
+        assert counter.calls < 40
+        path_based_hidden.assert_not_called()
+
+    def test_dir_size_does_not_stat_each_file_again(self, tmp_path):
+        folder = self._folder(tmp_path)
+
+        with _StatCounter() as counter:
+            result = DirectoryLister.compute_dir_size_info(str(folder))
+
+        assert result == (sum(range(1, 41)), False)
+        assert counter.calls < 40
+
+    def test_listing_reports_size_and_mtime_of_each_file(self, tmp_path):
+        folder = self._folder(tmp_path, count=3)
+        os.utime(folder / "f01.txt", (1_600_000_000, 1_600_000_000))
+
+        entries = {e.name: e for e in DirectoryLister.list_directory(str(folder))}
+
+        assert entries["f01.txt"].size_bytes == 2
+        assert entries["f01.txt"].modified_time == pytest.approx(1_600_000_000, abs=2)
+
+    @pytest.mark.skipif(os.name != "nt", reason="NTFS hidden attribute")
+    def test_windows_hidden_attribute_is_read_from_the_scan(self, tmp_path):
+        import ctypes
+
+        (tmp_path / "visible.txt").write_text("x")
+        hidden = tmp_path / "secret.txt"
+        hidden.write_text("x")
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        nested_hidden = sub / "nested_secret.txt"
+        nested_hidden.write_text("x")
+        for path in (hidden, nested_hidden):
+            ctypes.windll.kernel32.SetFileAttributesW(str(path), 0x2)
+        try:
+            shown = DirectoryLister.list_directory(str(tmp_path))
+            everything = DirectoryLister.list_directory(str(tmp_path), show_hidden=True)
+            index = DirectoryIndex()
+            index.build(str(tmp_path), generation=0, get_generation=lambda: 0)
+
+            assert "secret.txt" not in {e.name for e in shown}
+            assert next(e for e in everything if e.name == "secret.txt").is_hidden is True
+            assert next(e for e in everything if e.name == "visible.txt").is_hidden is False
+            assert index.search("nested_secret") == []
+            assert [e.is_hidden for e in index.search("nested_secret", show_hidden=True)] == [True]
+        finally:
+            for path in (hidden, nested_hidden):
+                ctypes.windll.kernel32.SetFileAttributesW(str(path), 0x80)
 
 
 class TestRemovedHelpers:
