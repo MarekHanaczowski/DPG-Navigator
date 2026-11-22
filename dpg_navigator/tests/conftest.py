@@ -11,6 +11,17 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 
+@pytest.fixture(autouse=True)
+def _reset_shared_frame_pump():
+    """The frame pump is process-wide: a registration made against one test's
+    mocked ``dpg`` must not look armed to the next test."""
+    from dpg_navigator._frame_callback import reset_frame_callbacks
+
+    reset_frame_callbacks()
+    yield
+    reset_frame_callbacks()
+
+
 @pytest.fixture
 def tmp_tree(tmp_path):
     """Create a temporary directory tree for filesystem tests.
