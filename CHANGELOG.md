@@ -10,6 +10,17 @@ All notable changes to this project will be documented in this file.
   = ">=3.10"`). Python 3.9 reached end of life in October 2025. On 3.9, pip
   keeps installing 1.0.0b7, the last release that supports it.
 
+### Fixed
+
+- A search finishing in the background while the user navigates can no
+  longer replace the new folder's internal listing with the old one. The
+  generation check and the write now happen under one lock, which the
+  generation bumps also take.
+- A slow search for an earlier query can no longer overwrite the results of
+  a later one: every typed query gets a ticket, and only the latest ticket
+  may publish. A subfolder index that finishes during the search debounce no
+  longer shows the new query's subfolder hits under the previous listing.
+
 ### Changed
 
 - Dev tooling: mypy is pinned to `2.3.*` on every supported Python (the

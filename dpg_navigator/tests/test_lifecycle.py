@@ -93,7 +93,7 @@ class TestSearchSubfoldersToggle:
             generation=logic.state.index_generation,
             get_generation=lambda: logic.state.index_generation,
         )
-        logic._run_search("needle", logic.state.index_generation)
+        logic._run_search("needle", logic.state.index_generation, logic._search_seq)
         assert any(e.name == "needle.txt" for e in listings[-1])
 
         logic.set_search_subfolders(False)
@@ -125,7 +125,7 @@ class TestSearchSubfoldersToggle:
             generation=logic.state.index_generation,
             get_generation=lambda: logic.state.index_generation,
         )
-        logic._run_search("needle", logic.state.index_generation)
+        logic._run_search("needle", logic.state.index_generation, logic._search_seq)
         assert not any(e.name == "needle.txt" for entries in listings for e in entries)
 
 

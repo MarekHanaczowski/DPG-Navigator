@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import os
+import threading
 import zipfile
 from unittest.mock import patch
 
 import pytest
 
-from dpg_navigator._filesystem import INDEX_TTL, MAX_SCAN_DEPTH, is_archive_virtual_path
+from dpg_navigator._filesystem import INDEX_TTL, MAX_SCAN_DEPTH, DirectoryLister, is_archive_virtual_path
 from dpg_navigator._types import DialogConfig
 from dpg_navigator.dialog._logic import DialogLogic
 from dpg_navigator.dialog._state import DialogState
@@ -357,6 +358,142 @@ class TestSizeComputationLowerBound:
 
         assert cells == [(str(small), "1 KB")]
         assert str(small) not in logic.state.size_truncated
+
+
+class _InterleavingState(DialogState):
+    """Runs a one-shot hook right after ``index_generation`` has been read.
+
+    The hook therefore lands inside a worker's "is my generation still
+    current?" check: after the value was read, before the worker acts on it.
+    """
+
+    on_next_generation_read = None
+
+    def __getattribute__(self, name):
+        value = super().__getattribute__(name)
+        if name == "index_generation":
+            hook = super().__getattribute__("on_next_generation_read")
+            if hook is not None:
+                self.on_next_generation_read = None
+                hook()
+        return value
+
+
+class TestSearchPublishRace:
+    def test_navigation_during_publish_is_not_overwritten(self, tmp_path):
+        """A search worker must not overwrite the listing of a newer navigation.
+
+        The navigation is started exactly between the worker's generation
+        check and its write of ``_local_entries``.
+        """
+        old = tmp_path / "old"
+        old.mkdir()
+        (old / "stale.txt").write_text("x")
+        new = tmp_path / "new"
+        new.mkdir()
+        (new / "fresh.txt").write_text("x")
+
+        state = _InterleavingState()
+        state.current_dir = str(old)
+        published: list[tuple[list[str], int]] = []
+        logic = DialogLogic(
+            state=state,
+            config=DialogConfig(search_subfolders=False, show_dir_size=False),
+            refresh_ui_cb=lambda entries, gen: published.append(([e.name for e in entries], gen)),
+            show_error_cb=lambda *_args: None,
+            update_path_input_cb=lambda *_args: None,
+            update_size_cell_cb=lambda *_args: None,
+        )
+        logic.refresh_listing()
+        worker_gen = state.index_generation
+
+        navigator = threading.Thread(target=logic.navigate_to, args=(str(new),))
+
+        def navigate_mid_check() -> None:
+            navigator.start()
+            # Unsynchronized code lets the navigation finish here, so the
+            # worker then writes its stale entries over the fresh ones.
+            # Synchronized code keeps the navigation waiting until the worker
+            # is done, so this join just times out.
+            navigator.join(timeout=0.2)
+
+        real_list_directory = DirectoryLister.list_directory
+        armed = []
+
+        def list_then_arm(*args, **kwargs):
+            entries = real_list_directory(*args, **kwargs)
+            if not armed:
+                armed.append(True)
+                state.on_next_generation_read = navigate_mid_check
+            return entries
+
+        with patch.object(DirectoryLister, "list_directory", side_effect=list_then_arm):
+            logic._run_search("", worker_gen, logic._search_seq)
+            navigator.join(timeout=5)
+
+        assert not navigator.is_alive()
+        assert [e.name for e in logic._local_entries] == ["fresh.txt"]
+        current = [names for names, gen in published if gen == state.index_generation]
+        assert current == [["fresh.txt"]]
+
+
+def _capture_timers(scheduled: list):
+    """Stand-in for ``JobManager.schedule_timer`` that keeps the debounced call."""
+
+    def _schedule(_interval, fn, args=None, kwargs=None):
+        scheduled.append(lambda: fn(*(args or ()), **(kwargs or {})))
+
+    return _schedule
+
+
+class TestSupersededSearch:
+    """Two searches in one generation: only the latest query may publish."""
+
+    def test_late_older_query_does_not_overwrite_newer_results(self, tmp_path):
+        (tmp_path / "alpha.txt").write_text("x")
+        (tmp_path / "alpha_beta.txt").write_text("x")
+        logic, listings, _errors, _ = _make_logic(str(tmp_path))
+        logic.refresh_listing()
+        scheduled: list = []
+
+        with patch("dpg_navigator.dialog._logic.JobManager.schedule_timer", side_effect=_capture_timers(scheduled)):
+            logic.trigger_search("alpha")
+            logic.trigger_search("alpha_b")
+        older, newer = scheduled
+
+        # The older job was already running when the newer query was typed,
+        # and it finishes last (slow first scan, warm second scan).
+        newer()
+        older()
+
+        assert [e.name for e in logic._local_entries] == ["alpha_beta.txt"]
+        assert [e.name for e in listings[-1]] == ["alpha_beta.txt"]
+
+    def test_index_replay_waits_for_the_pending_query_listing(self, tmp_path):
+        """An index finishing during the debounce must not pair the new
+        query's subfolder hits with the previous query's local listing."""
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        (sub / "needle.txt").write_text("x")
+        (tmp_path / "other.txt").write_text("x")
+        logic, listings, _errors, _ = _make_logic(str(tmp_path))
+        logic.config.search_subfolders = True
+        builds: list = []
+        scheduled: list = []
+
+        with patch("dpg_navigator.dialog._logic.JobManager.submit", side_effect=builds.append):
+            logic.refresh_listing()
+        with patch("dpg_navigator.dialog._logic.JobManager.schedule_timer", side_effect=_capture_timers(scheduled)):
+            logic.trigger_search("needle")
+        before_replay = len(listings)
+
+        builds[0]()  # index is ready while "needle" is still in its debounce
+
+        assert len(listings) == before_replay, [e.name for e in listings[-1]]
+
+        scheduled[0]()  # the debounced search now runs against the ready index
+
+        assert [e.name for e in listings[-1]] == ["\0deep_sep", "needle.txt"]
 
 
 @pytest.mark.skipif(os.name == "nt", reason="'|' is not allowed in Windows file names")
