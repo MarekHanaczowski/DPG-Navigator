@@ -43,7 +43,8 @@ class KeyboardMixin:
     - ``_dir_index`` (DirectoryIndex)
     - ``_preview`` (PreviewPanel)
     - ``hide()``, ``_navigate_to()``, ``_refresh_listing()``,
-      ``_return_selection()``, ``_start_index_build()``
+      ``_return_selection()``, ``_start_index_build()``,
+      ``_finish_pending_rows()``
     - ``logic`` (DialogLogic)
     """
 
@@ -72,6 +73,7 @@ class KeyboardMixin:
         def _refresh_listing(self) -> None: ...
         def _return_selection(self) -> None: ...
         def _start_index_build(self) -> None: ...
+        def _finish_pending_rows(self) -> None: ...
 
     def _is_dialog_active(self) -> bool:
         """True when this dialog is shown and has focus (window or a child).
@@ -149,6 +151,8 @@ class KeyboardMixin:
             or self._dialog_text_input_active()
         ):
             return
+        # "All" includes the rows of a large listing that are not built yet.
+        self._finish_pending_rows()
         for child in dpg.get_item_children(self._explorer_table, 1):
             row_children = dpg.get_item_children(child, 1)
             for widget in row_children:
@@ -193,6 +197,12 @@ class KeyboardMixin:
         rows = dpg.get_item_children(self._explorer_table, 1)
         if not rows:
             return
+        # A large listing is built over several frames. A move that would
+        # land on or past the last row built so far needs the real last row.
+        wraps_to_end = self._focused_row_index < 0 and delta < 0
+        if wraps_to_end or self._focused_row_index + delta >= len(rows) - 1:
+            self._finish_pending_rows()
+            rows = dpg.get_item_children(self._explorer_table, 1)
         if self._focused_row_index < 0:
             new_index = 0 if delta > 0 else len(rows) - 1
         else:
@@ -226,11 +236,14 @@ class KeyboardMixin:
         entry = self._row_entries.get(row_id)
 
         if entry is None:
-            # ".." back row — single selectable as direct child
+            # ".." back row: one selectable, wrapped in a horizontal group
+            # (see ``DialogUIBuilder._add_plain_row``).
             children = dpg.get_item_children(row_id, 1)
             if children:
-                dpg.set_value(children[0], True)
-                self._last_clicked_element = children[0]
+                inner = dpg.get_item_children(children[0], 1) or []
+                target = inner[0] if inner else children[0]
+                dpg.set_value(target, True)
+                self._last_clicked_element = target
             self._preview.clear()
             return
 

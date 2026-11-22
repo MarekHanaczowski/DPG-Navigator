@@ -3,6 +3,9 @@
 Constructs the DearPyGui widget tree (sidebar, toolbar, explorer table,
 preview). Drive enumeration runs on a ``JobManager`` worker; sidebar
 widgets are updated on the DPG thread (``FileDialog`` frame poll / ``show()``).
+
+Explorer rows are built in slices: the first ``FIRST_ROWS`` with the listing,
+the rest by the frame poll through ``render_pending_rows``.
 """
 
 from __future__ import annotations
@@ -22,10 +25,21 @@ from .._platform import get_drives, get_special_dirs
 from .._preview import PreviewPanel
 from .._types import DialogConfig, FileEntry
 from ._logic import DialogLogic
-from ._state import DialogState
+from ._state import DialogState, RowBacklog
 
 if TYPE_CHECKING:
     from .._dialog import FileDialog
+
+FIRST_ROWS = 200
+"""Rows built together with the listing itself: several screens' worth.
+
+Building a row costs about 0.2 ms, so a folder with thousands of entries
+would block the DearPyGui thread for a second. The rest of the listing is
+built by the frame poll, ``ROW_BUDGET`` seconds at a time.
+"""
+
+ROW_BUDGET = 0.010
+"""Seconds one frame poll may spend building the remaining rows."""
 
 
 class DialogUIBuilder:
@@ -37,13 +51,15 @@ class DialogUIBuilder:
         self.logic = logic
         self.config = config
 
-    def _render_entry(self, entry: FileEntry, *, relative_label: bool = False) -> None:
+    def _render_entry(self, entry: FileEntry, *, relative_label: bool = False, base_dir: str | None = None) -> None:
         """Render a single file/directory entry as a table row with icon.
 
         Args:
             entry: The file entry to render.
             relative_label: If True, display relative path instead of name
                 (used for deep-search results).
+            base_dir: Folder the relative path is taken from; the current
+                folder when omitted.
         """
         if entry.is_dir:
             icon_tag = self.dialog._icons.get_for_dir()
@@ -53,7 +69,7 @@ class DialogUIBuilder:
         # Label
         if relative_label:
             try:
-                label = os.path.relpath(entry.full_path, self.state.current_dir)
+                label = os.path.relpath(entry.full_path, self.state.current_dir if base_dir is None else base_dir)
             except ValueError:
                 label = entry.full_path
         else:
@@ -336,6 +352,10 @@ class DialogUIBuilder:
                     hideable=True,
                     scrollX=True,
                     scrollY=True,
+                    # Draw only the rows in view. The clipper places rows by
+                    # multiplying the first row's height, so every row must be
+                    # equally tall (see ``_add_plain_row``).
+                    clipper=True,
                     sortable=True,
                     callback=self.dialog._on_sort,
                 ) as self.dialog._explorer_table,
@@ -400,11 +420,24 @@ class DialogUIBuilder:
                 with dpg.tooltip(btn_cancel):
                     dpg.add_text("Close dialog (Esc)")
 
+    def _add_plain_row(self, label: str, **selectable: object) -> int:
+        """Add a full-width row that is not a file entry; return the row id.
+
+        The selectable sits in a horizontal group, like the Name cell of a
+        file row. That group is what makes a row two pixels taller than a
+        bare selectable, and the table clipper needs every row equally tall.
+        """
+        with dpg.table_row(parent=self.dialog._explorer_table) as row_id, dpg.group(horizontal=True):
+            dpg.add_selectable(label=label, span_columns=True, height=self.dialog._selec_height, **selectable)
+        return int(row_id)
+
     def _render_entries_list(self, entries: list[FileEntry]) -> None:
-        """Rebuild explorer rows on the DearPyGui thread.
+        """Start rebuilding the explorer rows on the DearPyGui thread.
 
         Caller must hold ``dpg.mutex()``. ``row_entries`` is reset so refresh
-        and search do not leak stale row ids.
+        and search do not leak stale row ids. Only the first ``FIRST_ROWS``
+        rows are built here; the rest stay in ``state.row_backlog`` until
+        ``render_pending_rows`` builds them.
         """
         self.state.row_entries.clear()
         self.state.pending_size_cells.clear()
@@ -414,39 +447,57 @@ class DialogUIBuilder:
 
         dpg.configure_item(self.dialog._path_input, default_value=self.state.current_dir)
 
-        for child in dpg.get_item_children(self.dialog._explorer_table, 1):
-            dpg.delete_item(child)
+        # One call for all rows (slot 1); the columns in slot 0 stay.
+        dpg.delete_item(self.dialog._explorer_table, children_only=True, slot=1)
 
-        with dpg.table_row(parent=self.dialog._explorer_table):
-            dpg.add_selectable(
-                label="..",
-                callback=self.dialog._on_back,
-                span_columns=True,
-                height=self.dialog._selec_height,
-            )
+        self._add_plain_row("..", callback=self.dialog._on_back)
 
         self.state.deep_separator_row = None
-        for entry in entries:
+        self.state.row_backlog = RowBacklog(
+            entries=entries,
+            query=self.state.search_query,
+            base_dir=self.state.current_dir,
+        )
+        self.render_pending_rows(max_rows=FIRST_ROWS)
+
+    def render_pending_rows(self, *, max_rows: int | None = None, budget: float | None = None) -> bool:
+        """Build rows from ``state.row_backlog``; return True once none remain.
+
+        Caller must hold ``dpg.mutex()``. Stops after *max_rows* rows or once
+        *budget* seconds have passed, whichever comes first; with neither, the
+        whole backlog is built. At least one row is built per call, so a
+        too-small budget still makes progress.
+        """
+        backlog = self.state.row_backlog
+        if backlog is None:
+            return True
+
+        entries = backlog.entries
+        base_dir = os.path.normpath(backlog.base_dir)
+        deadline = None if budget is None else time.perf_counter() + budget
+        built = 0
+        while backlog.pos < len(entries):
+            if max_rows is not None and built >= max_rows:
+                return False
+            if deadline is not None and built and time.perf_counter() >= deadline:
+                return False
+            entry = entries[backlog.pos]
+            backlog.pos += 1
+            built += 1
             try:
                 if entry.name == "\0deep_sep":
-                    with dpg.table_row(parent=self.dialog._explorer_table) as separator_row:
-                        dpg.add_selectable(
-                            label="-- Subfolders --",
-                            enabled=False,
-                            span_columns=True,
-                            height=self.dialog._selec_height,
-                        )
-                    self.state.deep_separator_row = separator_row
+                    self.state.deep_separator_row = self._add_plain_row("-- Subfolders --", enabled=False)
                     continue
-                parent = os.path.dirname(entry.full_path) if entry.full_path else ""
-                relative = bool(
-                    self.state.search_query
-                    and parent
-                    and os.path.normpath(parent) != os.path.normpath(self.state.current_dir)
-                )
-                self._render_entry(entry, relative_label=relative)
+                relative = False
+                if backlog.query and entry.full_path:
+                    parent = os.path.dirname(entry.full_path)
+                    relative = bool(parent) and os.path.normpath(parent) != base_dir
+                self._render_entry(entry, relative_label=relative, base_dir=backlog.base_dir)
             except Exception:
                 _log.exception(
                     "Failed to render entry: %s",
                     getattr(entry, "full_path", "?"),
                 )
+
+        self.state.row_backlog = None
+        return True

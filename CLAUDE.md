@@ -93,6 +93,8 @@ Routing and rendering are split:
 
 **Frame polls are armed with `arm_frame_callback()`** (`_frame_callback.py`), never with a bare `dpg.set_frame_callback(dpg.get_frame_count() + 1, ...)`. A callback registered for a frame that has already started never fires, and a self-re-arming poll that misses once is dead. The helper re-reads the frame count after registering and retries further ahead.
 
+**The explorer table is built in slices.** `DialogUIBuilder._render_entries_list()` builds only the first `FIRST_ROWS` rows; the rest wait in `DialogState.row_backlog` and the frame poll adds them `ROW_BUDGET` seconds at a time (`FileDialog._apply_pending_rows`). Code that needs every row in the table (sorting, select-all, keyboard moves past the built rows) calls `FileDialog._finish_pending_rows()` first. Directory-size jobs start when the last row exists.
+
 ### Shared-resource lifecycle
 
 Themes, Chrome process tracking, the extraction temp dir, and `JobManager` are process-wide, reference-counted by `FileDialog._instance_count`. They are only torn down when the **last** `FileDialog` is destroyed. Individual HTML renders have isolated temporary Chrome sessions that clean themselves up. When touching shared cleanup code, preserve the last-dialog rule.
@@ -105,5 +107,6 @@ Themes, Chrome process tracking, the extraction temp dir, and `JobManager` are p
 
 - The default DPG font has incomplete Unicode coverage — use ASCII (`v`, `>`, `<`) for built-in labels, or bind a Unicode-capable font when displaying international filenames. The demo uses `load_font_with_unicode()`.
 - Use `with dpg.table() as id:` (context manager); `dpg.add_table()` returns an int, not a CM.
+- The explorer table uses `clipper=True`, which places rows by multiplying the height of the first row. Every row must be equally tall: a non-file row goes through `DialogUIBuilder._add_plain_row()` (selectable inside a horizontal group, like the Name cell). A shorter row makes the end of a long listing unreachable.
 - Store `add_raw_texture()`'s **integer** return value and pass it around; string tags for raw textures are unreliable across delete/recreate cycles.
 - `self.state.current_dir` is used everywhere instead of `os.chdir()` — never mutate the process CWD.
