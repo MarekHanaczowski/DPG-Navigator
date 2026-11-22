@@ -28,6 +28,7 @@ from typing import Any
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
+from ._frame_callback import arm_frame_callback
 from ._job_manager import JobManager, TimerTask
 from ._optional import OptionalModule, as_optional, require_optional
 from ._preview_limits import is_safe_data_image
@@ -999,8 +1000,7 @@ class HTMLRenderer:
             cls._poll_targets.append(self)
         if cls._poll_armed:
             return
-        cls._poll_armed = True
-        dpg.set_frame_callback(dpg.get_frame_count() + 1, cls._poll_frame)
+        cls._poll_armed = arm_frame_callback(dpg, cls._poll_frame)
 
     def _unregister_poll(self) -> None:
         cls = type(self)
@@ -1028,8 +1028,7 @@ class HTMLRenderer:
                 remaining.append(renderer)
         cls._poll_targets = remaining
         if remaining:
-            cls._poll_armed = True
-            dpg.set_frame_callback(dpg.get_frame_count() + 1, cls._poll_frame)
+            cls._poll_armed = arm_frame_callback(dpg, cls._poll_frame)
 
     def _poll_needed(self) -> bool:
         with self._pending_lock:

@@ -12,6 +12,22 @@ from .._types import FileEntry
 
 
 @dataclass
+class RowBacklog:
+    """Rows of a listing that the frame poll has not built yet.
+
+    A large listing is turned into table rows over several frames. ``query``
+    and ``base_dir`` are the search query and folder the listing was produced
+    for: later slices label their rows against these, not against whatever
+    the user has typed or opened since.
+    """
+
+    entries: list[FileEntry]
+    query: str
+    base_dir: str
+    pos: int = 0  # index of the next entry to build
+
+
+@dataclass
 class DialogState:
     """Mutable dialog state (navigation, selection, search, generations).
 
@@ -33,6 +49,8 @@ class DialogState:
 
     # Files listing
     row_entries: dict[int, FileEntry] = field(default_factory=dict)
+    row_backlog: RowBacklog | None = None
+    """Rows still to be built for the current listing; ``None`` when complete."""
     current_filter: str = ""
     current_sort: tuple[str, int] = ("Name", 1)  # (column, direction)
 

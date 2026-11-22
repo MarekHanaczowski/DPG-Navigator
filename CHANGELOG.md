@@ -24,9 +24,25 @@ All notable changes to this project will be documented in this file.
   clock, so a system clock adjustment (an NTP step or a manual change) can
   no longer delay them or fire them early. The same goes for the age of
   the subfolder index, the folder-size cache and double-click detection.
+- The dialog could stop refreshing for good. Its frame poll re-armed itself
+  for "the next frame" from DearPyGui's callback thread; when that frame had
+  already started, the callback never fired and no listing, sidebar or size
+  update was applied again. The same applied to the HTML preview poll. A
+  registration is now checked against the frame count and repeated for a
+  later frame when it came too late.
 
 ### Changed
 
+- Opening a large folder no longer freezes the dialog while the table is
+  built. The first 200 rows appear with the listing and the rest are added
+  a few milliseconds per frame, so the window keeps drawing and reacting; a
+  folder of 5000 files used to block it for about half a second. The whole
+  listing takes longer to complete (about one second for 5000 files at
+  60 Hz). Sorting, Ctrl+A and keyboard moves past the rows built so far
+  finish the listing first.
+- The file table draws only the rows in view. With 5000 rows a frame costs
+  0.3 ms instead of 16 ms. The ".." row and the subfolder separator are now
+  as tall as file rows, which that requires.
 - Listing a folder, building the subfolder index and computing folder sizes
   read each entry's size, time and hidden flag from the directory scan
   instead of making two more system calls per entry. On Windows a 5000-file

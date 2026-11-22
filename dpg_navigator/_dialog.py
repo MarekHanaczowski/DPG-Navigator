@@ -34,6 +34,7 @@ from ._filesystem import (
     resolve_archive_selection,
     typed_name_error,
 )
+from ._frame_callback import arm_frame_callback
 from ._icons import IconRegistry
 from ._job_manager import JobManager
 from ._keyboard import KeyboardMixin
@@ -51,7 +52,7 @@ from ._types import (
 )
 from .dialog._logic import DialogLogic
 from .dialog._state import DialogState
-from .dialog._ui import DialogUIBuilder
+from .dialog._ui import ROW_BUDGET, DialogUIBuilder
 
 
 class FileDialog(KeyboardMixin):
@@ -427,6 +428,48 @@ class FileDialog(KeyboardMixin):
             if self._destroyed or not hasattr(self, "ui"):
                 return
             self.ui._render_entries_list(pending)
+        self._start_sizes_when_rows_done()
+
+    def _apply_pending_rows(self) -> None:
+        """Build the next slice of a large listing. Must run on the DPG thread.
+
+        ``_render_entries_list`` builds only the first rows; this adds more on
+        every frame poll, a few milliseconds at a time, so a folder with
+        thousands of entries never blocks rendering for long.
+        """
+        if self._destroyed or not hasattr(self, "ui"):
+            return
+        if getattr(getattr(self, "state", None), "row_backlog", None) is None:
+            return
+        with dpg.mutex():
+            if self._destroyed:
+                return
+            self.ui.render_pending_rows(budget=ROW_BUDGET)
+        self._start_sizes_when_rows_done()
+
+    def _finish_pending_rows(self) -> None:
+        """Build every row still waiting. Must run on the DPG thread.
+
+        For actions that need the whole listing in the table at once:
+        sorting, select-all, and keyboard moves past the rows built so far.
+        """
+        ui = getattr(self, "ui", None)
+        state = getattr(self, "state", None)
+        if getattr(self, "_destroyed", False) or ui is None or state is None or state.row_backlog is None:
+            return
+        with dpg.mutex():
+            ui.render_pending_rows()
+        self._start_sizes_when_rows_done()
+
+    def _start_sizes_when_rows_done(self) -> None:
+        """Start directory-size jobs once the listing's last row exists.
+
+        The jobs are keyed by the size cells of the rows, so they wait for a
+        listing that is still being built. Runs once per listing: the callers
+        only reach it while a backlog exists or right after a fresh listing.
+        """
+        if getattr(getattr(self, "state", None), "row_backlog", None) is not None:
+            return
         if (
             getattr(self, "_config", None) is not None
             and self._config.show_dir_size
@@ -470,6 +513,7 @@ class FileDialog(KeyboardMixin):
         return bool(
             self._awaiting_sidebar_drives
             or getattr(self, "_pending_listing", None) is not None
+            or getattr(getattr(self, "state", None), "row_backlog", None) is not None
             or getattr(self, "_pending_sidebar_drives", None) is not None
             or getattr(self, "_pending_size_updates", None)
             or getattr(self, "_pending_path_input", None) is not None
@@ -484,7 +528,9 @@ class FileDialog(KeyboardMixin):
             return
         cls._sidebar_poll_armed = True
         try:
-            dpg.set_frame_callback(int(dpg.get_frame_count()) + 1, cls._poll_sidebar_drives)
+            # False when no upcoming frame could be secured: stay unarmed so
+            # the next caller tries again instead of waiting on a dead poll.
+            cls._sidebar_poll_armed = arm_frame_callback(dpg, cls._poll_sidebar_drives)
         except Exception:
             cls._sidebar_poll_armed = False
 
@@ -504,6 +550,7 @@ class FileDialog(KeyboardMixin):
                 continue
             try:
                 dialog._apply_pending_listing()
+                dialog._apply_pending_rows()
                 dialog._apply_pending_sidebar_drives()
                 dialog._apply_pending_size_cells()
                 dialog._apply_pending_path_input()
@@ -563,6 +610,8 @@ class FileDialog(KeyboardMixin):
             self._pending_listing = None
             self._pending_size_updates = []
             self._pending_path_input = None
+            if hasattr(self, "state"):
+                self.state.row_backlog = None
             try:
                 FileDialog._sidebar_poll_targets.remove(self)
             except ValueError:
@@ -669,6 +718,9 @@ class FileDialog(KeyboardMixin):
         """
         if not sort_specs:
             return
+
+        # Sorting reorders the rows that exist, so the listing must be whole.
+        self._finish_pending_rows()
 
         column_id, direction = sort_specs[0]
         columns = dpg.get_item_children(sender, 0)
