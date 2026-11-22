@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
 import time
 import uuid
@@ -836,6 +837,19 @@ def _symlink_or_skip(target, link, *, target_is_directory: bool = False) -> None
         pytest.skip("symlink creation not permitted on this platform")
 
 
+def _set_os_hidden(path, hidden: bool) -> None:
+    """Set or clear the real OS-level hidden flag (Windows and macOS only)."""
+    if os.name == "nt":
+        import ctypes
+
+        # FILE_ATTRIBUTE_HIDDEN / FILE_ATTRIBUTE_NORMAL
+        ctypes.windll.kernel32.SetFileAttributesW(str(path), 0x2 if hidden else 0x80)
+    else:
+        import stat
+
+        os.chflags(path, stat.UF_HIDDEN if hidden else 0)
+
+
 class _StatCounter:
     """Counts Python-level ``os.stat``/``os.lstat`` calls (``os.path.getsize``,
     ``os.path.isdir``… all go through them). ``DirEntry`` methods do not: they
@@ -923,10 +937,11 @@ class TestOneStatPerEntry:
         assert entries["f01.txt"].size_bytes == 2
         assert entries["f01.txt"].modified_time == pytest.approx(1_600_000_000, abs=2)
 
-    @pytest.mark.skipif(os.name != "nt", reason="NTFS hidden attribute")
-    def test_windows_hidden_attribute_is_read_from_the_scan(self, tmp_path):
-        import ctypes
-
+    @pytest.mark.skipif(
+        os.name != "nt" and sys.platform != "darwin",
+        reason="needs an OS-level hidden flag (NTFS attribute or macOS UF_HIDDEN)",
+    )
+    def test_os_hidden_flag_is_read_from_the_scan(self, tmp_path):
         (tmp_path / "visible.txt").write_text("x")
         hidden = tmp_path / "secret.txt"
         hidden.write_text("x")
@@ -935,7 +950,7 @@ class TestOneStatPerEntry:
         nested_hidden = sub / "nested_secret.txt"
         nested_hidden.write_text("x")
         for path in (hidden, nested_hidden):
-            ctypes.windll.kernel32.SetFileAttributesW(str(path), 0x2)
+            _set_os_hidden(path, True)
         try:
             shown = DirectoryLister.list_directory(str(tmp_path))
             everything = DirectoryLister.list_directory(str(tmp_path), show_hidden=True)
@@ -949,7 +964,7 @@ class TestOneStatPerEntry:
             assert [e.is_hidden for e in index.search("nested_secret", show_hidden=True)] == [True]
         finally:
             for path in (hidden, nested_hidden):
-                ctypes.windll.kernel32.SetFileAttributesW(str(path), 0x80)
+                _set_os_hidden(path, False)
 
 
 class TestRemovedHelpers:
