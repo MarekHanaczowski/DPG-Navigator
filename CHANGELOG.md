@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Dev tooling: mypy is pinned to `2.4.*` (was `2.3.*`). The package type
+  checks clean under 2.4 without code changes.
+
 ## [1.0.0b8] - 2026-11-22
 
 ### Removed
