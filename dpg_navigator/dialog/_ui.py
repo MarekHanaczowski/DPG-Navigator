@@ -119,8 +119,17 @@ class DialogUIBuilder:
             dpg.bind_item_theme(cell_type, self.dialog._selec_theme)
             dpg.bind_item_theme(cell_size, self.dialog._size_theme)
 
-            if self.config.allow_drag:
-                drag = dpg.add_drag_payload(parent=cell_name, payload_type=self.dialog._payload_type)
+            # The drop target receives drag_data as app_data: a list with the
+            # row's path (a list, like the selection callback, so dragging a
+            # multi-selection can be added without changing the type). Archive
+            # members only have a virtual "archive|/inner" path that no host
+            # can open, so they are not draggable.
+            if self.config.allow_drag and "|" not in entry.full_path:
+                drag = dpg.add_drag_payload(
+                    parent=cell_name,
+                    payload_type=self.dialog._payload_type,
+                    drag_data=[entry.full_path],
+                )
                 if entry.is_dir:
                     folder_icon = self.dialog._icons.get("folder")
                     if folder_icon:

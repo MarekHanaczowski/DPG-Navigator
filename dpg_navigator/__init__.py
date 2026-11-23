@@ -33,6 +33,7 @@ from ._availability import (
 )
 from ._dialog import FileDialog
 from ._types import DEFAULT_FILTER_LIST, DialogConfig, DialogMode, SelectionCallback, StyleVariant
+from .renderers.font import load_font_with_unicode
 
 __version__ = "1.0.0b9"
 
@@ -43,6 +44,7 @@ __all__ = [
     "StyleVariant",
     "DEFAULT_FILTER_LIST",
     "SelectionCallback",
+    "load_font_with_unicode",
     "word_available",
     "mammoth_available",
     "pptx_available",

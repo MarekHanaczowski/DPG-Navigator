@@ -51,7 +51,7 @@ def _bind_ui_font() -> None:
     if font_path is None:
         return
     try:
-        from dpg_navigator.renderers.font import load_font_with_unicode
+        from dpg_navigator import load_font_with_unicode
 
         with dpg.font_registry():
             font = load_font_with_unicode(font_path, 16)

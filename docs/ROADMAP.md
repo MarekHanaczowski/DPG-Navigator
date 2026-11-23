@@ -1,9 +1,8 @@
 # Roadmap — path to a stable 1.0.0
 
 This tracks the work deferred from the beta hardening rounds (see
-[`CHANGELOG.md`](../CHANGELOG.md) for what is already done). Nothing here blocks
-the `1.0.0b*` beta; these are the investments to reach a production-grade,
-high-assurance `1.0.0`.
+[`CHANGELOG.md`](../CHANGELOG.md) for what is already done). All P1 and P2
+items below are done; what is left is the release path at the end.
 
 Priorities: **P1** = do before the first stable tag; **P2** = quality/maturity,
 can trail the first stable release.
@@ -100,6 +99,36 @@ can trail the first stable release.
   `DialogConfig` vs kwargs; `change_callback` uses the same type.
 - `DialogConfig` validates sizes, `file_filter` membership, paths (no NUL),
   and `custom_dirs` `(label, path)` pairs in `__post_init__`.
+
+### 8. API freeze and dependency floors — **DONE**
+- The public API is defined in the README ("Public API and Versioning"):
+  the names in `__all__`, the documented `FileDialog` methods and `tag`
+  property, and the keyword-only `DialogConfig` fields. `FileEntry`,
+  `pygments_available()` and the `[code]` extra were removed before the
+  freeze; `load_font_with_unicode` and `FileDialog.drag_payload_type` became
+  public, and dragged rows now carry their path (`list[str]`) as payload data.
+- Every declared dependency floor was installed and tested; four that did not
+  work were raised (Pillow 9.3, python-docx 0.8.11, html2image 2.0.4,
+  py7zr 1.0). The **Lowest dependencies** CI job keeps them honest.
+- README documents every `DialogConfig` field, the HTML preview policy and the
+  known limitations; [`docs/releasing.md`](releasing.md) covers the rc and
+  stable release flow.
+
+## Release path
+
+1. **1.0.0rc1** — version bump and changelog only, no new features.
+2. **Soak** — use the rc in real projects. Only fixes for bugs found in the rc
+   go in, each as the next rc.
+3. **1.0.0** — the last rc's code with the version number, the changelog
+   heading and the `Production/Stable` classifier changed.
+
+## After 1.0.0
+
+- **Drag a multi-selection:** a drag currently carries only the dragged
+  row. The payload is already a list, so dragging every selected row is a
+  backwards-compatible addition for a minor release.
+- **Optional pixel budget** for HTML/Office renders beyond the existing
+  `_MAX_RENDER_W`/`_RENDER_H` caps, if a real case needs it.
 
 ## Explicitly out of scope (non-issues)
 - **ZipSlip check:** the current `realpath` + `startswith(root + os.sep)` guard

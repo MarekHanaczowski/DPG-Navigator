@@ -21,6 +21,9 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: User Interfaces",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Intended Audience :: Developers",
+    "Typing :: Typed",
 ]
 dependencies = [
     "dearpygui>=2.2",
@@ -71,6 +74,9 @@ dev = [
 [project.urls]
 Homepage = "https://github.com/MarekHanaczowski/DPG-Navigator"
 Repository = "https://github.com/MarekHanaczowski/DPG-Navigator"
+Documentation = "https://github.com/MarekHanaczowski/DPG-Navigator#readme"
+Changelog = "https://github.com/MarekHanaczowski/DPG-Navigator/blob/main/CHANGELOG.md"
+Issues = "https://github.com/MarekHanaczowski/DPG-Navigator/issues"
 
 [tool.hatch.version]
 source = "regex"

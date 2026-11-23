@@ -88,6 +88,11 @@ class TestTagProperty:
         dialog._config = DialogConfig(tag="picker_1a2b3c4d")
         assert dialog.tag == "picker_1a2b3c4d"
 
+    def test_drag_payload_type_is_the_rows_payload_type(self):
+        dialog = FileDialog.__new__(FileDialog)
+        dialog._payload_type = "ws_picker"
+        assert dialog.drag_payload_type == "ws_picker"
+
     def test_tag_is_read_only(self):
         dialog = FileDialog.__new__(FileDialog)
         dialog._config = DialogConfig(tag="picker")
