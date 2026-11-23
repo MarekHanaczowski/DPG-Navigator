@@ -36,11 +36,12 @@ class TestResolvePreviewKind:
     def test_markdown_uses_renderer_when_backend_is_available(self):
         assert _resolve("README.md", markdown=True) is PreviewKind.MARKDOWN
 
-    def test_code_falls_back_to_text_without_pygments(self):
+    def test_source_code_routes_to_text(self):
         assert _resolve("script.py") is PreviewKind.TEXT
 
-    def test_code_uses_renderer_when_pygments_is_available(self):
-        assert _resolve("script.py", pygments=True) is PreviewKind.CODE
+    def test_every_code_extension_has_a_preview(self):
+        unrouted = [ext for ext in sorted(CODE_EXTS) if _resolve(f"file{ext}") is PreviewKind.NONE]
+        assert unrouted == []
 
     def test_excel_requires_optional_backend(self):
         assert _resolve("book.xlsx") is PreviewKind.NONE
@@ -82,7 +83,7 @@ class TestHtmlActiveExtensions:
 
     def test_optional_html_renderers_extend_active_extensions(self):
         extensions = html_active_extensions(
-            PreviewCapabilities(markdown=True, pygments=True, mammoth=True),
+            PreviewCapabilities(markdown=True, mammoth=True),
         )
 
         assert extensions >= MD_EXTS
@@ -93,17 +94,11 @@ class TestHtmlActiveExtensions:
 class TestExtensionlessFilenames:
     """Extensionless files (Makefile/Dockerfile) resolve via their dotted entry."""
 
-    def test_dockerfile_routes_to_text_without_pygments(self):
+    def test_dockerfile_routes_to_text(self):
         assert _resolve("Dockerfile") is PreviewKind.TEXT
 
-    def test_dockerfile_routes_to_code_with_pygments(self):
-        assert _resolve("Dockerfile", pygments=True) is PreviewKind.CODE
-
-    def test_makefile_routes_to_text_without_pygments(self):
+    def test_makefile_routes_to_text(self):
         assert _resolve("Makefile") is PreviewKind.TEXT
-
-    def test_makefile_routes_to_code_with_pygments(self):
-        assert _resolve("Makefile", pygments=True) is PreviewKind.CODE
 
     def test_dotfile_without_extension_routes_to_text(self):
         # splitext(".gitignore") == (".gitignore", ""), so no extension but the

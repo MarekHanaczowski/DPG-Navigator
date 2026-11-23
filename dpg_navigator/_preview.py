@@ -121,7 +121,7 @@ class _PendingLoad:
 class PreviewPanel:
     """Route selected files to the appropriate DearPyGui preview renderer.
 
-    ``PreviewKind.CODE`` shares ``TextRenderer`` (monospace text).
+    Source code previews as monospace text through ``TextRenderer``.
     Mouse wheel and left-button drag are forwarded to the active renderer
     when the pane is hovered (image zoom/pan, PDF paging, HTML scroll).
     """
@@ -174,7 +174,6 @@ class PreviewPanel:
             PreviewKind.IMAGE: ImageRenderer(),
             PreviewKind.FONT: FontRenderer(),
             PreviewKind.TEXT: TextRenderer(self._load_text_content, self.update),
-            PreviewKind.CODE: TextRenderer(self._load_text_content, self.update),
             PreviewKind.CSV: DataRenderer(self._load_text_content),
             PreviewKind.EXCEL: DataRenderer(self._load_text_content),
             PreviewKind.SQLITE: DataRenderer(self._load_text_content),
@@ -197,14 +196,13 @@ class PreviewPanel:
             mammoth_available,
             markdown_available,
             pptx_available,
-            pygments_available,
         )
         from ._pdf import pdf_available
         from ._preview_archive import seven_zip_available
         from ._preview_word import word_available
 
         # PreviewCapabilities fields (see _preview_registry): pdf, word, mammoth,
-        # pptx, markdown, excel, pygments, seven_z. It has no html/chrome fields
+        # pptx, markdown, excel, seven_z. It has no html/chrome fields
         # — HTML routing is unconditional on extension, so html_available()/
         # chrome_available() are not part of the capability set.
         return PreviewCapabilities(
@@ -214,7 +212,6 @@ class PreviewPanel:
             pptx=pptx_available(),
             markdown=markdown_available(),
             excel=excel_available(),
-            pygments=pygments_available(),
             seven_z=seven_zip_available(),
         )
 

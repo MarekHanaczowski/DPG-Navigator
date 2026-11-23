@@ -71,9 +71,12 @@ class FileEntry:
         return os.path.splitext(self.name)[1].lower()
 
 
-@dataclass
+@dataclass(kw_only=True)
 class DialogConfig:
     """Configuration for FileDialog.
+
+    Fields are keyword-only (``DialogConfig(title="Open", modal=False)``), so
+    new fields can be added in any position without breaking callers.
 
     Attributes:
         title: Window title bar text.

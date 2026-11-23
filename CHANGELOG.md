@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+API freeze before 1.0.0. The public API is now defined in the README
+("Public API and Versioning"); see the upgrade notes below.
+
+### Added
+
+- `FileDialog.tag`: the read-only DearPyGui tag of the dialog window. When the
+  configured tag is already in use, it includes the `_xxxxxxxx` suffix added at
+  construction.
+
+### Changed
+
+- **Breaking:** `DialogConfig` fields are keyword-only. Write
+  `DialogConfig(title="Open")`; `DialogConfig("Open")` now raises `TypeError`.
+
+### Removed
+
+- **Breaking:** `FileEntry` is no longer exported from `dpg_navigator`. No
+  public API returned or accepted it; the selection callback receives a list of
+  path strings.
+- **Breaking:** `pygments_available()` and the `[code]` extra. Pygments was
+  never used for rendering: source files still preview as monospace text
+  without it. Remove `[code]` from your requirements.
+
 ### Fixed
 
 - A sheet, table or archive-member click in the old preview no longer cancels the

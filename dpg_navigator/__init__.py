@@ -29,11 +29,10 @@ from ._availability import (
     pdf_available,
     pptx_available,
     py7zr_available,
-    pygments_available,
     word_available,
 )
 from ._dialog import FileDialog
-from ._types import DEFAULT_FILTER_LIST, DialogConfig, DialogMode, FileEntry, SelectionCallback, StyleVariant
+from ._types import DEFAULT_FILTER_LIST, DialogConfig, DialogMode, SelectionCallback, StyleVariant
 
 __version__ = "1.0.0b9"
 
@@ -42,7 +41,6 @@ __all__ = [
     "DialogConfig",
     "DialogMode",
     "StyleVariant",
-    "FileEntry",
     "DEFAULT_FILTER_LIST",
     "SelectionCallback",
     "word_available",
@@ -54,5 +52,4 @@ __all__ = [
     "chrome_available",
     "excel_available",
     "py7zr_available",
-    "pygments_available",
 ]

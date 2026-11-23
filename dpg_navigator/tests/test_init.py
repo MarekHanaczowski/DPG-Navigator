@@ -16,7 +16,6 @@ class TestPublicAPI:
             "DialogConfig",
             "DialogMode",
             "StyleVariant",
-            "FileEntry",
             "DEFAULT_FILTER_LIST",
             "SelectionCallback",
             "word_available",
@@ -28,14 +27,13 @@ class TestPublicAPI:
             "chrome_available",
             "excel_available",
             "py7zr_available",
-            "pygments_available",
         }
         assert set(dpg_navigator.__all__) == expected
 
     def test_all_length(self):
         import dpg_navigator
 
-        assert len(dpg_navigator.__all__) == 17
+        assert len(dpg_navigator.__all__) == 15
 
     def test_dialog_config_importable(self):
         from dpg_navigator import DialogConfig
@@ -52,10 +50,13 @@ class TestPublicAPI:
 
         assert StyleVariant is not None
 
-    def test_file_entry_importable(self):
-        from dpg_navigator import FileEntry
+    def test_internal_names_are_not_exported(self):
+        """FileEntry and pygments_available were dropped from the public API for 1.0."""
+        import dpg_navigator
 
-        assert FileEntry is not None
+        assert "FileEntry" not in dpg_navigator.__all__
+        assert not hasattr(dpg_navigator, "FileEntry")
+        assert not hasattr(dpg_navigator, "pygments_available")
 
     def test_dpg_navigator_importable(self):
         from dpg_navigator import FileDialog
@@ -64,15 +65,12 @@ class TestPublicAPI:
 
     def test_reexports_match_source(self):
         """Verify re-exports point to the same objects as direct imports."""
-        from dpg_navigator import DialogConfig, DialogMode, FileEntry, SelectionCallback, StyleVariant
+        from dpg_navigator import DialogConfig, DialogMode, SelectionCallback, StyleVariant
         from dpg_navigator._types import (
             DialogConfig as _DC,
         )
         from dpg_navigator._types import (
             DialogMode as _DM,
-        )
-        from dpg_navigator._types import (
-            FileEntry as _FE,
         )
         from dpg_navigator._types import (
             SelectionCallback as _SC,
@@ -84,7 +82,6 @@ class TestPublicAPI:
         assert DialogConfig is _DC
         assert DialogMode is _DM
         assert StyleVariant is _SV
-        assert FileEntry is _FE
         assert SelectionCallback is _SC
 
     def test_default_filter_list_in_all(self):
