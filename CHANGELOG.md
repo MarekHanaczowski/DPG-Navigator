@@ -5,13 +5,17 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 API freeze before 1.0.0. The public API is now defined in the README
-("Public API and Versioning"); see the upgrade notes below.
+("Public API and Versioning"); breaking changes are marked below.
 
 ### Added
 
 - `FileDialog.tag`: the read-only DearPyGui tag of the dialog window. When the
   configured tag is already in use, it includes the `_xxxxxxxx` suffix added at
   construction.
+- `load_font_with_unicode` is exported from `dpg_navigator`. It was documented
+  in the README but only importable from the internal `renderers.font` module.
+- README documents every `DialogConfig` field, the HTML preview policy and the
+  known limitations. The release checklist covers release candidates.
 
 ### Changed
 

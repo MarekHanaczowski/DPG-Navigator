@@ -97,7 +97,7 @@ The package keeps filesystem/search logic separate from DearPyGui rendering:
 
 The integrated preview panel renders files directly inside the dialog:
 
-- **Images** — native stb_image loading with Pillow fallback for WebP, TIFF, HEIC, and SVG; the first view fits the pane without cropping. Mouse wheel zooms toward the cursor; left-button drag pans. With Pillow and NumPy installed, large photos are shown from a texture capped at 2048 px on the long edge so they appear without stalling the UI.
+- **Images** — native stb_image loading (PNG, JPEG, BMP, GIF, TGA, PSD, HDR, PNM) with Pillow for WebP, TIFF, ICO, DDS, PCX and AVIF; the first view fits the pane without cropping. Mouse wheel zooms toward the cursor; left-button drag pans. With Pillow and NumPy installed, large photos are shown from a texture capped at 2048 px on the long edge so they appear without stalling the UI.
 - **PDF** — page-by-page rendering via pypdfium2 with mouse wheel navigation over the preview panel (wheel down = next page, wheel up = previous page), LRU cache, and background prefetch.
 - **Word (.docx)** — pixel-perfect HTML render via mammoth + Chrome Headless, or python-docx styled text extraction as fallback.
 - **PowerPoint (.pptx)** — slide text, tables, speaker notes, and inline image extraction via python-pptx.
@@ -119,7 +119,7 @@ Preview features are organized into installable extras:
 
 | Extra | Command | What it enables |
 |-------|---------|-----------------|
-| `preview` | `pip install dpg-navigator[preview]` | Enhanced image formats (WebP, TIFF, SVG) |
+| `preview` | `pip install dpg-navigator[preview]` | Pillow: more image formats (WebP, TIFF, ICO, ...) and faster large-image loading |
 | `pdf` | `pip install dpg-navigator[pdf]` | PDF page rendering |
 | `word` | `pip install dpg-navigator[word]` | Word document preview |
 | `pptx` | `pip install dpg-navigator[pptx]` | PowerPoint slide preview |
@@ -132,24 +132,15 @@ Preview features are organized into installable extras:
 > **Chrome/Chromium required for some previews.** The `html`, `markdown`,
 > and the pixel-perfect `word` previews render through **Chrome Headless**
 > (driven by `html2image`'s `--screenshot` CLI). Installing the extra pulls in
-> the Python packages but **not** a browser. A Chrome, Chromium, or
-> `chrome-headless-shell` binary must be resolvable: set `DPG_CHROME_BIN`
-> (preferred), `CHROME_BIN`, or `CHROME_PATH`, or leave html2image to search
-> `PATH`. Full Chrome for Testing can hang on `--screenshot`; the old-headless
-> `chrome-headless-shell` binary from [Chrome for Testing](https://googlechromelabs.github.io/chrome-for-testing/)
-> is the reliable CLI. If none is found (or a preview extra is not installed),
-> HTML files fall back to raw-text rendering, and Markdown/Word degrade to
-> their text extractors. In the default **safe mode** scripts never run:
-> the HTML is sanitized with `bleach` (an allow-list that drops `<script>`,
-> event-handler attributes, and `javascript:` URLs) and wrapped in a
-> Content-Security-Policy with `script-src 'none'`. Network access is blocked
-> through a dead proxy (`--proxy-bypass-list=<-loopback>` sends loopback HTTP
-> through that proxy; `file://` is not an HTTP proxy hop). Markdown and Word
-> previews always use safe mode. With `trusted_html_preview=True`, raw
-> `.html`/`.htm` files render unsanitized: **JavaScript runs** and the page
-> may load local and network resources. Enable it only for files you trust.
-> Containers/CI that cannot start the sandbox may set `DPG_CHROME_NO_SANDBOX=1`
-> (weakens isolation; not the default).
+> the Python packages but **not** a browser. The binary is looked up in
+> `DPG_CHROME_BIN` (preferred), `CHROME_BIN`, `CHROME_PATH`, and then in the
+> usual Chrome/Chromium install locations of each platform. Full Chrome for
+> Testing can hang on `--screenshot`; the old-headless `chrome-headless-shell`
+> binary from [Chrome for Testing](https://googlechromelabs.github.io/chrome-for-testing/)
+> is the reliable CLI. Without a browser (or without the extra), HTML files are
+> shown as raw text, and Markdown/Word fall back to their text extractors.
+> What the browser is allowed to do is described in
+> [HTML preview policy](#html-preview-policy).
 
 ## Configuration
 
@@ -187,6 +178,34 @@ config = DialogConfig(
 fd = FileDialog(callback=on_select, config=config)
 ```
 
+`FileDialog(...)` keyword arguments and `DialogConfig` fields are the same set.
+An invalid value raises `ValueError` or `TypeError` when the dialog or config
+is created.
+
+| Field | Default | Meaning |
+|-------|---------|---------|
+| `title` | `"File Dialog"` | Window title. |
+| `tag` | `"dpg_navigator"` | DearPyGui tag of the window. If it is already taken, a `_xxxxxxxx` suffix is added; read the tag in use from `fd.tag`. |
+| `width`, `height` | `950`, `650` | Initial window size in pixels; at least `min_size`. |
+| `min_size` | `(460, 320)` | Smallest size the user can resize the window to. |
+| `mode` | `DialogMode.OPEN_FILES` | `OPEN_FILES` lists files and folders and returns files; `OPEN_DIRS` lists and returns folders only. |
+| `default_path` | `None` | Starting folder. `None` means the current working directory. |
+| `filter_list` | `None` | Extensions in the filter combo, e.g. `[".*", ".py", ".txt"]`. `None` uses `DEFAULT_FILTER_LIST`; `[]` leaves the combo empty. |
+| `file_filter` | `".*"` | Filter selected at start. Must be in `filter_list`. |
+| `multi_selection` | `True` | Ctrl+click and Ctrl+A select several entries. |
+| `show_preview` | `False` | Show the preview panel. |
+| `preview_width` | `300` | Initial preview panel width in pixels; the user can resize it. |
+| `trusted_html_preview` | `False` | Let raw `.html`/`.htm` previews run scripts and load resources. See [HTML preview policy](#html-preview-policy). |
+| `show_hidden` | `False` | Show hidden files and folders. |
+| `show_dir_size` | `False` | Compute folder sizes in the background (cached for 60 s). |
+| `search_subfolders` | `True` | Show the "Subfolders" checkbox for recursive search. |
+| `show_shortcuts` | `True` | Show the sidebar with special folders and drives. |
+| `style` | `StyleVariant.LABELED` | Sidebar style: `LABELED` (icon and text) or `COMPACT` (icons only). |
+| `custom_dirs` | `None` | Extra sidebar shortcuts as `(label, path)` pairs, e.g. `[("Projects", "D:/Projects")]`. |
+| `allow_drag` | `True` | Rows can be dragged. See [Known limitations](#known-limitations). |
+| `modal` | `True` | Block the other windows while the dialog is open. |
+| `no_resize` | `False` | Lock the window at its initial size. |
+
 ## Public API and Versioning
 
 From 1.0.0 the project follows [Semantic Versioning](https://semver.org/).
@@ -194,7 +213,7 @@ The public API, which breaking-change rules apply to, is:
 
 - the names in `dpg_navigator.__all__`: `FileDialog`, `DialogConfig`,
   `DialogMode`, `StyleVariant`, `DEFAULT_FILTER_LIST`, `SelectionCallback`,
-  and the `*_available()` probes;
+  `load_font_with_unicode`, and the `*_available()` probes;
 - `FileDialog(...)` construction, the methods `show()`, `hide()`,
   `destroy()`, `change_callback()`, and the read-only `tag` property;
 - the `DialogConfig` fields and their validation. Fields are keyword-only, so
@@ -216,20 +235,65 @@ change.
 - **ZipSlip protection** — safe extraction of archive entries with path validation.
 - **Graceful degradation** — missing optional libraries are logged, never crash the dialog.
 - **Memory efficiency** — LRU texture caching and background indexing for deep searches.
-- **Safe HTML by default** — raw HTML, Markdown, and Word HTML are parsed with
-  a structural allow-list and wrapped in a restrictive CSP before Chrome sees
-  them. Scripts, event handlers, forms, frames, author CSS, local/network URLs,
-  and all non-embedded resources are removed or blocked. Safe mode permits only
-  verified `data:image` raster sources and also routes network requests through
-  a dead proxy.
-- **Trusted HTML is explicit** — set `trusted_html_preview=True` only when raw
-  `.html`/`.htm` fidelity is required. That mode can execute scripts and load
-  local or remote resources. It still uses the Chrome sandbox, a 2 MiB input
-  limit, a 30-second subprocess timeout, and a fresh temporary profile per
-  render. Markdown and Word never inherit this option.
+- **Safe HTML by default** — HTML, Markdown and Word previews cannot run
+  scripts or reach the network unless you opt in. See
+  [HTML preview policy](#html-preview-policy).
 - **Thread-safe previews** — Chrome and image processing run in bounded workers;
   DearPyGui texture, widget, and callback work is applied by a frame callback
   under the DPG mutex. This requires DearPyGui 2.2 or newer.
+
+## HTML preview policy
+
+HTML, Markdown and Word (through mammoth) previews are rendered by headless
+Chrome to an image. Each render gets a fresh temporary profile and output
+folder, which are removed afterwards.
+
+**Safe mode (default).** Before Chrome sees the page:
+
+- the HTML is parsed against a structural allow-list (`bleach`). Scripts,
+  event-handler attributes, `javascript:` URLs, forms, frames and author CSS
+  are removed;
+- local and network URLs are removed; only verified embedded `data:image`
+  rasters (up to 512 KiB each) are kept;
+- the page is wrapped in a Content-Security-Policy with `script-src 'none'`;
+- Chrome sends all traffic, including loopback HTTP, to a dead proxy, so a
+  leftover reference cannot reach the network.
+
+**Trusted mode** (`trusted_html_preview=True`) applies only to raw
+`.html`/`.htm` files. The file is rendered as it is: **JavaScript runs** and
+the page may load local and network resources. Use it only for files you
+trust. Markdown and Word previews always use safe mode.
+
+Both modes keep the Chrome sandbox, a 2 MiB input limit and a 30-second
+timeout per render. Containers or CI runners that cannot start the sandbox may
+set `DPG_CHROME_NO_SANDBOX=1`, which weakens isolation and is never the
+default.
+
+## Known limitations
+
+- **Legacy and OpenDocument formats** (`.doc`, `.xls`, `.ppt`, `.odt`,
+  `.ods`, `.odp`) have no preview. Word preview covers `.docx`, Excel
+  `.xlsx`/`.xlsm`, PowerPoint `.pptx`.
+- **SVG cannot be previewed**: Pillow has no SVG decoder. **HEIC/HEIF** need
+  the [`pillow-heif`](https://pypi.org/project/pillow-heif/) plugin registered
+  by the host application (`pillow_heif.register_heif_opener()`); **AVIF**
+  needs a Pillow build with AVIF support.
+- **Previews are capped** to keep the dialog responsive: images up to 32 MiB
+  and 8192 x 8192 px (shown from a texture of at most 2048 px), PDF up to
+  50 MiB, Office files up to 32 MiB compressed (128 MiB unpacked), fonts up to
+  16 MiB, HTML input up to 2 MiB. Text is read in 256 KiB pages. Tables (CSV,
+  Excel, SQLite) show the first 200 rows and 50 columns; archives list their
+  200 largest members.
+- **Subfolder search** indexes up to 8 levels and 50,000 entries and shows at
+  most 500 results.
+- **Files opened inside an archive** are extracted to a session temp folder
+  (members larger than 512 MiB are refused) and deleted when the last
+  `FileDialog` is destroyed.
+- **Drag and drop**: with `allow_drag=True` a row can be dragged (payload type
+  `ws_<tag>`), but the payload carries no data yet, so a drop target cannot
+  tell which file was dragged.
+- **Non-ASCII filenames** need a font with the right glyphs; see
+  [Unicode filenames](#unicode-filenames).
 
 ## HiDPI / 4K Displays (Windows)
 
@@ -251,7 +315,7 @@ The demo and examples use the helper below, which also handles older DearPyGui
 versions that need explicit glyph ranges:
 
 ```python
-from dpg_navigator.renderers.font import load_font_with_unicode
+from dpg_navigator import load_font_with_unicode
 
 with dpg.font_registry():
     ui_font = load_font_with_unicode("C:/Windows/Fonts/segoeui.ttf", 16)

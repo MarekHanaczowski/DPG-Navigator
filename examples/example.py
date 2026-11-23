@@ -38,7 +38,7 @@ if __name__ == "__main__":
     _FONT_PATH = next((path for path in font_candidates if os.path.isfile(path)), None)
     if _FONT_PATH:
         try:
-            from dpg_navigator.renderers.font import load_font_with_unicode
+            from dpg_navigator import load_font_with_unicode
 
             with dpg.font_registry():
                 font = load_font_with_unicode(_FONT_PATH, 16)

@@ -18,6 +18,7 @@ class TestPublicAPI:
             "StyleVariant",
             "DEFAULT_FILTER_LIST",
             "SelectionCallback",
+            "load_font_with_unicode",
             "word_available",
             "mammoth_available",
             "pptx_available",
@@ -33,7 +34,7 @@ class TestPublicAPI:
     def test_all_length(self):
         import dpg_navigator
 
-        assert len(dpg_navigator.__all__) == 15
+        assert len(dpg_navigator.__all__) == 16
 
     def test_dialog_config_importable(self):
         from dpg_navigator import DialogConfig
@@ -83,6 +84,12 @@ class TestPublicAPI:
         assert DialogMode is _DM
         assert StyleVariant is _SV
         assert SelectionCallback is _SC
+
+    def test_font_helper_is_reexported(self):
+        from dpg_navigator import load_font_with_unicode
+        from dpg_navigator.renderers.font import load_font_with_unicode as _impl
+
+        assert load_font_with_unicode is _impl
 
     def test_default_filter_list_in_all(self):
         """DEFAULT_FILTER_LIST is exported in __all__."""

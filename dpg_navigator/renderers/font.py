@@ -111,7 +111,14 @@ def polish_sample_text() -> str:
 
 
 def load_font_with_unicode(path: str, size: float | int) -> Any:
-    """Create one DPG font; registers Polish ranges only when required by DPG."""
+    """Load a font file into DearPyGui with Latin-1 and Latin Extended-A glyphs.
+
+    Call it inside ``dpg.font_registry()`` and pass the result to
+    ``dpg.bind_font()``. DearPyGui 2.3+ builds its glyph atlas on demand, so
+    there the font is loaded as is; on 2.2 the Latin ranges and Polish
+    characters are registered explicitly. Public API: exported from
+    ``dpg_navigator``.
+    """
     with dpg.font(path, size) as font_id:
         _register_unicode_ranges()
     return font_id

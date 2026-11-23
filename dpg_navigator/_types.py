@@ -80,7 +80,8 @@ class DialogConfig:
 
     Attributes:
         title: Window title bar text.
-        tag: Unique DPG identifier. Must differ across instances.
+        tag: DPG tag of the window. If it is already in use, FileDialog adds a
+            ``_xxxxxxxx`` suffix; read the tag in use from ``FileDialog.tag``.
         width: Initial window width in pixels.
         height: Initial window height in pixels.
         min_size: Minimum (width, height) the user can resize to.
