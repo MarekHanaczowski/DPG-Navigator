@@ -105,7 +105,8 @@ can trail the first stable release.
   the names in `__all__`, the documented `FileDialog` methods and `tag`
   property, and the keyword-only `DialogConfig` fields. `FileEntry`,
   `pygments_available()` and the `[code]` extra were removed before the
-  freeze; `load_font_with_unicode` became public.
+  freeze; `load_font_with_unicode` and `FileDialog.drag_payload_type` became
+  public, and dragged rows now carry their path (`list[str]`) as payload data.
 - Every declared dependency floor was installed and tested; four that did not
   work were raised (Pillow 9.3, python-docx 0.8.11, html2image 2.0.4,
   py7zr 1.0). The **Lowest dependencies** CI job keeps them honest.
@@ -123,9 +124,9 @@ can trail the first stable release.
 
 ## After 1.0.0
 
-- **Drag-and-drop data:** row drag payloads (`allow_drag`) carry no data, so
-  a drop target cannot tell which file was dragged. Passing the path(s) as
-  `drag_data` is a backwards-compatible addition for a minor release.
+- **Drag a multi-selection:** a drag currently carries only the dragged
+  row. The payload is already a list, so dragging every selected row is a
+  backwards-compatible addition for a minor release.
 - **Optional pixel budget** for HTML/Office renders beyond the existing
   `_MAX_RENDER_W`/`_RENDER_H` caps, if a real case needs it.
 

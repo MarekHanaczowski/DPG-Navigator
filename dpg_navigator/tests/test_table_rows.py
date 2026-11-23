@@ -336,3 +336,39 @@ class TestKeyboardWithUnfinishedListing:
 
         mock_dpg.set_value.assert_called_once_with(30, True)
         assert dialog.state.last_clicked_element == 30
+
+
+class TestDragPayload:
+    """Dragged rows carry the row's path so a drop target can use it."""
+
+    def _render(self, ui_dpg: MagicMock, entry: FileEntry, *, allow_drag: bool = True) -> None:
+        builder = _builder()
+        builder.config = DialogConfig(allow_drag=allow_drag)
+        builder.dialog._payload_type = "ws_picker"
+        builder._render_entry(entry)
+
+    def test_file_row_payload_carries_its_path(self, ui_dpg):
+        entry = _file("report.pdf")
+        self._render(ui_dpg, entry)
+
+        ui_dpg.add_drag_payload.assert_called_once()
+        kwargs = ui_dpg.add_drag_payload.call_args.kwargs
+        assert kwargs["payload_type"] == "ws_picker"
+        assert kwargs["drag_data"] == [entry.full_path]
+
+    def test_folder_row_payload_carries_its_path(self, ui_dpg):
+        folder = FileEntry("docs", os.path.join(_ROOT, "docs"), True, None, 0.0, False)
+        self._render(ui_dpg, folder)
+
+        assert ui_dpg.add_drag_payload.call_args.kwargs["drag_data"] == [folder.full_path]
+
+    def test_archive_member_is_not_draggable(self, ui_dpg):
+        member = FileEntry("a.txt", os.path.join(_ROOT, "bundle.zip") + "|/a.txt", False, 1, 0.0, False)
+        self._render(ui_dpg, member)
+
+        ui_dpg.add_drag_payload.assert_not_called()
+
+    def test_no_payload_when_drag_is_disabled(self, ui_dpg):
+        self._render(ui_dpg, _file("report.pdf"), allow_drag=False)
+
+        ui_dpg.add_drag_payload.assert_not_called()

@@ -12,6 +12,11 @@ API freeze before 1.0.0. The public API is now defined in the README
 - `FileDialog.tag`: the read-only DearPyGui tag of the dialog window. When the
   configured tag is already in use, it includes the `_xxxxxxxx` suffix added at
   construction.
+- Drag and drop delivers the file: a dragged row's payload carries its path as
+  `drag_data` (a `list[str]`), and the new `FileDialog.drag_payload_type`
+  property gives the payload type for a drop target. Before, the payload had
+  no data, so a drop target could not tell which file was dragged. Files
+  inside an archive are no longer draggable.
 - `load_font_with_unicode` is exported from `dpg_navigator`. It was documented
   in the README but only importable from the internal `renderers.font` module.
 - README documents every `DialogConfig` field, the HTML preview policy and the

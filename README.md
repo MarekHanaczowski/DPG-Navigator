@@ -202,9 +202,31 @@ is created.
 | `show_shortcuts` | `True` | Show the sidebar with special folders and drives. |
 | `style` | `StyleVariant.LABELED` | Sidebar style: `LABELED` (icon and text) or `COMPACT` (icons only). |
 | `custom_dirs` | `None` | Extra sidebar shortcuts as `(label, path)` pairs, e.g. `[("Projects", "D:/Projects")]`. |
-| `allow_drag` | `True` | Rows can be dragged. See [Known limitations](#known-limitations). |
+| `allow_drag` | `True` | Rows can be dragged to a drop target. See [Drag and drop](#drag-and-drop). |
 | `modal` | `True` | Block the other windows while the dialog is open. |
 | `no_resize` | `False` | Lock the window at its initial size. |
+
+### Drag and drop
+
+With `allow_drag=True` (the default) a row can be dragged out of the dialog
+onto any DearPyGui item that accepts its payload type. The drop callback
+receives a list with the dragged path as `app_data`:
+
+```python
+def on_drop(sender, app_data, user_data):
+    for path in app_data:  # list[str]
+        print("dropped", path)
+
+with dpg.window(label="Target"):
+    dpg.add_button(
+        label="Drop a file here",
+        payload_type=fd.drag_payload_type,
+        drop_callback=on_drop,
+    )
+```
+
+Files and folders can be dragged; files inside an archive cannot (they only
+have a virtual path until they are extracted).
 
 ## Public API and Versioning
 
@@ -215,7 +237,9 @@ The public API, which breaking-change rules apply to, is:
   `DialogMode`, `StyleVariant`, `DEFAULT_FILTER_LIST`, `SelectionCallback`,
   `load_font_with_unicode`, and the `*_available()` probes;
 - `FileDialog(...)` construction, the methods `show()`, `hide()`,
-  `destroy()`, `change_callback()`, and the read-only `tag` property;
+  `destroy()`, `change_callback()`, and the read-only `tag` and
+  `drag_payload_type` properties, including the drag payload data
+  (`list[str]`);
 - the `DialogConfig` fields and their validation. Fields are keyword-only, so
   new fields may be added in a minor release.
 
@@ -289,9 +313,8 @@ default.
 - **Files opened inside an archive** are extracted to a session temp folder
   (members larger than 512 MiB are refused) and deleted when the last
   `FileDialog` is destroyed.
-- **Drag and drop**: with `allow_drag=True` a row can be dragged (payload type
-  `ws_<tag>`), but the payload carries no data yet, so a drop target cannot
-  tell which file was dragged.
+- **Drag and drop** moves one row at a time, also when several rows are
+  selected. Files inside an archive cannot be dragged.
 - **Non-ASCII filenames** need a font with the right glyphs; see
   [Unicode filenames](#unicode-filenames).
 

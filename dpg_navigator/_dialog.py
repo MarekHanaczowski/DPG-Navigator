@@ -379,6 +379,17 @@ class FileDialog(KeyboardMixin):
         """
         return self._config.tag
 
+    @property
+    def drag_payload_type(self) -> str:
+        """Payload type of the rows dragged out of this dialog.
+
+        Give it to a drop target (``payload_type=fd.drag_payload_type``). Its
+        ``drop_callback`` then receives a ``list[str]`` of dragged paths as
+        ``app_data``. Rows are draggable when ``DialogConfig.allow_drag`` is
+        True; files inside an archive are not.
+        """
+        return self._payload_type
+
     def show(self) -> None:
         """Show the window, navigate to the default directory, apply pending drives."""
         self.logic.navigate_to(self.state.current_dir)

@@ -262,3 +262,42 @@ class TestSubfolderSearchReplay:
         finally:
             dialog.destroy()
             pump()
+
+
+_DRAG_PAYLOAD = "mvAppItemType::mvDragPayload"
+
+
+def _drag_payloads(item: int) -> list[int]:
+    """Every drag payload under *item*, in any child slot."""
+    found: list[int] = []
+    slots = dpg.get_item_children(item) or {}
+    for children in slots.values():
+        for child in children:
+            if dpg.get_item_type(child) == _DRAG_PAYLOAD:
+                found.append(child)
+            else:
+                found.extend(_drag_payloads(child))
+    return found
+
+
+class TestDragPayload:
+    """Dragging a row hands the drop target the row's real path."""
+
+    def test_row_payload_carries_path_and_public_type(self, dpg_viewport, tmp_path):
+        (tmp_path / "report.txt").write_text("x")
+        (tmp_path / "sub").mkdir()
+        dialog = make_dialog(tmp_path)
+        try:
+            dialog.show()
+            assert wait_until(lambda: {"report.txt", "sub"} <= {e.name for e in dialog.state.row_entries.values()})
+
+            for name in ("report.txt", "sub"):
+                entry = entry_named(dialog, name)
+                row = next(row for row, row_entry in dialog.state.row_entries.items() if row_entry is entry)
+                payloads = _drag_payloads(row)
+                assert len(payloads) == 1, name
+                config = dpg.get_item_configuration(payloads[0])
+                assert config["payload_type"] == dialog.drag_payload_type
+                assert config["drag_data"] == [entry.full_path]
+        finally:
+            dialog.destroy()
