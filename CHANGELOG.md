@@ -19,6 +19,17 @@ All notable changes to this project will be documented in this file.
   archive, also load in the background.
 - PowerPoint pictures are decoded at the width they are shown at, instead
   of at full size, which uses less memory.
+- **Large photos no longer stall the dialog when the preview appears.**
+  The image preview texture is capped at 2048 px on the long edge; the
+  picture is shrunk on the worker before it is converted for upload. Showing
+  a 12 MP photo now holds the DearPyGui thread for about 55 ms instead of
+  0.23-0.33 s, and a 24 MP photo for about 50 ms instead of 0.45-0.63 s. Fit,
+  zoom and pan still use the original size, so the picture is laid out
+  exactly as before; past roughly 3x zoom it is magnified from the smaller
+  texture. Without Pillow or NumPy, images still load through DearPyGui's
+  STB loader at full size, because that path cannot shrink them cheaply.
+- Palette (GIF, 8-bit PNG) and 1-bit images are converted to RGBA before
+  they are shrunk, so a shrunk preview is smoothed instead of aliased.
 - Dev tooling: mypy is pinned to `2.4.*` (was `2.3.*`). The package type
   checks clean under 2.4 without code changes.
 

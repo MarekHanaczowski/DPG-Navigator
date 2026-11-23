@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import os
+from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from dpg_navigator._preview_limits import IMAGE_PREVIEW_TEXTURE_MAX_DIMENSION, PreviewRaster, load_preview_raster
 from dpg_navigator._types import FileEntry
 from dpg_navigator.renderers.image import (
     _ZOOM_MAX,
@@ -137,7 +142,9 @@ class TestImageFitsPanel:
         with (
             patch("dpg_navigator.renderers.image.exceeds_bytes", return_value=False),
             patch("dpg_navigator.renderers.image.probe_image_size", return_value=(1200, 800)),
-            patch.object(ImageRenderer, "load_image_pillow", return_value=(1200, 800, [0.0] * 16)),
+            patch.object(
+                ImageRenderer, "load_image_preview", return_value=PreviewRaster(1200, 800, 1200, 800, [0.0] * 16)
+            ),
             patch("dpg_navigator.renderers.image.dpg") as mock_dpg,
         ):
             mock_dpg.get_item_rect_size.return_value = (308, 408)
@@ -316,3 +323,205 @@ class TestImagePan:
         renderer._panning = True
         renderer.on_mouse_up(None, None, None)
         assert renderer._panning is False
+
+
+class TestTextureCap:
+    """The worker shrinks big pictures; layout and the reported size stay the source size."""
+
+    @staticmethod
+    def _entry(path: str) -> FileEntry:
+        return FileEntry(
+            os.path.basename(path),
+            path,
+            is_dir=False,
+            size_bytes=100,
+            modified_time=0.0,
+            is_hidden=False,
+        )
+
+    @staticmethod
+    def _ctx() -> Any:
+        ctx = MagicMock()
+        ctx.panel_id = 1
+        ctx.config_tag = "cap"
+        ctx.image_cache = None
+        return ctx
+
+    @staticmethod
+    def _finish(renderer: ImageRenderer, entry: FileEntry, ctx: Any) -> MagicMock:
+        """Run the worker job with DearPyGui unreachable, then the finish step on a mock."""
+        with patch("dpg_navigator.renderers.image.dpg") as worker_dpg:
+            finish = renderer.prepare(entry, ctx)()
+        assert worker_dpg.mock_calls == []
+        with patch("dpg_navigator.renderers.image.dpg") as mock_dpg:
+            mock_dpg.get_item_rect_size.return_value = (1008, 1008)
+            mock_dpg.does_item_exist.return_value = False
+            finish()
+        return mock_dpg
+
+    def test_default_cap(self):
+        assert ImageRenderer._MAX_TEXTURE_DIMENSION == IMAGE_PREVIEW_TEXTURE_MAX_DIMENSION == 2048
+
+    def test_big_image_texture_capped_and_size_reported_as_source(self, tmp_path):
+        image = pytest.importorskip("PIL.Image")
+        pytest.importorskip("numpy")
+        path = tmp_path / "big.png"
+        image.new("RGB", (300, 150), (10, 20, 30)).save(path)
+        renderer = ImageRenderer()
+        ctx = self._ctx()
+        with patch.object(ImageRenderer, "_MAX_TEXTURE_DIMENSION", 64):
+            mock_dpg = self._finish(renderer, self._entry(str(path)), ctx)
+
+        tex = mock_dpg.add_static_texture.call_args.kwargs
+        assert (tex["width"], tex["height"]) == (64, 32)
+        assert len(tex["default_value"]) == 64 * 32 * 4
+        assert ctx.image_cache[:2] == (300, 150)
+        assert (renderer._img_w, renderer._img_h) == (300, 150)
+        # Laid out at the source size: it fits the 1000 px canvas, so no upscaling.
+        assert mock_dpg.draw_image.call_args.kwargs["pmax"] == (300.0, 150.0)
+
+    def test_tall_image_keeps_aspect(self, tmp_path):
+        image = pytest.importorskip("PIL.Image")
+        pytest.importorskip("numpy")
+        path = tmp_path / "tall.png"
+        image.new("RGB", (150, 300), (10, 20, 30)).save(path)
+        ctx = self._ctx()
+        with patch.object(ImageRenderer, "_MAX_TEXTURE_DIMENSION", 64):
+            mock_dpg = self._finish(ImageRenderer(), self._entry(str(path)), ctx)
+
+        tex = mock_dpg.add_static_texture.call_args.kwargs
+        assert (tex["width"], tex["height"]) == (32, 64)
+        assert ctx.image_cache[:2] == (150, 300)
+
+    def test_default_cap_applies_to_a_real_decode(self, tmp_path):
+        image = pytest.importorskip("PIL.Image")
+        pytest.importorskip("numpy")
+        path = tmp_path / "wide.png"
+        image.new("RGB", (2100, 1050), (10, 20, 30)).save(path)
+        ctx = self._ctx()
+        mock_dpg = self._finish(ImageRenderer(), self._entry(str(path)), ctx)
+
+        tex = mock_dpg.add_static_texture.call_args.kwargs
+        assert (tex["width"], tex["height"]) == (2048, 1024)
+        assert ctx.image_cache[:2] == (2100, 1050)
+
+    def test_small_image_untouched(self, tmp_path):
+        image = pytest.importorskip("PIL.Image")
+        pytest.importorskip("numpy")
+        path = tmp_path / "small.png"
+        image.new("RGB", (64, 32), (255, 0, 0)).save(path)
+        ctx = self._ctx()
+        mock_dpg = self._finish(ImageRenderer(), self._entry(str(path)), ctx)
+
+        tex = mock_dpg.add_static_texture.call_args.kwargs
+        assert (tex["width"], tex["height"]) == (64, 32)
+        assert list(tex["default_value"][:4]) == [1.0, 0.0, 0.0, 1.0]
+        assert ctx.image_cache[:2] == (64, 32)
+
+    def test_zoom_maps_onto_the_scaled_texture(self, tmp_path):
+        image = pytest.importorskip("PIL.Image")
+        pytest.importorskip("numpy")
+        path = tmp_path / "big.png"
+        image.new("RGB", (400, 200), (10, 20, 30)).save(path)
+        renderer = ImageRenderer()
+        with patch.object(ImageRenderer, "_MAX_TEXTURE_DIMENSION", 50):
+            self._finish(renderer, self._entry(str(path)), self._ctx())
+        renderer._image_id = 99
+        renderer._zoom = 2.0
+        with patch("dpg_navigator.renderers.image.dpg") as mock_dpg:
+            mock_dpg.get_item_rect_size.return_value = (208, 208)
+            mock_dpg.does_item_exist.return_value = True
+            renderer._apply_transform()
+        # The 400x200 source fits a 200 px canvas at 200x100; x2 zoom doubles it.
+        # The 50x25 texture is stretched over that rectangle.
+        mock_dpg.configure_item.assert_called_once_with(99, pmin=(0.0, 0.0), pmax=(400, 200))
+
+    def test_stb_fallback_is_not_capped(self, tmp_path):
+        path = tmp_path / "p.png"
+        path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR" + (4).to_bytes(4, "big") * 2 + b"\x00" * 16)
+        ctx = self._ctx()
+        renderer = ImageRenderer()
+        with (
+            patch("dpg_navigator.renderers.image._PILImage", None),
+            patch.object(ImageRenderer, "_MAX_TEXTURE_DIMENSION", 2),
+        ):
+            with patch("dpg_navigator.renderers.image.dpg"):
+                finish = renderer.prepare(self._entry(str(path)), ctx)()
+            with patch("dpg_navigator.renderers.image.dpg") as mock_dpg:
+                mock_dpg.load_image.return_value = (4, 4, 4, [0.0] * 64)
+                mock_dpg.get_item_rect_size.return_value = (108, 108)
+                mock_dpg.does_item_exist.return_value = False
+                finish()
+        tex = mock_dpg.add_static_texture.call_args.kwargs
+        assert (tex["width"], tex["height"]) == (4, 4)
+        assert ctx.image_cache[:2] == (4, 4)
+
+
+class TestLoadPreviewRaster:
+    def test_keeps_source_size_next_to_texture_size(self, tmp_path):
+        image = pytest.importorskip("PIL.Image")
+        path = tmp_path / "r.png"
+        image.new("RGB", (100, 40), (0, 0, 0)).save(path)
+        raster = load_preview_raster(str(path), max_dim=50)
+        assert (raster.width, raster.height) == (100, 40)
+        assert (raster.texture_width, raster.texture_height) == (50, 20)
+        assert len(raster.data) == 50 * 20 * 4
+
+    def test_cap_never_exceeds_decode_limit(self):
+        seen: list[tuple[int, int]] = []
+
+        class _Img:
+            mode = "RGB"
+            size = (9000, 100)
+
+            def thumbnail(self, size):
+                seen.append(size)
+
+            def convert(self, mode):
+                converted = MagicMock()
+                converted.size = (1, 1)
+                converted.tobytes.return_value = b"\x00\x00\x00\xff"
+                return converted
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        with patch("dpg_navigator._preview_limits._PILImage") as pil:
+            pil.open.return_value = _Img()
+            load_preview_raster("x.webp", max_dim=100_000)
+        assert seen == [(8192, 8192)]
+
+    def test_palette_image_converted_before_shrinking(self):
+        order: list[str] = []
+
+        class _Img:
+            def __init__(self, mode: str) -> None:
+                self.mode = mode
+                self.size = (400, 100)
+
+            def thumbnail(self, _size):
+                order.append(f"thumbnail:{self.mode}")
+                self.size = (40, 10)
+
+            def convert(self, mode):
+                order.append(f"convert:{self.mode}->{mode}")
+                return _Img(mode)
+
+            def tobytes(self):
+                return b"\x00\x00\x00\xff" * (self.size[0] * self.size[1])
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        with patch("dpg_navigator._preview_limits._PILImage") as pil:
+            pil.open.return_value = _Img("P")
+            raster = load_preview_raster("x.gif", max_dim=40)
+        assert order == ["convert:P->RGBA", "thumbnail:RGBA"]
+        assert (raster.width, raster.height) == (400, 100)
+        assert (raster.texture_width, raster.texture_height) == (40, 10)

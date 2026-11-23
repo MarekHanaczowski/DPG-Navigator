@@ -12,7 +12,7 @@ import io
 import os
 import struct
 import zipfile
-from typing import Any
+from typing import Any, NamedTuple
 
 from ._optional import OptionalModule, as_optional
 
@@ -20,6 +20,16 @@ PREVIEW_TEXT_CHUNK_BYTES: int = 256 * 1024
 IMAGE_PREVIEW_MAX_BYTES: int = 32 * 1024 * 1024
 IMAGE_PREVIEW_MAX_DIMENSION: int = 8192
 IMAGE_PREVIEW_MAX_PIXELS: int = IMAGE_PREVIEW_MAX_DIMENSION * IMAGE_PREVIEW_MAX_DIMENSION
+IMAGE_PREVIEW_TEXTURE_MAX_DIMENSION: int = 2048
+"""Long-edge cap for the image preview texture (decoded size stays the source size).
+
+DearPyGui uploads static textures as float RGBA, 16 bytes per pixel, on its
+own thread: a 12 MP photo is a 192 MB buffer and held the dialog for
+0.23-0.33 s (24 MP: 0.45-0.63 s). At 2048 px the texture is at most 3.1 MP
+(50 MB) and the upload takes about 50-60 ms whatever the source size. Every GPU
+DearPyGui runs on supports a 2048 px texture (most allow 8192-16384), and in
+a pane about 700 px wide the picture stays sharp up to roughly 3x zoom.
+"""
 OOXML_PREVIEW_MAX_COMPRESSED_BYTES: int = 32 * 1024 * 1024
 OOXML_PREVIEW_MAX_DECOMPRESSED_BYTES: int = 128 * 1024 * 1024
 OOXML_PREVIEW_MAX_ENTRIES: int = 4096
@@ -144,15 +154,44 @@ def probe_image_size(path: str) -> tuple[int, int] | None:
         return None
 
 
-def load_preview_rgba(path: str) -> tuple[int, int, Any]:
-    """Load an image for preview, thumbnailing before the RGBA conversion."""
+class PreviewRaster(NamedTuple):
+    """A decoded preview picture: the source size and the (smaller) texture."""
+
+    width: int
+    """Width of the source image in pixels."""
+    height: int
+    """Height of the source image in pixels."""
+    texture_width: int
+    texture_height: int
+    data: Any
+    """Float RGBA pixels, ``texture_width * texture_height * 4`` values."""
+
+
+def load_preview_rgba(path: str, *, max_dim: int = IMAGE_PREVIEW_MAX_DIMENSION) -> tuple[int, int, Any]:
+    """Load an image for preview, thumbnailing before the RGBA conversion.
+
+    Returns the decoded ``(width, height, data)``; the image is shrunk to fit
+    a *max_dim* square (at most ``IMAGE_PREVIEW_MAX_DIMENSION``).
+    """
+    raster = load_preview_raster(path, max_dim=max_dim)
+    return raster.texture_width, raster.texture_height, raster.data
+
+
+def load_preview_raster(path: str, *, max_dim: int = IMAGE_PREVIEW_TEXTURE_MAX_DIMENSION) -> PreviewRaster:
+    """Decode *path* for an on-screen preview, shrunk to fit a *max_dim* square.
+
+    The result keeps the source size next to the texture size, so a caller
+    can lay the picture out (and report it) at its true size while uploading
+    a smaller texture. Shrinking happens before the float conversion, so a
+    large photo never exists as a full-size float buffer.
+    """
     if _PILImage is None:
         raise RuntimeError("Pillow is not installed or unavailable.")
+    box = max(1, min(max_dim, IMAGE_PREVIEW_MAX_DIMENSION))
     with _PILImage.open(path) as image:
-        if image.size[0] > IMAGE_PREVIEW_MAX_DIMENSION or image.size[1] > IMAGE_PREVIEW_MAX_DIMENSION:
-            image.thumbnail((IMAGE_PREVIEW_MAX_DIMENSION, IMAGE_PREVIEW_MAX_DIMENSION))
-        rgba = image.convert("RGBA") if image.mode != "RGBA" else image
-        return _rgba_to_float(rgba)
+        src_w, src_h = int(image.size[0]), int(image.size[1])
+        tex_w, tex_h, data = _shrunk_rgba_float(image, box, box)
+    return PreviewRaster(src_w, src_h, tex_w, tex_h, data)
 
 
 def decode_preview_rgba_bytes(blob: bytes, *, max_width: int | None = None) -> tuple[int, int, Any]:
@@ -172,10 +211,7 @@ def decode_preview_rgba_bytes(blob: bytes, *, max_width: int | None = None) -> t
         box_w = (
             IMAGE_PREVIEW_MAX_DIMENSION if max_width is None else max(1, min(max_width, IMAGE_PREVIEW_MAX_DIMENSION))
         )
-        if image.size[0] > box_w or image.size[1] > IMAGE_PREVIEW_MAX_DIMENSION:
-            image.thumbnail((box_w, IMAGE_PREVIEW_MAX_DIMENSION))
-        rgba = image.convert("RGBA") if image.mode != "RGBA" else image
-        return _rgba_to_float(rgba)
+        return _shrunk_rgba_float(image, box_w, IMAGE_PREVIEW_MAX_DIMENSION)
 
 
 def check_ooxml_package(path: str) -> None:
@@ -253,6 +289,18 @@ def is_safe_data_image(value: str) -> bool:
 def fast_rgba_conversion() -> bool:
     """True when NumPy converts decoded pixels; without it, conversion is a slow Python loop."""
     return _np is not None
+
+
+def _shrunk_rgba_float(image: Any, box_w: int, box_h: int) -> tuple[int, int, Any]:
+    """Shrink an open Pillow *image* to fit ``box_w`` x ``box_h``, then convert to float RGBA."""
+    if image.size[0] > box_w or image.size[1] > box_h:
+        if image.mode in ("1", "P"):
+            # Pillow resizes palette and bilevel images with nearest-neighbour
+            # only; convert first so the shrunk preview is not aliased.
+            image = image.convert("RGBA")
+        image.thumbnail((box_w, box_h))
+    rgba = image.convert("RGBA") if image.mode != "RGBA" else image
+    return _rgba_to_float(rgba)
 
 
 def _rgba_to_float(rgba: Any) -> tuple[int, int, Any]:

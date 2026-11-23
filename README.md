@@ -92,7 +92,7 @@ The package keeps filesystem/search logic separate from DearPyGui rendering:
 
 The integrated preview panel renders files directly inside the dialog:
 
-- **Images** — native stb_image loading with Pillow fallback for WebP, TIFF, HEIC, and SVG; the first view fits the pane without cropping. Mouse wheel zooms toward the cursor; left-button drag pans.
+- **Images** — native stb_image loading with Pillow fallback for WebP, TIFF, HEIC, and SVG; the first view fits the pane without cropping. Mouse wheel zooms toward the cursor; left-button drag pans. With Pillow and NumPy installed, large photos are shown from a texture capped at 2048 px on the long edge so they appear without stalling the UI.
 - **PDF** — page-by-page rendering via pypdfium2 with mouse wheel navigation over the preview panel (wheel down = next page, wheel up = previous page), LRU cache, and background prefetch.
 - **Word (.docx)** — pixel-perfect HTML render via mammoth + Chrome Headless, or python-docx styled text extraction as fallback.
 - **PowerPoint (.pptx)** — slide text, tables, speaker notes, and inline image extraction via python-pptx.
