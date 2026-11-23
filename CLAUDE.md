@@ -37,6 +37,8 @@ xvfb-run -a env DPG_INTEGRATION=1 pytest -m integration   # headless Linux
 # uses Chrome's ``--screenshot`` CLI, which hangs on full Chrome for Testing.
 ```
 
+Integration tests share **one** DearPyGui context per session (`_dpg_context` in `tests/integration/conftest.py`; tests take the `dpg_viewport` fixture). Never call `dpg.create_context()`/`destroy_context()` in a test: a second context in the same process segfaults under xvfb with software GL (issue #14, fixed by `4ea9c18`). Each test destroys only the dialogs it created.
+
 ### Release / tooling notes (don't trip on these)
 
 - **Version** lives in `dpg_navigator/__init__.py` as `__version__` (hatchling reads it via regex). Bump it there for a release.
