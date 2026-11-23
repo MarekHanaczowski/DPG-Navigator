@@ -369,6 +369,16 @@ class FileDialog(KeyboardMixin):
 
     # ── Public API ──────────────────────────────────────────────
 
+    @property
+    def tag(self) -> str:
+        """The DearPyGui tag of the dialog window.
+
+        Usually ``DialogConfig.tag``. When that tag already names a live DPG
+        item (two dialogs with the default config), a ``_xxxxxxxx`` suffix is
+        appended at construction; this returns the tag actually in use.
+        """
+        return self._config.tag
+
     def show(self) -> None:
         """Show the window, navigate to the default directory, apply pending drives."""
         self.logic.navigate_to(self.state.current_dir)

@@ -99,7 +99,7 @@ class TestSevenZipMemberSelection:
             assert "|" not in extracted
             with open(extracted, "rb") as handle:
                 assert handle.read() == payload
-            assert not dpg.is_item_shown(dialog._config.tag)
+            assert not dpg.is_item_shown(dialog.tag)
         finally:
             dialog.destroy()
             pump()
@@ -136,7 +136,7 @@ class TestTypedFileName:
             pump()
 
             assert chosen == []
-            assert dpg.is_item_shown(dialog._config.tag)
+            assert dpg.is_item_shown(dialog.tag)
             assert dpg.is_item_shown(dialog._status_label)
             status = dpg.get_value(dialog._status_label)
             assert status.startswith("Invalid file name: ")
@@ -158,7 +158,7 @@ class TestTypedFileName:
             pump()
 
             assert chosen == []
-            assert dpg.is_item_shown(dialog._config.tag)
+            assert dpg.is_item_shown(dialog.tag)
             opened = [window for window in _windows_labelled(title) if window not in before]
             assert len(opened) == 1, "expected one message window"
         finally:
@@ -179,7 +179,7 @@ class TestTypedFileName:
             pump()
 
             assert chosen == [[os.path.join(dialog.state.current_dir, "report v1..2.txt")]]
-            assert not dpg.is_item_shown(dialog._config.tag)
+            assert not dpg.is_item_shown(dialog.tag)
         finally:
             dialog.destroy()
             pump()

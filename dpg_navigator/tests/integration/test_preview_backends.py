@@ -284,7 +284,7 @@ class TestOversizeArchiveSelection:
             pump()
 
             assert chosen == []
-            assert dpg.is_item_shown(dialog._config.tag)
+            assert dpg.is_item_shown(dialog.tag)
             status = dpg.get_value(dialog._status_label)
             assert "Extraction Error" in status
             assert "large.txt" in status

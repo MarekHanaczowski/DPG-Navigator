@@ -99,7 +99,6 @@ installed (`pip install dpg-navigator[pdf]`, `[archive]`, `[all]`, …).
 | `markdown` | [Markdown](https://python-markdown.github.io/) | BSD-3-Clause | Markdown → HTML |
 | `excel` | [openpyxl](https://openpyxl.readthedocs.io/) | MIT | `.xlsx` preview |
 | `archive` | [py7zr](https://github.com/miurahr/py7zr) | **LGPL-2.1-or-later** | 7z listing/extract; **not vendored** — installed from PyPI with the extra |
-| `code` | [Pygments](https://pygments.org/) | BSD-2-Clause | optional; source files already preview as text |
 
 `py7zr` is the only declared extra under a copyleft license. This project does
 not copy its sources into the sdist/wheel. Applications that **bundle** py7zr

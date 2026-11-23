@@ -82,6 +82,19 @@ class TestSidebarDriveLoading:
         )
 
 
+class TestTagProperty:
+    def test_tag_returns_tag_in_use(self):
+        dialog = FileDialog.__new__(FileDialog)
+        dialog._config = DialogConfig(tag="picker_1a2b3c4d")
+        assert dialog.tag == "picker_1a2b3c4d"
+
+    def test_tag_is_read_only(self):
+        dialog = FileDialog.__new__(FileDialog)
+        dialog._config = DialogConfig(tag="picker")
+        with pytest.raises(AttributeError):
+            dialog.tag = "other"  # type: ignore[misc]
+
+
 class TestSidebarDrivePoll:
     def teardown_method(self):
         FileDialog._sidebar_poll_targets = []

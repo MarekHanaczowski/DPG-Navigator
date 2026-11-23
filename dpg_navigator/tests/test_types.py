@@ -116,6 +116,11 @@ class TestFileEntry:
 
 
 class TestDialogConfig:
+    def test_fields_are_keyword_only(self):
+        # 1.0 API: fields may be added in any position without breaking callers.
+        with pytest.raises(TypeError):
+            DialogConfig("Open")  # type: ignore[misc]
+
     def test_default_values(self):
         cfg = DialogConfig()
         assert cfg.title == "File Dialog"

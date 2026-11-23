@@ -130,25 +130,6 @@ def markdown_available() -> bool:
     return _markdown is not None and html_available()
 
 
-# Pygments — installed for PreviewKind.CODE routing; highlighting is not rendered.
-_pygments: OptionalModule | None
-try:
-    import pygments as _pygments_mod  # type: ignore[import-untyped]
-
-    _pygments = as_optional(_pygments_mod)
-except Exception:
-    _pygments = None
-
-
-def pygments_available() -> bool:
-    """Return True if Pygments is installed.
-
-    Gates ``PreviewKind.CODE`` routing. Source files still render as
-    monospace text — Pygments is not used for highlighting.
-    """
-    return _pygments is not None
-
-
 # 7z
 _py7zr: OptionalModule | None
 try:

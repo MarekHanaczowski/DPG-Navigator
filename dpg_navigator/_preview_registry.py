@@ -165,8 +165,7 @@ class PreviewKind(Enum):
     SQLITE = auto()
     FONT = auto()
     XML = auto()
-    CODE = auto()  # monospace text; extra gates routing, not highlighting
-    TEXT = auto()
+    TEXT = auto()  # plain text and source code (monospace)
     PDF = auto()
     ZIP = auto()
     SEVEN_Z = auto()
@@ -181,7 +180,6 @@ class PreviewCapabilities:
 
     markdown: bool = False
     excel: bool = False
-    pygments: bool = False
     pdf: bool = False
     seven_z: bool = False
     word: bool = False
@@ -225,10 +223,9 @@ def resolve_preview_kind(
         return PreviewKind.FONT
     if ext in XML_EXTS:
         return PreviewKind.XML
-    # Source code: extension-based, or well-known extensionless filenames
-    # (e.g. "Dockerfile", "Makefile") resolved via their dotted registry entry.
-    if capabilities.pygments and (ext in CODE_EXTS or (not ext and f".{filename.lower()}" in CODE_EXTS)):
-        return PreviewKind.CODE
+    # Text and source code (CODE_EXTS is part of TEXT_PREVIEW_EXTS). Well-known
+    # extensionless names ("Dockerfile", "Makefile", ".bashrc") are looked up
+    # through their dotted registry entry.
     if ext in TEXT_PREVIEW_EXTS:
         return PreviewKind.TEXT
     if not ext:

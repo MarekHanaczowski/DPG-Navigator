@@ -34,12 +34,12 @@ class TestDialogSmoke:
         dialog.show()
         pump()
 
-        assert dpg.does_item_exist(dialog._config.tag)
+        assert dpg.does_item_exist(dialog.tag)
 
         dialog.destroy()
         pump()
 
-        assert not dpg.does_item_exist(dialog._config.tag)
+        assert not dpg.does_item_exist(dialog.tag)
 
         # Background workers spawned by the dialog should settle after destroy.
         deadline = time.time() + 5
@@ -54,7 +54,7 @@ class TestDialogSmoke:
         second = FileDialog(default_path=str(tmp_path))
         try:
             pump()
-            assert first._config.tag != second._config.tag
+            assert first.tag != second.tag
         finally:
             first.destroy()
             second.destroy()

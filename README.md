@@ -58,6 +58,11 @@ dpg.destroy_context()
 
 The callback can be changed at any time via `fd.change_callback(new_handler)`.
 
+`fd.tag` is the DearPyGui tag of the dialog window. It is usually
+`DialogConfig.tag`, but when that tag is already taken (two dialogs with the
+default config) a `_xxxxxxxx` suffix is added, so read it from `fd.tag`
+rather than assuming the configured value.
+
 Selecting a file **inside** an archive (Enter, OK, or double-click) extracts it
 to a session temp directory and passes that real filesystem path to the
 callback. Those temp files are deleted when the **last** `FileDialog` in the
@@ -122,7 +127,6 @@ Preview features are organized into installable extras:
 | `markdown` | `pip install dpg-navigator[markdown]` | Markdown rendered preview |
 | `excel` | `pip install dpg-navigator[excel]` | Excel spreadsheet preview |
 | `archive` | `pip install dpg-navigator[archive]` | 7z archive browsing |
-| `code` | `pip install dpg-navigator[code]` | Source-code files as text (`pygments_available()` / routing) |
 | `all` | `pip install dpg-navigator[all]` | All of the above |
 
 > **Chrome/Chromium required for some previews.** The `html`, `markdown`,
@@ -170,7 +174,8 @@ fd = FileDialog(
 ```
 
 Or via a `DialogConfig` object for full control (`DialogConfig` validates
-sizes, filters, paths, and `custom_dirs` at construction):
+sizes, filters, paths, and `custom_dirs` at construction; its fields are
+keyword-only):
 
 ```python
 from dpg_navigator import FileDialog, DialogConfig, DialogMode, StyleVariant
@@ -181,6 +186,27 @@ config = DialogConfig(
 )
 fd = FileDialog(callback=on_select, config=config)
 ```
+
+## Public API and Versioning
+
+From 1.0.0 the project follows [Semantic Versioning](https://semver.org/).
+The public API, which breaking-change rules apply to, is:
+
+- the names in `dpg_navigator.__all__`: `FileDialog`, `DialogConfig`,
+  `DialogMode`, `StyleVariant`, `DEFAULT_FILTER_LIST`, `SelectionCallback`,
+  and the `*_available()` probes;
+- `FileDialog(...)` construction, the methods `show()`, `hide()`,
+  `destroy()`, `change_callback()`, and the read-only `tag` property;
+- the `DialogConfig` fields and their validation. Fields are keyword-only, so
+  new fields may be added in a minor release.
+
+Everything else is internal and may change in any release: modules whose
+name starts with `_`, the `dialog/`, `renderers/` and `vfs/` subpackages,
+and `FileDialog` attributes such as `state`, `logic` or `ui`.
+`DEFAULT_FILTER_LIST` is public, but its entries may grow in a minor
+release. New preview formats and new optional extras are minor-release
+changes; removing an extra or a `*_available()` probe is a major-release
+change.
 
 ## Security and Reliability
 
