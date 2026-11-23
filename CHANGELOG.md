@@ -4,8 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-API freeze before 1.0.0. The public API is now defined in the README
-("Public API and Versioning"); breaking changes are marked below.
+## [1.0.0rc1] - 2026-11-23
+
+First release candidate for 1.0.0. The public API is frozen and defined in the
+README ("Public API and Versioning"); breaking changes are marked below. Until
+1.0.0, only fixes for bugs found in this release candidate go in.
 
 ### Added
 
