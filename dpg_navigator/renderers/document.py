@@ -27,7 +27,7 @@ from .._preview_limits import (
 from .._preview_presentation import PresentationDocument, PresentationPreviewError, load_presentation
 from .._preview_word import WordDocument, WordPreviewError, WordTable, load_word_document
 from .._types import FileEntry
-from ._base import BackgroundRenderer, PreviewContext, PreviewFinish, PreviewJob, run_preview_job
+from ._base import BackgroundRenderer, PreviewContext, PreviewFinish, PreviewJob, error_finish, run_preview_job
 
 _log = logging.getLogger(__name__)
 
@@ -308,7 +308,6 @@ class DocumentRenderer(BackgroundRenderer):
         prepared: PreparedHTML,
         *,
         header: str = "",
-        clear_on_failure: bool = False,
     ) -> None:
         """Finish: start the Chrome Headless render of a prepared document."""
         if not self._bind(entry, ctx):
@@ -329,14 +328,13 @@ class DocumentRenderer(BackgroundRenderer):
             on_complete=self._on_html_render_done,
             on_resize_complete=self._on_html_resize_done,
         ):
-            if clear_on_failure:
-                self.clear()
-            else:
-                dpg.add_text(
-                    "Cannot preview this file",
-                    color=[128, 128, 128],
-                    parent=ctx.panel_id,
-                )
+            dpg.add_text(
+                "Cannot preview this file",
+                color=[128, 128, 128],
+                parent=ctx.panel_id,
+            )
+            if prepared.error:
+                dpg.add_text(prepared.error, color=[128, 128, 128], parent=ctx.panel_id)
             return
         self._show_html_widgets()
 
@@ -371,7 +369,7 @@ class DocumentRenderer(BackgroundRenderer):
         if is_bin:
             return lambda: self._show_cannot_preview(entry, ctx, f"Binary file: {entry.name}")
         if md_text is None:
-            return self.clear
+            return error_finish(ctx, "Preview failed", "Cannot read file")
 
         try:
             md = require_optional(_markdown, "markdown")
@@ -391,7 +389,7 @@ class DocumentRenderer(BackgroundRenderer):
             header = f"{entry.name} (Partial: first {limit_str} of {size_str})"
 
         prepared = prepare_html_string(md_html_raw, css=_MARKDOWN_CSS, wrapper_class="md-wrapper")
-        return lambda: self._show_prepared_html(entry, ctx, prepared, header=header, clear_on_failure=True)
+        return lambda: self._show_prepared_html(entry, ctx, prepared, header=header)
 
     def _show_pdf(self, entry: FileEntry, ctx: PreviewContext) -> None:
         """Finish: open a PDF and display its first page in the preview panel."""
@@ -519,8 +517,8 @@ class DocumentRenderer(BackgroundRenderer):
                 entry.full_path,
                 document_loader=_DocxDocument,
             )
-        except WordPreviewError:
-            return self.clear
+        except WordPreviewError as e:
+            return error_finish(ctx, "Preview failed", str(e) or "Cannot read document")
         return lambda: self._show_word_text(entry, ctx, document)
 
     def _show_word_text(self, entry: FileEntry, ctx: PreviewContext, document: WordDocument) -> None:
@@ -639,8 +637,8 @@ class DocumentRenderer(BackgroundRenderer):
                 entry.full_path,
                 presentation_loader=_Presentation,
             )
-        except PresentationPreviewError:
-            return self.clear
+        except PresentationPreviewError as e:
+            return error_finish(ctx, "Preview failed", str(e) or "Cannot read presentation")
 
         images: dict[tuple[int, int], tuple[int, int, Any]] = {}
         if _PILImage is not None:

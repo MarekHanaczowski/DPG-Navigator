@@ -34,6 +34,16 @@ def _run_now(label: str, job: PreviewJob) -> None:
     run_preview_job(job)
 
 
+def error_finish(ctx: PreviewContext, message: str, detail: str) -> PreviewFinish:
+    """A finish step that shows an error in the panel.
+
+    Jobs return this when loading fails. A finish that only resets renderer
+    state would leave the panel empty, or, for a follow-up load, stuck on
+    its "Loading ..." line.
+    """
+    return lambda: ctx.show_error(message, detail)
+
+
 class PreviewContext:
     """Context passed to renderers, encapsulating the DPG panel and common utilities."""
 

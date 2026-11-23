@@ -355,8 +355,10 @@ class PreviewPanel:
     def _commit(self, entry: FileEntry, renderer: BaseRenderer | None, finish: PreviewFinish) -> None:
         """Replace the shown preview with *entry* and run *finish* (DPG thread).
 
-        The same file in the same renderer keeps the renderer's state (text
-        page, sheet) and only loses its widgets; anything else is a full clear.
+        The same file in the same renderer only loses its widgets: the
+        renderer is not cleared, so state it carries over in ``prepare()``
+        (the text page) survives. Anything else is a full clear. Excel and
+        SQLite previews reopen on the first sheet or table either way.
         """
         if not self._panel_id:
             return
@@ -386,7 +388,16 @@ class PreviewPanel:
         self._notify = notify
 
     def _run_in_background(self, label: str, job: PreviewJob) -> None:
-        """``PreviewContext.run_in_background``: a follow-up load in the shown preview."""
+        """``PreviewContext.run_in_background``: a follow-up load in the shown preview.
+
+        Ignored while a newly selected file is loading: the shown preview is
+        about to be replaced, and queueing the follow-up would supersede the
+        new file's load, leaving the old preview on screen for good.
+        """
+        with self._load_lock:
+            pending = self._pending
+        if pending is not None and pending.replaces_preview:
+            return
         self._start_load(label, job, replaces_preview=False)
 
     def _start_load(self, label: str, job: Callable[[], PreviewFinish], *, replaces_preview: bool) -> None:
@@ -412,16 +423,34 @@ class PreviewPanel:
             future = JobManager.submit(self._drain_loads)
         except Exception:
             _log.exception("Could not start the preview worker")
-            with self._load_lock:
-                self._worker_busy = False
+            self._abandon_queue("Could not start the preview worker")
             return
         future.add_done_callback(self._on_worker_finished)
 
     def _on_worker_finished(self, future: Any) -> None:
-        """A worker cancelled before it ran (pool shutdown) leaves no one draining."""
+        """A worker cancelled before it ran (pool shutdown) or one that crashed
+        leaves no one draining the queue."""
         if future.cancelled():
-            with self._load_lock:
-                self._worker_busy = False
+            self._abandon_queue("Preview loading was cancelled")
+        elif future.exception() is not None:
+            self._abandon_queue(f"Preview worker failed: {future.exception()}")
+
+    def _abandon_queue(self, reason: str) -> None:
+        """No worker will drain the queue: fail the waiting load instead of
+        leaving it pending (and its Loading line on screen) for good.
+
+        May run on any thread; it only stores state and notifies.
+        """
+        with self._load_lock:
+            self._worker_busy = False
+            self._queued = None
+            pending = self._pending
+            if pending is None or pending.generation != self._load_generation or self._ready is not None:
+                return
+            self._ready = (pending.generation, self._error_finish(reason))
+        notify = self._notify
+        if notify is not None:
+            notify()
 
     def _drain_loads(self) -> None:
         """Worker: run queued jobs, newest only, until the queue is empty."""

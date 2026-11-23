@@ -255,9 +255,12 @@ class ImageRenderer(BackgroundRenderer):
         except PreviewLimitError as exc:
             return error("Preview unavailable", str(exc))
 
-        if is_stb and (_PILImage is None or not fast_rgba_conversion()):
+        if is_stb and probed is not None and (_PILImage is None or not fast_rgba_conversion()):
             # Without NumPy, Pillow's float conversion is a per-byte Python
-            # loop, far slower than STB even on the DearPyGui thread.
+            # loop, far slower than STB even on the DearPyGui thread. STB has
+            # no size gate of its own, so only a probed (and checked) image
+            # takes this path; an unprobed one stays with Pillow, which
+            # shrinks it before converting.
             return lambda: self._show_with_stb(entry, ctx)
         try:
             raster = self.load_image_preview(entry.full_path)

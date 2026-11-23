@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- A sheet, table or archive-member click in the old preview no longer cancels the
+  load of a newly selected file; the follow-up is ignored while the new file loads.
+- A failed sheet switch no longer leaves "Loading ..." on screen.
+- Failed loads (unreadable text, CSV, XML or Markdown; damaged Excel, Word,
+  PowerPoint or archive files) show "Preview failed" with the reason instead of
+  an empty pane.
+- A preview worker that is cancelled, crashes or cannot start fails the waiting
+  load with an error instead of leaving it pending.
+- Without NumPy, an STB-format image whose header cannot be probed is decoded
+  with Pillow (shrunk first) instead of an unchecked full-size STB load.
+
 ## [1.0.0b9] - 2026-11-23
 
 ### Changed

@@ -23,7 +23,15 @@ from .._preview_archive import (
 from .._preview_limits import ARCHIVE_PREVIEW_MEMBER_MAX_BYTES
 from .._preview_registry import PDF_EXTS, ZIP_EXTS
 from .._types import FileEntry
-from ._base import BackgroundRenderer, PreviewContext, PreviewFinish, PreviewJob, TableRenderMixin, run_preview_job
+from ._base import (
+    BackgroundRenderer,
+    PreviewContext,
+    PreviewFinish,
+    PreviewJob,
+    TableRenderMixin,
+    error_finish,
+    run_preview_job,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -70,8 +78,8 @@ class ArchiveRenderer(TableRenderMixin, BackgroundRenderer):
             table = loader(entry.full_path, self._TABLE_MAX_ROWS)
         except EncryptedArchiveError:
             return lambda: self._show_listing(entry, ctx, None, encrypted_status)
-        except ArchivePreviewError:
-            return self.clear
+        except ArchivePreviewError as e:
+            return error_finish(ctx, "Preview failed", str(e) or "Cannot read archive")
         return lambda: self._show_listing(entry, ctx, table, "")
 
     def _show_listing(self, entry: FileEntry, ctx: PreviewContext, table: ArchiveTable | None, status: str) -> None:

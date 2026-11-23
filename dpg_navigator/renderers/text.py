@@ -54,7 +54,7 @@ class TextRenderer(BackgroundRenderer):
             self._render_binary_warning(entry, ctx)
             return
         if text is None:
-            ctx.clear()
+            ctx.show_error("Preview failed", "Cannot read file")
             return
 
         if not text.strip():
