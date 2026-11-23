@@ -9,11 +9,15 @@ import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
 from .._preview_limits import PREVIEW_TEXT_CHUNK_BYTES
 from .._types import FileEntry
-from ._base import BaseRenderer, PreviewContext
+from ._base import BackgroundRenderer, PreviewContext, PreviewFinish, PreviewJob, run_preview_job
 
 
-class TextRenderer(BaseRenderer):
-    """Render text and source-code previews as monospace DPG text."""
+class TextRenderer(BackgroundRenderer):
+    """Render text and source-code previews as monospace DPG text.
+
+    The file read runs in :meth:`prepare`'s job; only the widgets are built
+    on the DearPyGui thread.
+    """
 
     _TEXT_PREVIEW_MAX_SIZE = PREVIEW_TEXT_CHUNK_BYTES
 
@@ -29,11 +33,23 @@ class TextRenderer(BaseRenderer):
 
     def render(self, entry: FileEntry, ctx: PreviewContext) -> None:
         """Render the current text fragment and optional paging controls."""
-        if self._current_entry is None or self._current_entry.full_path != entry.full_path:
-            self._text_offset = 0
-            self._current_entry = entry
+        run_preview_job(self.prepare(entry, ctx))
 
-        text, is_bin = self._load_text_content(entry.full_path, self._text_offset)
+    def prepare(self, entry: FileEntry, ctx: PreviewContext) -> PreviewJob:
+        """Return a job that reads the current fragment (same file keeps its page)."""
+        same_file = self._current_entry is not None and self._current_entry.full_path == entry.full_path
+        offset = self._text_offset if same_file else 0
+        load = self._load_text_content
+
+        def job() -> PreviewFinish:
+            text, is_bin = load(entry.full_path, offset)
+            return lambda: self._show(entry, ctx, offset, text, is_bin)
+
+        return job
+
+    def _show(self, entry: FileEntry, ctx: PreviewContext, offset: int, text: str | None, is_bin: bool) -> None:
+        self._current_entry = entry
+        self._text_offset = offset
         if is_bin:
             self._render_binary_warning(entry, ctx)
             return

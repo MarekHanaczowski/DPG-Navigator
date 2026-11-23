@@ -187,7 +187,7 @@ class PDFRenderer:
 
         Only manages the texture resource — the image widget that displays
         it is the caller's responsibility (``close()`` deletes it,
-        ``_render_pdf_preview`` / ``on_resize`` in PreviewPanel recreate it).
+        ``DocumentRenderer._show_pdf_from_path`` / ``on_resize`` recreate it).
         """
         if self._tex_exists:
             if self._tex_id is not None and dpg.does_item_exist(self._tex_id):

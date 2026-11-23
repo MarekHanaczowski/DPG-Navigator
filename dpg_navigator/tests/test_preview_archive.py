@@ -65,6 +65,8 @@ class TestArchiveRenderer:
     def test_failed_extraction_shows_error(self):
         renderer = ArchiveRenderer(lambda entry: None)
         ctx = cast(PreviewContext, MagicMock())
+        # A MagicMock would swallow the job; run it like PreviewContext's default.
+        ctx.run_in_background = lambda label, job: job()()
         renderer._ctx = ctx
 
         with patch(

@@ -3,15 +3,27 @@
 Routes a ``FileEntry`` through ``resolve_preview_kind()`` to a
 ``BaseRenderer``. Text decoding (BOM / UTF-16 / binary) lives here so
 tests can cover it without a live renderer.
+
+Loading runs off the DearPyGui thread once :meth:`PreviewPanel.set_notifier`
+has been called (``FileDialog`` does this): a renderer's ``prepare()``
+returns a job, one worker runs the newest job, and the dialog's frame pump
+calls :meth:`PreviewPanel.apply_pending` to build the widgets. The previous
+preview stays on screen until the new one is ready; a "Loading" line
+replaces it only when loading takes longer than ``LOADING_PLACEHOLDER_DELAY``.
 """
 
 from __future__ import annotations
 
+import logging
+import threading
+import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 
+from ._job_manager import JobManager
 from ._preview_limits import PREVIEW_TEXT_CHUNK_BYTES
 from ._preview_registry import (
     PILLOW_EXTRA_EXTS,
@@ -21,13 +33,18 @@ from ._preview_registry import (
     resolve_preview_kind,
 )
 from ._types import DialogConfig, FileEntry
-from .renderers._base import BaseRenderer, PreviewContext
+from .renderers._base import BaseRenderer, PreviewContext, PreviewFinish, PreviewJob
 from .renderers.archive import ArchiveRenderer
 from .renderers.data import DataRenderer
 from .renderers.document import DocumentRenderer
 from .renderers.font import FontRenderer
 from .renderers.image import ImageRenderer
 from .renderers.text import TextRenderer
+
+_log = logging.getLogger(__name__)
+
+LOADING_PLACEHOLDER_DELAY = 0.1
+"""Seconds a load may take before the old preview is replaced by a Loading line."""
 
 _UTF16_LE_BOM = b"\xff\xfe"
 _UTF16_BE_BOM = b"\xfe\xff"
@@ -90,6 +107,17 @@ def decode_preview_bytes(
         return raw_bytes.decode("cp1250", errors="replace"), False, "cp1250"
 
 
+@dataclass
+class _PendingLoad:
+    """The load the panel is waiting for (DearPyGui-thread bookkeeping)."""
+
+    generation: int
+    label: str
+    started: float
+    replaces_preview: bool
+    placeholder_shown: bool = False
+
+
 class PreviewPanel:
     """Route selected files to the appropriate DearPyGui preview renderer.
 
@@ -115,7 +143,9 @@ class PreviewPanel:
         self._table_wrapper: int | None = None
         self._current_entry: FileEntry | None = None
 
-        self._text_encoding: str | None = None
+        # (path, encoding) detected on the first page; later pages reuse it.
+        # Written by worker jobs as one tuple so readers never see a mix.
+        self._text_encoding: tuple[str, str] | None = None
 
         self.ctx = PreviewContext(
             panel_id=0,
@@ -124,6 +154,21 @@ class PreviewPanel:
             capabilities=self._preview_capabilities(),
             trusted_html_preview=config.trusted_html_preview,
         )
+        self.ctx.on_clear = self.clear
+        self.ctx.on_show_error = self._show_preview_error
+        self.ctx.run_in_background = self._run_in_background
+
+        # Background loading. ``_load_generation`` is bumped on the DPG thread
+        # by every new request; a worker publishes a result only while its
+        # generation is still current. One worker drains ``_queued`` so a burst
+        # of selections (arrow keys held down) runs only the newest job.
+        self._notify: Callable[[], None] | None = None
+        self._load_lock = threading.Lock()
+        self._load_generation = 0
+        self._queued: tuple[int, Callable[[], PreviewFinish]] | None = None
+        self._worker_busy = False
+        self._ready: tuple[int, PreviewFinish] | None = None
+        self._pending: _PendingLoad | None = None
 
         self._renderers: dict[PreviewKind, BaseRenderer] = {
             PreviewKind.IMAGE: ImageRenderer(),
@@ -239,6 +284,10 @@ class PreviewPanel:
         if self._active_renderer:
             self._active_renderer.clear()
             self._active_renderer = None
+        for tag in self.ctx.pptx_texture_tags:
+            if dpg.does_item_exist(tag):
+                dpg.delete_item(tag)
+        self.ctx.pptx_texture_tags.clear()
 
     def _show_preview_error(self, message: str, detail: str) -> None:
         self.clear()
@@ -247,17 +296,20 @@ class PreviewPanel:
             dpg.add_text(detail, color=[200, 200, 200], parent=self._panel_id)
 
     def update(self, entry: FileEntry | None) -> None:
-        """Route a selected file to its active preview renderer."""
+        """Route a selected file to its preview renderer.
+
+        With a notifier set, a renderer that has ``prepare()`` loads on a
+        worker and the widgets appear on a later frame (see
+        :meth:`apply_pending`). Without one, everything runs here.
+        """
         if not self._panel_id or not self._show:
             return
 
         if entry is None or entry.is_dir:
+            self._cancel_pending_load()
             self._current_entry = None
             self.clear()
             return
-
-        if self._current_entry is None or self._current_entry.full_path != entry.full_path:
-            self._text_encoding = None
 
         kind = resolve_preview_kind(
             entry.name,
@@ -265,6 +317,49 @@ class PreviewPanel:
             image_extensions=self.preview_image_exts(),
         )
         renderer = self._renderers.get(kind)
+        if renderer is None:
+            self._cancel_pending_load()
+            self._commit(entry, None, lambda: None)
+            dpg.add_text(f"Unsupported preview: {kind.name}", color=[150, 150, 150], parent=self._panel_id)
+            return
+
+        prepare = getattr(renderer, "prepare", None)
+        if not callable(prepare):
+            self._cancel_pending_load()
+            self._commit(entry, renderer, lambda: renderer.render(entry, self.ctx))
+            return
+
+        try:
+            job: PreviewJob = prepare(entry, self.ctx)
+        except Exception as exc:
+            _log.exception("Preparing preview of %s failed", entry.full_path)
+            prepare_error = str(exc)
+            self._cancel_pending_load()
+            self._commit(entry, renderer, lambda: self.ctx.show_error("Preview failed", prepare_error))
+            return
+
+        def load() -> PreviewFinish:
+            try:
+                finish = job()
+            except Exception as exc:
+                _log.exception("Loading preview of %s failed", entry.full_path)
+                load_error = str(exc)
+
+                def finish() -> None:
+                    self.ctx.show_error("Preview failed", load_error)
+
+            return lambda: self._commit(entry, renderer, finish)
+
+        self._start_load(entry.name, load, replaces_preview=True)
+
+    def _commit(self, entry: FileEntry, renderer: BaseRenderer | None, finish: PreviewFinish) -> None:
+        """Replace the shown preview with *entry* and run *finish* (DPG thread).
+
+        The same file in the same renderer keeps the renderer's state (text
+        page, sheet) and only loses its widgets; anything else is a full clear.
+        """
+        if not self._panel_id:
+            return
         same_path = (
             self._current_entry is not None
             and entry.full_path == self._current_entry.full_path
@@ -272,20 +367,141 @@ class PreviewPanel:
             and renderer is not None
         )
         if same_path:
-            if self._panel_id:
-                dpg.delete_item(self._panel_id, children_only=True)
+            dpg.delete_item(self._panel_id, children_only=True)
         else:
             self.clear()
-
         self._current_entry = entry
-        self.ctx.on_clear = self.clear
-        self.ctx.on_show_error = self._show_preview_error
+        self._active_renderer = renderer
+        finish()
 
-        if renderer:
-            self._active_renderer = renderer
-            renderer.render(entry, self.ctx)
+    # ── Background loading ─────────────────────────────────────
+
+    def set_notifier(self, notify: Callable[[], None] | None) -> None:
+        """Enable background loading.
+
+        *notify* is called, from a worker too, when a result is ready. It must
+        not call DearPyGui: ``FileDialog`` passes ``_schedule_ui_poll``, and its
+        frame pump then calls :meth:`apply_pending`.
+        """
+        self._notify = notify
+
+    def _run_in_background(self, label: str, job: PreviewJob) -> None:
+        """``PreviewContext.run_in_background``: a follow-up load in the shown preview."""
+        self._start_load(label, job, replaces_preview=False)
+
+    def _start_load(self, label: str, job: Callable[[], PreviewFinish], *, replaces_preview: bool) -> None:
+        """Queue *job* as the newest load; superseded loads are dropped (DPG thread)."""
+        notify = self._notify
+        if notify is None:
+            self._cancel_pending_load()
+            job()()
+            return
+        self._load_generation += 1
+        generation = self._load_generation
+        with self._load_lock:
+            self._ready = None
+            self._queued = (generation, job)
+            self._pending = _PendingLoad(generation, label, time.monotonic(), replaces_preview)
+            start_worker = not self._worker_busy
+            self._worker_busy = True
+        # Keeps the dialog in the frame pump so the Loading line can appear.
+        notify()
+        if not start_worker:
+            return
+        try:
+            future = JobManager.submit(self._drain_loads)
+        except Exception:
+            _log.exception("Could not start the preview worker")
+            with self._load_lock:
+                self._worker_busy = False
+            return
+        future.add_done_callback(self._on_worker_finished)
+
+    def _on_worker_finished(self, future: Any) -> None:
+        """A worker cancelled before it ran (pool shutdown) leaves no one draining."""
+        if future.cancelled():
+            with self._load_lock:
+                self._worker_busy = False
+
+    def _drain_loads(self) -> None:
+        """Worker: run queued jobs, newest only, until the queue is empty."""
+        while True:
+            with self._load_lock:
+                item = self._queued
+                self._queued = None
+                if item is None:
+                    self._worker_busy = False
+                    return
+            generation, job = item
+            if generation != self._load_generation:
+                continue
+            try:
+                finish = job()
+            except Exception as exc:
+                _log.exception("Preview job failed")
+                finish = self._error_finish(str(exc))
+            with self._load_lock:
+                if generation != self._load_generation:
+                    continue
+                self._ready = (generation, finish)
+            notify = self._notify
+            if notify is not None:
+                notify()
+
+    def _error_finish(self, detail: str) -> PreviewFinish:
+        def finish() -> None:
+            self._show_preview_error("Preview failed", detail)
+
+        return finish
+
+    def _cancel_pending_load(self) -> None:
+        """Forget any queued or finished load (DPG thread)."""
+        self._load_generation += 1
+        with self._load_lock:
+            self._queued = None
+            self._ready = None
+            self._pending = None
+
+    def has_pending(self) -> bool:
+        """True while a background load is queued, running, or waiting to apply."""
+        return self._pending is not None or self._ready is not None
+
+    def apply_pending(self) -> None:
+        """Build a finished load, or show the Loading line (DPG thread, every frame)."""
+        with self._load_lock:
+            ready = self._ready
+            self._ready = None
+            pending = self._pending
+            if ready is not None and ready[0] == self._load_generation:
+                self._pending = None
+        if ready is not None:
+            generation, finish = ready
+            if generation != self._load_generation:
+                return
+            try:
+                finish()
+            except Exception as exc:
+                _log.exception("Applying preview failed")
+                self._show_preview_error("Preview failed", str(exc))
+            return
+        if pending is None or pending.placeholder_shown:
+            return
+        if time.monotonic() - pending.started < LOADING_PLACEHOLDER_DELAY:
+            return
+        pending.placeholder_shown = True
+        self._show_loading(pending)
+
+    def _show_loading(self, pending: _PendingLoad) -> None:
+        """Replace the old preview with a Loading line while a slow load runs."""
+        if not self._panel_id or not dpg.does_item_exist(self._panel_id):
+            return
+        if pending.replaces_preview:
+            # The new file's commit would clear it anyway; drop the old
+            # renderer now so it stops its own background work (Chrome render).
+            self.clear()
         else:
-            dpg.add_text(f"Unsupported preview: {kind.name}", color=[150, 150, 150], parent=self._panel_id)
+            dpg.delete_item(self._panel_id, children_only=True)
+        dpg.add_text(f"Loading {pending.label}...", color=[150, 150, 150], parent=self._panel_id)
 
     def _load_text_content(self, path: str, seek_offset: int = 0) -> tuple[str | None, bool]:
         """Read a file fragment as text with encoding detection and binary check."""
@@ -295,13 +511,16 @@ class PreviewPanel:
                     f.seek(seek_offset)
                 raw_bytes = f.read(self._TEXT_PREVIEW_MAX_SIZE)
 
-            known = self._text_encoding if seek_offset > 0 else None
+            known = None
+            stored = self._text_encoding
+            if seek_offset > 0 and stored is not None and stored[0] == path:
+                known = stored[1]
             text, is_bin, encoding = decode_preview_bytes(
                 raw_bytes,
                 known_encoding=known,
             )
             if encoding is not None:
-                self._text_encoding = encoding
+                self._text_encoding = (path, encoding)
             return text, is_bin
         except OSError:
             return None, False
@@ -311,6 +530,8 @@ class PreviewPanel:
 
     def shutdown(self) -> None:
         """Clear the active renderer and release preview-owned resources."""
+        self._notify = None
+        self._cancel_pending_load()
         self.clear()
 
     def destroy(self) -> None:

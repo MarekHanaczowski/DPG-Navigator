@@ -137,9 +137,9 @@ class TestImageFitsPanel:
         with (
             patch("dpg_navigator.renderers.image.exceeds_bytes", return_value=False),
             patch("dpg_navigator.renderers.image.probe_image_size", return_value=(1200, 800)),
+            patch.object(ImageRenderer, "load_image_pillow", return_value=(1200, 800, [0.0] * 16)),
             patch("dpg_navigator.renderers.image.dpg") as mock_dpg,
         ):
-            mock_dpg.load_image.return_value = (1200, 800, 4, [0.0] * 16)
             mock_dpg.get_item_rect_size.return_value = (308, 408)
             mock_dpg.does_item_exist.return_value = False
             mock_dpg.add_drawlist.return_value = 88

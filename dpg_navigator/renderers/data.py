@@ -1,4 +1,10 @@
-"""Data preview renderer for CSV, Excel, SQLite, and XML."""
+"""Data preview renderer for CSV, Excel, SQLite, and XML.
+
+Parsing runs in the job returned by :meth:`DataRenderer.prepare` (worker
+thread); the finish step only builds the DPG table or text widgets.
+Switching the Excel sheet or SQLite table reloads through
+``PreviewContext.run_in_background`` as well.
+"""
 
 from __future__ import annotations
 
@@ -12,17 +18,34 @@ from defusedxml import minidom as _minidom  # type: ignore[import-untyped]
 from .._availability import _load_workbook
 from .._filesystem import DirectoryLister
 from .._preview_limits import PREVIEW_TEXT_CHUNK_BYTES
-from .._preview_registry import DB_EXTS, XML_EXTS, PreviewCapabilities
-from .._preview_spreadsheet import ExcelPreviewError, load_excel_table
-from .._preview_sqlite import SQLitePreviewError, load_sqlite_table
+from .._preview_registry import DB_EXTS, XML_EXTS
+from .._preview_spreadsheet import ExcelPreviewError, SpreadsheetTable, load_excel_table
+from .._preview_sqlite import SQLitePreviewError, SQLiteTable, load_sqlite_table
 from .._preview_table import CsvPreviewError, parse_csv_table
 from .._types import FileEntry
-from ._base import BaseRenderer, PreviewContext, TableRenderMixin
+from ._base import BackgroundRenderer, PreviewContext, PreviewFinish, PreviewJob, TableRenderMixin, run_preview_job
 
 _log = logging.getLogger(__name__)
 
 
-class DataRenderer(TableRenderMixin, BaseRenderer):
+def format_xml_preview(raw_text: str) -> str:
+    """Pretty-print XML with ``defusedxml``; fall back to *raw_text* if it fails.
+
+    ``defusedxml`` refuses external entities and entity expansion, so the
+    preview never reads files an XML document points at.
+    """
+    try:
+        parsed = _minidom.parseString(raw_text)
+        formatted_text = parsed.toprettyxml(indent="    ")
+        # Minidom often adds awkward blank lines, so we clean them up
+        text = "\n".join(line for line in formatted_text.splitlines() if line.strip())
+    except Exception:
+        # If parsing fails (invalid XML), fallback to raw text
+        text = raw_text
+    return text or "(No identifiable XML or text content in this fragment)"
+
+
+class DataRenderer(TableRenderMixin, BackgroundRenderer):
     """Render CSV, spreadsheet, SQLite, and XML data in native DPG tables."""
 
     # _STATUS_HEIGHT is provided by TableRenderMixin.
@@ -38,67 +61,140 @@ class DataRenderer(TableRenderMixin, BaseRenderer):
 
     def render(self, entry: FileEntry, ctx: PreviewContext) -> None:
         """Render a supported data file into the preview panel."""
-        self._ctx = ctx
-        self._current_entry = entry
+        run_preview_job(self.prepare(entry, ctx))
+
+    def prepare(self, entry: FileEntry, ctx: PreviewContext) -> PreviewJob:
+        """Return the worker job that parses *entry* for its data format."""
         ext = entry.ext
         if ext in (".csv", ".tsv", ".psv"):
-            self._render_csv_preview(entry)
-        elif ext in (".xlsx", ".xlsm"):
-            self._render_excel_preview(entry)
-        elif ext in DB_EXTS:
-            self._render_sqlite_preview(entry)
-        elif ext in XML_EXTS:
-            self._render_xml_preview(entry)
-        else:
-            ctx.show_error("Unsupported data format", f"{ext} is not supported")
+            return lambda: self._load_csv(entry, ctx)
+        if ext in (".xlsx", ".xlsm"):
+            return lambda: self._load_excel(entry, ctx, None)
+        if ext in DB_EXTS:
+            return lambda: self._load_sqlite(entry, ctx, None)
+        if ext in XML_EXTS:
+            return lambda: self._load_xml(entry, ctx)
+        return lambda: lambda: ctx.show_error("Unsupported data format", f"{ext} is not supported")
 
     def clear(self) -> None:
         """Release the current data preview context."""
         self._current_entry = None
         self._ctx = None
 
-    def _render_binary_warning(self, entry: FileEntry) -> None:
+    def _bind(self, entry: FileEntry, ctx: PreviewContext) -> bool:
+        """Attach the finish step to *ctx*. False when there is no panel."""
+        self._ctx = ctx
+        self._current_entry = entry
+        return ctx.panel_id is not None
+
+    # ── Worker jobs (no DearPyGui calls) ─────────────────────────
+
+    def _load_csv(self, entry: FileEntry, ctx: PreviewContext) -> PreviewFinish:
+        text, is_bin = self._load_text_content(entry.full_path, self._text_offset)
+        if is_bin:
+            return lambda: self._show_binary_warning(entry, ctx)
+        if text is None:
+            return self.clear
+        try:
+            table = parse_csv_table(
+                text,
+                entry.name,
+                max_rows=self._TABLE_MAX_ROWS,
+                max_cols=self._TABLE_MAX_COLS,
+            )
+        except CsvPreviewError:
+            # If CSV parsing fails, fallback to plain text
+            return lambda: self._show_text(entry, ctx, text)
+
+        # If the underlying file exceeds the text page size, indicate partial read.
+        header_name = entry.name
+        if entry.size_bytes is not None and entry.size_bytes > self._TEXT_PREVIEW_MAX_SIZE:
+            limit_str = DirectoryLister.format_size(self._TEXT_PREVIEW_MAX_SIZE)
+            size_str = DirectoryLister.format_size(entry.size_bytes)
+            header_name = f"{entry.name} (Partial: first {limit_str} of {size_str})"
+
+        def finish() -> None:
+            if self._bind(entry, ctx):
+                self._render_table_widget(header_name, table.headers, table.rows, table.status)
+
+        return finish
+
+    def _load_excel(self, entry: FileEntry, ctx: PreviewContext, sheet_name: str | None) -> PreviewFinish:
+        try:
+            table = load_excel_table(
+                entry.full_path,
+                sheet_name=sheet_name,
+                max_rows=self._TABLE_MAX_ROWS,
+                max_cols=self._TABLE_MAX_COLS,
+                workbook_loader=_load_workbook,
+            )
+        except ExcelPreviewError:
+            return self.clear
+        return lambda: self._show_excel(entry, ctx, table)
+
+    def _load_sqlite(self, entry: FileEntry, ctx: PreviewContext, table_name: str | None) -> PreviewFinish:
+        try:
+            table = load_sqlite_table(
+                entry.full_path,
+                table_name=table_name,
+                max_rows=self._TABLE_MAX_ROWS,
+                max_cols=self._TABLE_MAX_COLS,
+            )
+        except SQLitePreviewError as e:
+            _log.exception("Error reading SQLite database %s", entry.full_path)
+            message = f"Error reading database: {e}"
+
+            def finish_error() -> None:
+                if self._bind(entry, ctx):
+                    self._render_table_widget(entry.name, [], [], message)
+
+            return finish_error
+        return lambda: self._show_sqlite(entry, ctx, table)
+
+    def _load_xml(self, entry: FileEntry, ctx: PreviewContext) -> PreviewFinish:
+        raw_text, is_bin = self._load_text_content(entry.full_path, self._text_offset)
+        if is_bin:
+            return lambda: self._show_binary_warning(entry, ctx)
+        if raw_text is None:
+            return self.clear
+        text = format_xml_preview(raw_text)
+        return lambda: self._show_text(entry, ctx, text)
+
+    # ── Finish steps (DearPyGui thread) ──────────────────────────
+
+    def _show_binary_warning(self, entry: FileEntry, ctx: PreviewContext) -> None:
         """Show a 'binary file' notice in the panel (no text preview available)."""
-        if self._ctx is None or self._ctx.panel_id is None:
+        if not self._bind(entry, ctx):
             return
-        if self._ctx.temp_font is not None:
-            if dpg.does_item_exist(self._ctx.temp_font):
-                dpg.delete_item(self._ctx.temp_font)
-            self._ctx.temp_font = None
-        dpg.delete_item(self._ctx.panel_id, children_only=True)
-        tex_tag = f"_preview_tex_{self._ctx.config_tag}"
+        if ctx.temp_font is not None:
+            if dpg.does_item_exist(ctx.temp_font):
+                dpg.delete_item(ctx.temp_font)
+            ctx.temp_font = None
+        dpg.delete_item(ctx.panel_id, children_only=True)
+        tex_tag = f"_preview_tex_{ctx.config_tag}"
         if dpg.does_item_exist(tex_tag):
             dpg.delete_item(tex_tag)
         dpg.add_text(
             f"Binary file: {entry.name}",
             color=[128, 128, 128],
-            parent=self._ctx.panel_id,
+            parent=ctx.panel_id,
         )
         dpg.add_text(
             "(No text preview available)",
             color=[100, 100, 100],
-            parent=self._ctx.panel_id,
+            parent=ctx.panel_id,
         )
 
-    def _render_text_preview(self, entry: FileEntry) -> None:
-        """Read a text file and display its contents (fallback for data paths)."""
-        if self._ctx is None or self._ctx.panel_id is None:
+    def _show_text(self, entry: FileEntry, ctx: PreviewContext, text: str) -> None:
+        """Display text contents (XML, or the fallback for unparsable CSV)."""
+        if not self._bind(entry, ctx):
             return
-
-        text, is_bin = self._load_text_content(entry.full_path, self._text_offset)
-        if is_bin:
-            self._render_binary_warning(entry)
-            return
-        if text is None:
-            self.clear()
-            return
-
         if not text.strip():
             text = "(No text content or only whitespace in this fragment)"
 
-        self._ctx.image_cache = None
-        dpg.delete_item(self._ctx.panel_id, children_only=True)
-        tex_tag = f"_preview_tex_{self._ctx.config_tag}"
+        ctx.image_cache = None
+        dpg.delete_item(ctx.panel_id, children_only=True)
+        tex_tag = f"_preview_tex_{ctx.config_tag}"
         if dpg.does_item_exist(tex_tag):
             dpg.delete_item(tex_tag)
 
@@ -108,10 +204,10 @@ class DataRenderer(TableRenderMixin, BaseRenderer):
             dpg.add_text(
                 entry.name,
                 color=[180, 180, 255],
-                parent=self._ctx.panel_id,
+                parent=ctx.panel_id,
             )
-        dpg.add_separator(parent=self._ctx.panel_id)
-        with dpg.child_window(parent=self._ctx.panel_id, height=-1, width=-1):
+        dpg.add_separator(parent=ctx.panel_id)
+        with dpg.child_window(parent=ctx.panel_id, height=-1, width=-1):
             dpg.add_text(text, wrap=0)
 
     def _render_text_navigation(self, entry: FileEntry) -> None:
@@ -141,150 +237,33 @@ class DataRenderer(TableRenderMixin, BaseRenderer):
                 color=[200, 200, 200],
             )
 
-    def _render_csv_preview(self, entry: FileEntry) -> None:
-        """Parse a CSV/TSV file and display as a native DPG table."""
-        if self._ctx is None or self._ctx.panel_id is None:
+    def _show_excel(self, entry: FileEntry, ctx: PreviewContext, table: SpreadsheetTable) -> None:
+        """Display a parsed sheet with a sheet switcher when there are several."""
+        if not self._bind(entry, ctx):
             return
 
-        text, is_bin = self._load_text_content(entry.full_path, self._text_offset)
-        if is_bin:
-            self._render_binary_warning(entry)
-            return
-        if text is None:
-            self.clear()
-            return
-
-        try:
-            table = parse_csv_table(
-                text,
-                entry.name,
-                max_rows=self._TABLE_MAX_ROWS,
-                max_cols=self._TABLE_MAX_COLS,
-            )
-        except CsvPreviewError:
-            # If CSV parsing fails, fallback to plain text
-            self._render_text_preview(entry)
-            return
-
-        # If the underlying file exceeds the text page size, indicate partial read.
-        header_name = entry.name
-        if entry.size_bytes is not None and entry.size_bytes > self._TEXT_PREVIEW_MAX_SIZE:
-            limit_str = DirectoryLister.format_size(self._TEXT_PREVIEW_MAX_SIZE)
-            size_str = DirectoryLister.format_size(entry.size_bytes)
-            header_name = f"{entry.name} (Partial: first {limit_str} of {size_str})"
-
-        self._render_table_widget(
-            header_name,
-            table.headers,
-            table.rows,
-            table.status,
-        )
-
-    def _render_excel_preview(self, entry: FileEntry, sheet_name_to_load: str | None = None) -> None:
-        """Parse an Excel .xlsx file and display as a native DPG table."""
-        if self._ctx is None or self._ctx.panel_id is None:
-            return
-        ctx = self._ctx
-
-        try:
-            table = load_excel_table(
-                entry.full_path,
-                sheet_name=sheet_name_to_load,
-                max_rows=self._TABLE_MAX_ROWS,
-                max_cols=self._TABLE_MAX_COLS,
-                workbook_loader=_load_workbook,
-            )
-        except ExcelPreviewError:
-            self.clear()
-            return
+        def on_sheet_changed(sender: Any, app_data: Any, user_data: Any) -> None:
+            sheet = str(app_data)
+            ctx.run_in_background(f"{entry.name} [{sheet}]", lambda: self._load_excel(entry, ctx, sheet))
 
         def _build_excel_ui() -> None:
             if len(table.sheetnames) > 1:
                 with dpg.group(horizontal=True, parent=ctx.panel_id):
                     dpg.add_text("Sheet:", color=[180, 180, 180])
-
-                    def on_sheet_changed(sender: Any, app_data: Any, user_data: Any) -> None:
-                        self._render_excel_preview(entry, sheet_name_to_load=app_data)
-
                     dpg.add_combo(
                         items=table.sheetnames, default_value=table.sheet_name, width=-1, callback=on_sheet_changed
                     )
 
         self._render_table_widget(entry.name, table.headers, table.rows, table.status, ui_builder=_build_excel_ui)
 
-    def _render_xml_preview(self, entry: FileEntry) -> None:
-        """Parse XML with ``defusedxml`` and display pretty-printed contents."""
-        if self._ctx is None:
-            panel_id = getattr(self, "_panel_id", None)
-            if panel_id is None:
-                return
-            self._ctx = PreviewContext(
-                panel_id=panel_id,
-                table_wrapper=0,
-                config_tag=getattr(self, "_config_tag", ""),
-                capabilities=PreviewCapabilities(),
-            )
-        if self._ctx.panel_id is None:
+    def _show_sqlite(self, entry: FileEntry, ctx: PreviewContext, table: SQLiteTable) -> None:
+        """Display a database table with a table switcher when there are several."""
+        if not self._bind(entry, ctx):
             return
 
-        raw_text, is_bin = self._load_text_content(entry.full_path, self._text_offset)
-        if is_bin:
-            self._render_binary_warning(entry)
-            return
-        if raw_text is None:
-            self.clear()
-            return
-
-        # Format XML
-        try:
-            parsed = _minidom.parseString(raw_text)
-            formatted_text = parsed.toprettyxml(indent="    ")
-            # Minidom often adds awkward blank lines, so we clean them up
-            text = "\n".join(line for line in formatted_text.splitlines() if line.strip())
-        except Exception:
-            # If parsing fails (invalid XML), fallback to raw text
-            text = raw_text
-
-        if not text:
-            text = "(No identifiable XML or text content in this fragment)"
-
-        self._ctx.image_cache = None
-        dpg.delete_item(self._ctx.panel_id, children_only=True)
-        tex_tag = f"_preview_tex_{self._ctx.config_tag}"
-        if dpg.does_item_exist(tex_tag):
-            dpg.delete_item(tex_tag)
-
-        # Label info
-        if entry.size_bytes is not None and entry.size_bytes > self._TEXT_PREVIEW_MAX_SIZE:
-            self._render_text_navigation(entry)
-        else:
-            dpg.add_text(
-                entry.name,
-                color=[180, 180, 255],
-                parent=self._ctx.panel_id,
-            )
-
-        dpg.add_separator(parent=self._ctx.panel_id)
-        with dpg.child_window(parent=self._ctx.panel_id, height=-1, width=-1):
-            dpg.add_text(text, wrap=0)
-
-    def _render_sqlite_preview(self, entry: FileEntry, table_name_to_load: str | None = None) -> None:
-        """Parse a SQLite database file and display a table's contents."""
-        if self._ctx is None or self._ctx.panel_id is None:
-            return
-        ctx = self._ctx
-
-        try:
-            table = load_sqlite_table(
-                entry.full_path,
-                table_name=table_name_to_load,
-                max_rows=self._TABLE_MAX_ROWS,
-                max_cols=self._TABLE_MAX_COLS,
-            )
-        except SQLitePreviewError as e:
-            _log.exception("Error reading SQLite database %s", entry.full_path)
-            self._render_table_widget(entry.name, [], [], f"Error reading database: {e}")
-            return
+        def on_table_changed(sender: Any, app_data: Any, user_data: Any) -> None:
+            name = str(app_data)
+            ctx.run_in_background(f"{entry.name} [{name}]", lambda: self._load_sqlite(entry, ctx, name))
 
         def _build_db_ui() -> None:
             if len(table.tables) > 1:
@@ -294,7 +273,7 @@ class DataRenderer(TableRenderMixin, BaseRenderer):
                         items=table.tables,
                         default_value=table.table_name,
                         width=200,
-                        callback=lambda s, a, u: self._render_sqlite_preview(entry, a),
+                        callback=on_table_changed,
                     )
 
         self._render_table_widget(entry.name, table.headers, table.rows, table.status, ui_builder=_build_db_ui)

@@ -830,6 +830,59 @@ class _PendingResize:
     scaled_doc: tuple[Any, int, int] | None
 
 
+@dataclass(frozen=True)
+class PreparedHTML:
+    """An HTML document ready for Chrome, or the reason it is not.
+
+    Built by :func:`prepare_html_file` / :func:`prepare_html_string`, which
+    read and sanitize without calling DearPyGui, so they can run on a worker
+    thread. :meth:`HTMLRenderer.open_prepared` starts the render.
+    """
+
+    content: str | None
+    path: str = ""
+    trusted: bool = False
+    error: str = ""
+
+
+def prepare_html_file(path: str, *, trusted: bool = False) -> PreparedHTML:
+    """Read *path* and apply the safe (or explicitly trusted) HTML policy."""
+    try:
+        with open(path, "rb") as f:
+            raw_bytes = f.read(_MAX_HTML_BYTES + 1)
+    except OSError:
+        return PreparedHTML(None, path=path, error="Cannot read file")
+    if len(raw_bytes) > _MAX_HTML_BYTES:
+        return PreparedHTML(None, path=path, error="File too large for preview")
+    raw_html = _decode_html_bytes(raw_bytes)
+    try:
+        if trusted:
+            base_href = Path(path).resolve().parent.as_uri().rstrip("/") + "/"
+            html_content = _inject_helpers(raw_html, base_href=base_href)
+        else:
+            html_content = _prepare_safe_document(raw_html)
+    except Exception:
+        _log.exception("Preparing HTML preview failed")
+        return PreparedHTML(None, path=path, error="Cannot prepare safe HTML preview")
+    return PreparedHTML(html_content, path=path, trusted=trusted)
+
+
+def prepare_html_string(html_content: str, *, css: str = "", wrapper_class: str = "safe-wrapper") -> PreparedHTML:
+    """Wrap a generated HTML fragment with the mandatory safe policy.
+
+    Used by Markdown and mammoth Word preview. There is intentionally no
+    trusted option here.
+    """
+    if len(html_content.encode("utf-8", errors="replace")) > _MAX_HTML_BYTES:
+        return PreparedHTML(None, error="Content too large for preview")
+    try:
+        prepared = _prepare_safe_document(html_content, css=css, wrapper_class=wrapper_class)
+    except Exception:
+        _log.exception("Preparing generated HTML preview failed")
+        return PreparedHTML(None, error="Cannot prepare safe HTML preview")
+    return PreparedHTML(prepared)
+
+
 # ── HTMLRenderer class ─────────────────────────────────────────
 
 
@@ -1073,39 +1126,13 @@ class HTMLRenderer:
 
         Returns True if the file was read and rendering started.
         """
-        self.close()
-
-        try:
-            with open(path, "rb") as f:
-                raw_bytes = f.read(_MAX_HTML_BYTES + 1)
-        except OSError:
-            return False
-        if len(raw_bytes) > _MAX_HTML_BYTES:
-            self._status_text = "File too large for preview"
-            return False
-        raw_html = _decode_html_bytes(raw_bytes)
-        try:
-            if trusted:
-                base_href = Path(path).resolve().parent.as_uri().rstrip("/") + "/"
-                html_content = _inject_helpers(raw_html, base_href=base_href)
-            else:
-                html_content = _prepare_safe_document(raw_html)
-        except Exception:
-            _log.exception("Preparing HTML preview failed")
-            self._status_text = "Cannot prepare safe HTML preview"
-            return False
-
-        self._current_path = path
-        self._html_content = html_content
-        self._trusted = trusted
-        self._on_complete = on_complete
-        self._on_resize_complete = on_resize_complete
-        self._status_text = "Rendering..."
-
-        self._recreate_texture(w, h)
-        content_w = max(100, w - 2 * _MARGIN)
-        self._start_render(content_w)
-        return True
+        return self.open_prepared(
+            prepare_html_file(path, trusted=trusted),
+            w,
+            h,
+            on_complete=on_complete,
+            on_resize_complete=on_resize_complete,
+        )
 
     def open_string(
         self,
@@ -1125,21 +1152,36 @@ class HTMLRenderer:
 
         Returns True if rendering started.
         """
+        return self.open_prepared(
+            prepare_html_string(html_content, css=css, wrapper_class=wrapper_class),
+            w,
+            h,
+            on_complete=on_complete,
+            on_resize_complete=on_resize_complete,
+        )
+
+    def open_prepared(
+        self,
+        prepared: PreparedHTML,
+        w: int,
+        h: int,
+        on_complete: Callable[..., Any] | None = None,
+        on_resize_complete: Callable[..., Any] | None = None,
+    ) -> bool:
+        """Start rendering a document from :func:`prepare_html_file` or
+        :func:`prepare_html_string`. Must run on the DearPyGui thread.
+
+        Returns True if rendering started.
+        """
         self.close()
 
-        if len(html_content.encode("utf-8", errors="replace")) > _MAX_HTML_BYTES:
-            self._status_text = "Content too large for preview"
-            return False
-        try:
-            prepared = _prepare_safe_document(html_content, css=css, wrapper_class=wrapper_class)
-        except Exception:
-            _log.exception("Preparing generated HTML preview failed")
-            self._status_text = "Cannot prepare safe HTML preview"
+        if prepared.content is None:
+            self._status_text = prepared.error
             return False
 
-        self._current_path = ""
-        self._html_content = prepared
-        self._trusted = False
+        self._current_path = prepared.path
+        self._html_content = prepared.content
+        self._trusted = prepared.trusted
         self._on_complete = on_complete
         self._on_resize_complete = on_resize_complete
         self._status_text = "Rendering..."

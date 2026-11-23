@@ -16,7 +16,7 @@ from .._availability import (
     _Presentation,
 )
 from .._filesystem import DirectoryLister
-from .._html import HTMLRenderer, chrome_available
+from .._html import HTMLRenderer, PreparedHTML, chrome_available, prepare_html_file, prepare_html_string
 from .._optional import require_optional
 from .._pdf import PDFRenderer
 from .._preview_limits import (
@@ -24,10 +24,10 @@ from .._preview_limits import (
     decode_preview_rgba_bytes,
     ooxml_exceeds_preview_limit,
 )
-from .._preview_presentation import PresentationPreviewError, load_presentation
-from .._preview_word import WordPreviewError, WordTable, load_word_document
+from .._preview_presentation import PresentationDocument, PresentationPreviewError, load_presentation
+from .._preview_word import WordDocument, WordPreviewError, WordTable, load_word_document
 from .._types import FileEntry
-from ._base import BaseRenderer, PreviewContext
+from ._base import BackgroundRenderer, PreviewContext, PreviewFinish, PreviewJob, run_preview_job
 
 _log = logging.getLogger(__name__)
 
@@ -124,7 +124,7 @@ img { max-width: 100%; height: auto; }
 """
 
 
-class DocumentRenderer(BaseRenderer):
+class DocumentRenderer(BackgroundRenderer):
     """Render HTML, Markdown, PDF, Word, and PowerPoint previews."""
 
     _TEXT_PREVIEW_MAX_SIZE: int = PREVIEW_TEXT_CHUNK_BYTES
@@ -151,24 +151,48 @@ class DocumentRenderer(BaseRenderer):
 
     def render(self, entry: FileEntry, ctx: PreviewContext) -> None:
         """Render a document using the backend selected by its extension."""
-        self._ctx = ctx
-        self._current_entry = entry
+        run_preview_job(self.prepare(entry, ctx))
+
+    def prepare(self, entry: FileEntry, ctx: PreviewContext) -> PreviewJob:
+        """Return the worker job for *entry* (DearPyGui thread).
+
+        Reading, Markdown/mammoth conversion, HTML sanitizing and PPTX image
+        decoding run in the job. PDF opens in the finish step: pypdfium2
+        renders straight into a DearPyGui texture.
+        """
         ext = entry.ext
         if ext in (".html", ".htm"):
-            self._render_html_preview(entry)
-        elif ext in (".md", ".markdown"):
-            self._render_markdown_preview(entry)
-        elif ext == ".pdf":
-            self._render_pdf_preview(entry)
-        elif ext in (".docx", ".doc"):
-            if self._ctx.capabilities.mammoth and chrome_available():
-                self._render_word_html_preview(entry)
-            else:
-                self._render_word_preview(entry)
-        elif ext == ".pptx":
-            self._render_pptx_preview(entry)
-        else:
-            ctx.show_error("Unsupported document", f"{ext} is not supported")
+            if not chrome_available():
+                # HTML backend unavailable — either the Python packages are missing
+                # or no Chrome/Chromium binary is resolvable. Routing always picks
+                # HTML for .html/.htm, so degrade to raw-text rendering instead of
+                # leaving the previous preview on screen (or hanging on a render).
+                return self._text_job(entry, ctx)
+            trusted = ctx.trusted_html_preview
+            return lambda: self._load_html(entry, ctx, trusted)
+        if ext in (".md", ".markdown"):
+            if not chrome_available():
+                return self._text_job(entry, ctx)
+            return lambda: self._load_markdown(entry, ctx)
+        if ext == ".pdf":
+            return lambda: lambda: self._show_pdf(entry, ctx)
+        if ext in (".docx", ".doc"):
+            if ctx.capabilities.mammoth and chrome_available():
+                return lambda: self._load_word_html(entry, ctx)
+            return lambda: self._load_word_text(entry, ctx)
+        if ext == ".pptx":
+            panel_w = 0
+            if ctx.panel_id is not None:
+                panel_w, _ = dpg.get_item_rect_size(ctx.panel_id)
+            max_img_w = max(100, int(panel_w) - 40)
+            return lambda: self._load_pptx(entry, ctx, max_img_w)
+        return lambda: lambda: ctx.show_error("Unsupported document", f"{ext} is not supported")
+
+    def _bind(self, entry: FileEntry, ctx: PreviewContext) -> bool:
+        """Attach a finish step to *ctx*. False when there is no panel."""
+        self._ctx = ctx
+        self._current_entry = entry
+        return ctx.panel_id is not None
 
     def clear(self) -> None:
         """Close active heavy backends and clear the preview state."""
@@ -221,16 +245,25 @@ class DocumentRenderer(BaseRenderer):
             parent=self._ctx.panel_id,
         )
 
-    def _render_text_preview(self, entry: FileEntry) -> None:
-        """Fallback plain-text rendering when the HTML backend is unavailable."""
-        if self._ctx is None or self._ctx.panel_id is None:
+    # ── Plain-text fallback ───────────────────────────────────
+
+    def _text_job(self, entry: FileEntry, ctx: PreviewContext) -> PreviewJob:
+        """Job for the plain-text fallback when the HTML backend is unavailable."""
+
+        def job() -> PreviewFinish:
+            text, is_bin = self._load_text_content(entry.full_path, 0)
+            return lambda: self._show_text(entry, ctx, text, is_bin)
+
+        return job
+
+    def _show_text(self, entry: FileEntry, ctx: PreviewContext, text: str | None, is_bin: bool) -> None:
+        """Finish: show the raw file text (or a binary notice)."""
+        if not self._bind(entry, ctx):
             return
 
-        text, is_bin = self._load_text_content(entry.full_path, 0)
-
-        self._ctx.image_cache = None
-        dpg.delete_item(self._ctx.panel_id, children_only=True)
-        tex_tag = f"_preview_tex_{self._ctx.config_tag}"
+        ctx.image_cache = None
+        dpg.delete_item(ctx.panel_id, children_only=True)
+        tex_tag = f"_preview_tex_{ctx.config_tag}"
         if dpg.does_item_exist(tex_tag):
             dpg.delete_item(tex_tag)
 
@@ -238,12 +271,12 @@ class DocumentRenderer(BaseRenderer):
             dpg.add_text(
                 f"Binary file: {entry.name}",
                 color=[128, 128, 128],
-                parent=self._ctx.panel_id,
+                parent=ctx.panel_id,
             )
             dpg.add_text(
                 "(No text preview available)",
                 color=[100, 100, 100],
-                parent=self._ctx.panel_id,
+                parent=ctx.panel_id,
             )
             return
         if text is None:
@@ -255,45 +288,66 @@ class DocumentRenderer(BaseRenderer):
         dpg.add_text(
             entry.name,
             color=[180, 180, 255],
-            parent=self._ctx.panel_id,
+            parent=ctx.panel_id,
         )
-        dpg.add_separator(parent=self._ctx.panel_id)
-        with dpg.child_window(parent=self._ctx.panel_id, height=-1, width=-1):
+        dpg.add_separator(parent=ctx.panel_id)
+        with dpg.child_window(parent=ctx.panel_id, height=-1, width=-1):
             dpg.add_text(text, wrap=0)
 
-    def _render_html_preview(self, entry: FileEntry) -> None:
-        """Open an HTML file and start background Chrome Headless rendering."""
-        if self._ctx is None or self._ctx.panel_id is None:
+    # ── HTML, Markdown, and mammoth Word ──────────────────────
+
+    def _load_html(self, entry: FileEntry, ctx: PreviewContext, trusted: bool) -> PreviewFinish:
+        """Worker: read and sanitize an HTML file (or keep it raw when trusted)."""
+        prepared = prepare_html_file(entry.full_path, trusted=trusted)
+        return lambda: self._show_prepared_html(entry, ctx, prepared)
+
+    def _show_prepared_html(
+        self,
+        entry: FileEntry,
+        ctx: PreviewContext,
+        prepared: PreparedHTML,
+        *,
+        header: str = "",
+        clear_on_failure: bool = False,
+    ) -> None:
+        """Finish: start the Chrome Headless render of a prepared document."""
+        if not self._bind(entry, ctx):
             return
         if self._html is None:
-            self._html = HTMLRenderer(self._ctx.config_tag)
-        if not chrome_available():
-            # HTML backend unavailable — either the Python packages are missing
-            # or no Chrome/Chromium binary is resolvable. Routing always picks
-            # HTML for .html/.htm, so degrade to raw-text rendering instead of
-            # leaving the previous preview on screen (or hanging on a render).
-            self._render_text_preview(entry)
-            return
+            self._html = HTMLRenderer(ctx.config_tag)
         self._clear_for_html()
         dims = self._html_panel_size()
         if dims is None:
             return
         render_w, render_h = dims
-        if not self._html.open(
-            entry.full_path,
+        if header:
+            dpg.add_text(header, color=[180, 180, 255], parent=ctx.panel_id)
+        if not self._html.open_prepared(
+            prepared,
             render_w,
             render_h,
             on_complete=self._on_html_render_done,
             on_resize_complete=self._on_html_resize_done,
-            trusted=self._ctx.trusted_html_preview,
         ):
-            dpg.add_text(
-                "Cannot preview this file",
-                color=[128, 128, 128],
-                parent=self._ctx.panel_id,
-            )
+            if clear_on_failure:
+                self.clear()
+            else:
+                dpg.add_text(
+                    "Cannot preview this file",
+                    color=[128, 128, 128],
+                    parent=ctx.panel_id,
+                )
             return
         self._show_html_widgets()
+
+    def _show_cannot_preview(
+        self, entry: FileEntry, ctx: PreviewContext, message: str = "Cannot preview this file"
+    ) -> None:
+        """Finish: replace the panel content with a grey notice."""
+        if not self._bind(entry, ctx):
+            return
+        self._clear_for_html()
+        dpg.add_text(message, color=[128, 128, 128], parent=ctx.panel_id)
 
     def _on_html_render_done(self) -> None:
         """Called by HTMLRenderer from its mutex-serialized frame poll."""
@@ -311,29 +365,13 @@ class DocumentRenderer(BaseRenderer):
         dpg.delete_item(self._ctx.panel_id, children_only=True)
         self._show_html_widgets()
 
-    def _render_markdown_preview(self, entry: FileEntry) -> None:
-        """Render a Markdown file via markdown lib + Chrome Headless."""
-        if self._ctx is None or self._ctx.panel_id is None:
-            return
-        if not chrome_available():
-            self._render_text_preview(entry)
-            return
-        if self._html is None:
-            self._html = HTMLRenderer(self._ctx.config_tag)
-        self._clear_for_html()
-
-        # Read and convert Markdown -> HTML
+    def _load_markdown(self, entry: FileEntry, ctx: PreviewContext) -> PreviewFinish:
+        """Worker: read Markdown, convert it to HTML, and sanitize the result."""
         md_text, is_bin = self._load_text_content(entry.full_path, 0)
         if is_bin:
-            dpg.add_text(
-                f"Binary file: {entry.name}",
-                color=[128, 128, 128],
-                parent=self._ctx.panel_id,
-            )
-            return
+            return lambda: self._show_cannot_preview(entry, ctx, f"Binary file: {entry.name}")
         if md_text is None:
-            self.clear()
-            return
+            return self.clear
 
         try:
             md = require_optional(_markdown, "markdown")
@@ -342,40 +380,23 @@ class DocumentRenderer(BaseRenderer):
                 extensions=["tables", "fenced_code"],
             )
         except Exception as e:
-            self._ctx.show_error("Preview failed", str(e))
-            return
-
-        dims = self._html_panel_size()
-        if dims is None:
-            return
-        render_w, render_h = dims
+            message = str(e)
+            return lambda: ctx.show_error("Preview failed", message)
 
         # Add truncation label if needed
+        header = ""
         if entry.size_bytes is not None and entry.size_bytes > self._TEXT_PREVIEW_MAX_SIZE:
             limit_str = DirectoryLister.format_size(self._TEXT_PREVIEW_MAX_SIZE)
             size_str = DirectoryLister.format_size(entry.size_bytes)
-            dpg.add_text(
-                f"{entry.name} (Partial: first {limit_str} of {size_str})",
-                color=[180, 180, 255],
-                parent=self._ctx.panel_id,
-            )
+            header = f"{entry.name} (Partial: first {limit_str} of {size_str})"
 
-        if not self._html.open_string(
-            md_html_raw,
-            render_w,
-            render_h,
-            on_complete=self._on_html_render_done,
-            on_resize_complete=self._on_html_resize_done,
-            css=_MARKDOWN_CSS,
-            wrapper_class="md-wrapper",
-        ):
-            self.clear()
-            return
-        self._show_html_widgets()
+        prepared = prepare_html_string(md_html_raw, css=_MARKDOWN_CSS, wrapper_class="md-wrapper")
+        return lambda: self._show_prepared_html(entry, ctx, prepared, header=header, clear_on_failure=True)
 
-    def _render_pdf_preview(self, entry: FileEntry) -> None:
-        """Open a PDF and display its first page in the preview panel."""
-        self._show_pdf_from_path(entry.full_path)
+    def _show_pdf(self, entry: FileEntry, ctx: PreviewContext) -> None:
+        """Finish: open a PDF and display its first page in the preview panel."""
+        if self._bind(entry, ctx):
+            self._show_pdf_from_path(entry.full_path)
 
     def on_resize(self, sender: Any, app_data: Any, user_data: Any) -> None:
         """Re-layout the active HTML or PDF preview after a panel resize."""
@@ -474,21 +495,10 @@ class DocumentRenderer(BaseRenderer):
             parent=self._ctx.panel_id,
         )
 
-    def _render_word_html_preview(self, entry: FileEntry) -> None:
-        """Render a Word document via mammoth (HTML) + Chrome Headless."""
-        if self._ctx is None or self._ctx.panel_id is None:
-            return
-        if self._html is None:
-            self._html = HTMLRenderer(self._ctx.config_tag)
-        self._clear_for_html()
-
+    def _load_word_html(self, entry: FileEntry, ctx: PreviewContext) -> PreviewFinish:
+        """Worker: convert a Word document with mammoth and sanitize the HTML."""
         if ooxml_exceeds_preview_limit(entry.full_path):
-            dpg.add_text(
-                "Cannot preview this file",
-                color=[128, 128, 128],
-                parent=self._ctx.panel_id,
-            )
-            return
+            return lambda: self._show_cannot_preview(entry, ctx)
 
         # Convert .docx -> HTML via mammoth
         try:
@@ -497,51 +507,30 @@ class DocumentRenderer(BaseRenderer):
                 result = mammoth.convert_to_html(f)
             docx_html = result.value
         except Exception:
-            dpg.add_text(
-                "Cannot preview this file",
-                color=[128, 128, 128],
-                parent=self._ctx.panel_id,
-            )
-            return
+            return lambda: self._show_cannot_preview(entry, ctx)
 
-        dims = self._html_panel_size()
-        if dims is None:
-            return
-        render_w, render_h = dims
-        if not self._html.open_string(
-            docx_html,
-            render_w,
-            render_h,
-            on_complete=self._on_html_render_done,
-            on_resize_complete=self._on_html_resize_done,
-            css=_MAMMOTH_CSS,
-            wrapper_class="mammoth-wrapper",
-        ):
-            dpg.add_text(
-                "Cannot preview this file",
-                color=[128, 128, 128],
-                parent=self._ctx.panel_id,
-            )
-            return
-        self._show_html_widgets()
+        prepared = prepare_html_string(docx_html, css=_MAMMOTH_CSS, wrapper_class="mammoth-wrapper")
+        return lambda: self._show_prepared_html(entry, ctx, prepared)
 
-    def _render_word_preview(self, entry: FileEntry) -> None:
-        """Extract styled text from a .docx file and display in preview panel.
-
-        Paragraphs are color-coded by style: headings in blue tones,
-        bold/italic runs inline-colored, list items indented, tables
-        rendered with header highlighting.
-        """
-        if self._ctx is None or self._ctx.panel_id is None:
-            return
-
+    def _load_word_text(self, entry: FileEntry, ctx: PreviewContext) -> PreviewFinish:
+        """Worker: extract styled paragraphs and tables with python-docx."""
         try:
             document = load_word_document(
                 entry.full_path,
                 document_loader=_DocxDocument,
             )
         except WordPreviewError:
-            self.clear()
+            return self.clear
+        return lambda: self._show_word_text(entry, ctx, document)
+
+    def _show_word_text(self, entry: FileEntry, ctx: PreviewContext, document: WordDocument) -> None:
+        """Display styled text extracted from a .docx file.
+
+        Paragraphs are color-coded by style: headings in blue tones,
+        bold/italic runs inline-colored, list items indented, tables
+        rendered with header highlighting.
+        """
+        if not self._bind(entry, ctx) or self._ctx is None:
             return
 
         self._ctx.image_cache = None
@@ -643,18 +632,41 @@ class DocumentRenderer(BaseRenderer):
                         color = normal_color
                     dpg.add_text(prefix + text, wrap=0, color=color)
 
-    def _render_pptx_preview(self, entry: FileEntry) -> None:
-        """Extract text and images from a .pptx and display styled content."""
-        if self._ctx is None or self._ctx.panel_id is None:
-            return
-
+    def _load_pptx(self, entry: FileEntry, ctx: PreviewContext, max_img_w: int) -> PreviewFinish:
+        """Worker: extract slides and decode images at the width they are shown."""
         try:
             presentation = load_presentation(
                 entry.full_path,
                 presentation_loader=_Presentation,
             )
         except PresentationPreviewError:
-            self.clear()
+            return self.clear
+
+        images: dict[tuple[int, int], tuple[int, int, Any]] = {}
+        if _PILImage is not None:
+            for slide_idx, slide in enumerate(presentation.slides):
+                for shape_idx, shape in enumerate(slide.shapes):
+                    if shape.image_blob is None:
+                        continue
+                    try:
+                        images[(slide_idx, shape_idx)] = decode_preview_rgba_bytes(
+                            shape.image_blob,
+                            max_width=max_img_w,
+                        )
+                    except Exception:
+                        _log.debug("Failed to decode PPTX inline image", exc_info=True)
+        return lambda: self._show_pptx(entry, ctx, presentation, images, max_img_w)
+
+    def _show_pptx(
+        self,
+        entry: FileEntry,
+        ctx: PreviewContext,
+        presentation: PresentationDocument,
+        images: dict[tuple[int, int], tuple[int, int, Any]],
+        max_img_w: int,
+    ) -> None:
+        """Display text and pre-decoded images from a .pptx."""
+        if not self._bind(entry, ctx) or self._ctx is None:
             return
 
         self._ctx.image_cache = None
@@ -670,9 +682,6 @@ class DocumentRenderer(BaseRenderer):
             parent=self._ctx.panel_id,
         )
         dpg.add_separator(parent=self._ctx.panel_id)
-
-        panel_w, _ = dpg.get_item_rect_size(self._ctx.panel_id)
-        max_img_w = max(100, int(panel_w) - 40)
 
         total_slides = len(presentation.slides)
         slide_header_color = [100, 200, 255]
@@ -695,7 +704,7 @@ class DocumentRenderer(BaseRenderer):
                     color=slide_header_color,
                 )
 
-                for shape in slide.shapes:
+                for shape_idx, shape in enumerate(slide.shapes):
                     # Table
                     if shape.table is not None:
                         dpg.add_spacer(height=4)
@@ -707,33 +716,35 @@ class DocumentRenderer(BaseRenderer):
                         continue
 
                     # Image
-                    if shape.image_blob is not None and _PILImage is not None:
-                        try:
-                            img_w, img_h, raw = decode_preview_rgba_bytes(shape.image_blob)
-                            scale = min(max_img_w / img_w, 1.0) if img_w else 1.0
-                            disp_w = max(1, int(img_w * scale))
-                            disp_h = max(1, int(img_h * scale))
-                            pptx_tex_tag = f"_pptx_tex_{self._ctx.config_tag}_{pptx_tex_idx}"
-                            pptx_tex_idx += 1
-                            self._ctx.pptx_texture_tags.append(pptx_tex_tag)
-                            if dpg.does_item_exist(pptx_tex_tag):
-                                dpg.delete_item(pptx_tex_tag)
-                            with dpg.texture_registry():
-                                dpg.add_static_texture(
-                                    width=img_w,
-                                    height=img_h,
-                                    default_value=raw,
-                                    tag=pptx_tex_tag,
+                    if shape.image_blob is not None:
+                        decoded = images.get((slide_idx, shape_idx))
+                        if decoded is not None:
+                            try:
+                                img_w, img_h, raw = decoded
+                                scale = min(max_img_w / img_w, 1.0) if img_w else 1.0
+                                disp_w = max(1, int(img_w * scale))
+                                disp_h = max(1, int(img_h * scale))
+                                pptx_tex_tag = f"_pptx_tex_{self._ctx.config_tag}_{pptx_tex_idx}"
+                                pptx_tex_idx += 1
+                                self._ctx.pptx_texture_tags.append(pptx_tex_tag)
+                                if dpg.does_item_exist(pptx_tex_tag):
+                                    dpg.delete_item(pptx_tex_tag)
+                                with dpg.texture_registry():
+                                    dpg.add_static_texture(
+                                        width=img_w,
+                                        height=img_h,
+                                        default_value=raw,
+                                        tag=pptx_tex_tag,
+                                    )
+                                dpg.add_spacer(height=4)
+                                dpg.add_image(
+                                    pptx_tex_tag,
+                                    width=disp_w,
+                                    height=disp_h,
                                 )
-                            dpg.add_spacer(height=4)
-                            dpg.add_image(
-                                pptx_tex_tag,
-                                width=disp_w,
-                                height=disp_h,
-                            )
-                            dpg.add_spacer(height=4)
-                        except Exception:
-                            _log.debug("Failed to render PPTX inline image", exc_info=True)
+                                dpg.add_spacer(height=4)
+                            except Exception:
+                                _log.debug("Failed to render PPTX inline image", exc_info=True)
                         # Also show text if shape has both image and text
                         if not shape.paragraphs:
                             continue

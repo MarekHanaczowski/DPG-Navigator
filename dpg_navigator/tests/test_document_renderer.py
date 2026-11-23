@@ -29,8 +29,7 @@ def mock_backends():
     ):
         # Configure HTMLRenderer mock
         html_instance = mock_html.return_value
-        html_instance.open.return_value = True
-        html_instance.open_string.return_value = True
+        html_instance.open_prepared.return_value = True
         html_instance.is_open = True
         html_instance.tex_id = 12345
         html_instance.status_text = "Ready"
@@ -76,15 +75,16 @@ def test_render_html(mock_backends):
     entry = FileEntry("index.html", "index.html", is_dir=False, size_bytes=100, modified_time=0.0, is_hidden=False)
     ctx = PreviewContext(panel_id=1, table_wrapper=2, config_tag="test_tag", capabilities=PreviewCapabilities())
 
-    renderer.render(entry, ctx)
+    with patch("dpg_navigator.renderers.document.prepare_html_file") as prepare:
+        renderer.render(entry, ctx)
 
-    renderer._html.open.assert_called_once_with(
-        "index.html",
+    prepare.assert_called_once_with("index.html", trusted=False)
+    renderer._html.open_prepared.assert_called_once_with(
+        prepare.return_value,
         800,
         600 - 42,
         on_complete=renderer._on_html_render_done,
         on_resize_complete=renderer._on_html_resize_done,
-        trusted=False,
     )
 
 
@@ -99,10 +99,11 @@ def test_render_html_plumbs_trusted_opt_in(mock_backends):
         trusted_html_preview=True,
     )
 
-    renderer.render(entry, ctx)
+    with patch("dpg_navigator.renderers.document.prepare_html_file") as prepare:
+        renderer.render(entry, ctx)
 
     assert renderer._html is not None
-    assert renderer._html.open.call_args.kwargs["trusted"] is True
+    assert prepare.call_args.kwargs["trusted"] is True
 
 
 def test_render_pdf(mock_backends):
@@ -148,15 +149,19 @@ def test_render_word_mammoth(mock_backends):
         capabilities=PreviewCapabilities(mammoth=True),
     )
 
-    with patch("dpg_navigator.renderers.document._mammoth") as mock_mam:
+    with (
+        patch("dpg_navigator.renderers.document._mammoth") as mock_mam,
+        patch("dpg_navigator.renderers.document.prepare_html_string") as prepare,
+    ):
         mock_mam.convert_to_html.return_value = MagicMock(value="<p>hello</p>")
         with patch("builtins.open", mock_open(read_data=b"mock-docx-data")):
             renderer.render(entry, ctx)
 
-    renderer._html.open_string.assert_called_once()
-    html = renderer._html.open_string.call_args[0][0]
-    assert "<p>hello</p>" in html
-    assert renderer._html.open_string.call_args.kwargs["wrapper_class"] == "mammoth-wrapper"
+    prepare.assert_called_once()
+    assert prepare.call_args.args[0] == "<p>hello</p>"
+    assert prepare.call_args.kwargs["wrapper_class"] == "mammoth-wrapper"
+    renderer._html.open_prepared.assert_called_once()
+    assert renderer._html.open_prepared.call_args.args[0] is prepare.return_value
 
 
 def test_render_word_html_always_uses_safe_string_entrypoint(mock_backends):
@@ -170,14 +175,41 @@ def test_render_word_html_always_uses_safe_string_entrypoint(mock_backends):
         capabilities=PreviewCapabilities(mammoth=True),
         trusted_html_preview=True,
     )
-    with patch("dpg_navigator.renderers.document._mammoth") as mock_mam:
+    with (
+        patch("dpg_navigator.renderers.document._mammoth") as mock_mam,
+        patch("dpg_navigator.renderers.document.prepare_html_file") as prepare_file,
+        patch("dpg_navigator.renderers.document.prepare_html_string") as prepare_string,
+    ):
         mock_mam.convert_to_html.return_value = MagicMock(value="<p>hello<script>x</script></p>")
         with patch("builtins.open", mock_open(read_data=b"mock-docx-data")):
             renderer.render(entry, ctx)
-    call = renderer._html.open_string.call_args
+    prepare_file.assert_not_called()
+    call = prepare_string.call_args
     assert "<script>x</script>" in call.args[0]
     assert call.kwargs["wrapper_class"] == "mammoth-wrapper"
     assert "trusted" not in call.kwargs
+
+
+def test_render_word_html_sanitizes_mammoth_output(mock_backends):
+    """The real safe preparation runs in the job: no script reaches Chrome."""
+    renderer = DocumentRenderer(MagicMock())
+    entry = FileEntry("doc.docx", "doc.docx", is_dir=False, size_bytes=2000, modified_time=0.0, is_hidden=False)
+    ctx = PreviewContext(
+        panel_id=1,
+        table_wrapper=2,
+        config_tag="test_tag",
+        capabilities=PreviewCapabilities(mammoth=True),
+        trusted_html_preview=True,
+    )
+    with patch("dpg_navigator.renderers.document._mammoth") as mock_mam:
+        mock_mam.convert_to_html.return_value = MagicMock(value="<p>hello<script>alert(1)</script></p>")
+        with patch("builtins.open", mock_open(read_data=b"mock-docx-data")):
+            renderer.render(entry, ctx)
+    prepared = renderer._html.open_prepared.call_args.args[0]
+    assert prepared.content is not None
+    assert "hello" in prepared.content
+    assert "<script" not in prepared.content.lower()
+    assert prepared.trusted is False
 
 
 def test_render_word_html_handles_safe_preparation_failure(mock_backends, mock_dpg):
@@ -190,12 +222,12 @@ def test_render_word_html_handles_safe_preparation_failure(mock_backends, mock_d
         config_tag="test_tag",
         capabilities=PreviewCapabilities(mammoth=True),
     )
-    mock_backends[0].return_value.open_string.return_value = False
+    mock_backends[0].return_value.open_prepared.return_value = False
     with patch("dpg_navigator.renderers.document._mammoth") as mock_mam:
         mock_mam.convert_to_html.return_value = MagicMock(value="<p>hello</p>")
         with patch("builtins.open", mock_open(read_data=b"mock-docx-data")):
             renderer.render(entry, ctx)
-    mock_backends[0].return_value.open_string.assert_called_once()
+    mock_backends[0].return_value.open_prepared.assert_called_once()
     mock_dpg.add_text.assert_called()
 
 
@@ -212,9 +244,12 @@ def test_render_markdown_ignores_trusted_mode(mock_backends):
     )
     fake_md = MagicMock()
     fake_md.markdown.return_value = "<h1>Hi</h1>"
-    with patch("dpg_navigator.renderers.document.require_optional", return_value=fake_md):
+    with (
+        patch("dpg_navigator.renderers.document.require_optional", return_value=fake_md),
+        patch("dpg_navigator.renderers.document.prepare_html_string") as prepare,
+    ):
         renderer.render(entry, ctx)
-    call = renderer._html.open_string.call_args
+    call = prepare.call_args
     assert call.args[0] == "<h1>Hi</h1>"
     assert call.kwargs["wrapper_class"] == "md-wrapper"
     assert "trusted" not in call.kwargs
@@ -239,7 +274,7 @@ def test_render_word_text_when_chrome_unavailable(mock_dpg):
         patch("dpg_navigator.renderers.document.load_word_document", return_value=document),
     ):
         renderer.render(entry, ctx)
-    mock_html.return_value.open_string.assert_not_called()
+    mock_html.return_value.open_prepared.assert_not_called()
     mock_dpg.add_text.assert_called()
 
 
@@ -262,7 +297,7 @@ def test_render_word_text_when_mammoth_capability_off(mock_dpg):
         patch("dpg_navigator.renderers.document.load_word_document", return_value=document),
     ):
         renderer.render(entry, ctx)
-    mock_html.return_value.open_string.assert_not_called()
+    mock_html.return_value.open_prepared.assert_not_called()
     mock_dpg.add_text.assert_called()
 
 
@@ -277,7 +312,7 @@ def test_render_html_text_when_chrome_unavailable(mock_dpg):
         patch("dpg_navigator.renderers.document.HTMLRenderer") as mock_html,
     ):
         renderer.render(entry, ctx)
-    mock_html.return_value.open.assert_not_called()
+    mock_html.return_value.open_prepared.assert_not_called()
     load_text_cb.assert_called()
     mock_dpg.add_text.assert_called()
 
