@@ -4,6 +4,12 @@ Loads a raster into a DearPyGui texture, then draws it on a fixed-size
 drawlist so zoom and pan do not depend on the preview pane's scrollbar.
 The first view fits the pane without cropping or upscaling; the mouse
 wheel zooms toward the cursor, and a left-button drag pans the picture.
+
+Large pictures are shrunk on the worker to a texture of at most
+``IMAGE_PREVIEW_TEXTURE_MAX_DIMENSION`` px on the long edge, so uploading
+the texture does not stall the DearPyGui thread. Layout, zoom and pan use
+the source size; the drawlist stretches the smaller texture over it. The
+STB fallback (no Pillow or no NumPy) uploads the image at full size.
 """
 
 from __future__ import annotations
@@ -17,10 +23,13 @@ import dearpygui.dearpygui as dpg  # type: ignore[import-untyped]
 from .._optional import OptionalModule, as_optional
 from .._preview_limits import (
     IMAGE_PREVIEW_MAX_BYTES,
+    IMAGE_PREVIEW_TEXTURE_MAX_DIMENSION,
     PreviewLimitError,
+    PreviewRaster,
     assert_image_within_limits,
     exceeds_bytes,
     fast_rgba_conversion,
+    load_preview_raster,
     load_preview_rgba,
     probe_image_size,
 )
@@ -114,6 +123,9 @@ class ImageRenderer(BackgroundRenderer):
     _MAX_IMAGE_BYTES = IMAGE_PREVIEW_MAX_BYTES
     """Skip STB/Pillow decode when the file is larger than this."""
 
+    _MAX_TEXTURE_DIMENSION = IMAGE_PREVIEW_TEXTURE_MAX_DIMENSION
+    """Long-edge cap for the Pillow-decoded texture; the STB path is not capped."""
+
     _STB_IMAGE_EXTS = frozenset(
         {
             ".png",
@@ -147,6 +159,11 @@ class ImageRenderer(BackgroundRenderer):
     def load_image_pillow(path: str) -> tuple[int, int, Any]:
         """Fallback loader using Pillow for unsupported formats."""
         return load_preview_rgba(path)
+
+    @classmethod
+    def load_image_preview(cls, path: str) -> PreviewRaster:
+        """Decode *path* with Pillow, shrunk to the preview texture cap."""
+        return load_preview_raster(path, max_dim=cls._MAX_TEXTURE_DIMENSION)
 
     def _panel_size(self) -> tuple[int, int]:
         """Return the preview pane size in pixels, or ``(0, 0)`` if unknown."""
@@ -207,9 +224,10 @@ class ImageRenderer(BackgroundRenderer):
     def prepare(self, entry: FileEntry, ctx: PreviewContext) -> PreviewJob:
         """Return the worker job that checks limits and decodes the picture.
 
-        Pillow decodes on the worker. Without Pillow, STB formats fall back
-        to ``dpg.load_image`` in the finish step, because DearPyGui must not
-        be called from a worker.
+        Pillow decodes on the worker and shrinks the picture to the texture
+        cap there. Without Pillow, STB formats fall back to ``dpg.load_image``
+        in the finish step, because DearPyGui must not be called from a
+        worker; that path cannot shrink cheaply and uploads the full image.
         """
         return lambda: self._decode(entry, ctx)
 
@@ -242,16 +260,27 @@ class ImageRenderer(BackgroundRenderer):
             # loop, far slower than STB even on the DearPyGui thread.
             return lambda: self._show_with_stb(entry, ctx)
         try:
-            img_w, img_h, data = self.load_image_pillow(entry.full_path)
+            raster = self.load_image_preview(entry.full_path)
         except Exception as e:
             if is_stb and probed is not None:
                 # STB reads a few variants Pillow rejects; try it on the DPG thread.
                 return lambda: self._show_with_stb(entry, ctx)
             return error("Preview failed", str(e))
-        return lambda: self._show(ctx, img_w, img_h, data)
+        return lambda: self._show(
+            ctx,
+            raster.width,
+            raster.height,
+            raster.data,
+            texture_size=(raster.texture_width, raster.texture_height),
+        )
 
     def _show_with_stb(self, entry: FileEntry, ctx: PreviewContext) -> None:
-        """Finish: decode with DearPyGui's STB loader (DPG thread only)."""
+        """Finish: decode with DearPyGui's STB loader (DPG thread only).
+
+        STB returns the full-size float buffer and DearPyGui offers no cheap
+        way to shrink it, so this path is not held to the texture cap. It is
+        used only without Pillow or NumPy, or for files Pillow rejects.
+        """
         ext = os.path.splitext(entry.name)[1].lower()
         try:
             img_w, img_h, _, data = dpg.load_image(entry.full_path)
@@ -274,16 +303,30 @@ class ImageRenderer(BackgroundRenderer):
                 return
         self._show(ctx, img_w, img_h, data)
 
-    def _show(self, ctx: PreviewContext, img_w: int, img_h: int, data: Any) -> None:
-        """Finish: upload the texture and draw it fitted to the pane."""
+    def _show(
+        self,
+        ctx: PreviewContext,
+        img_w: int,
+        img_h: int,
+        data: Any,
+        *,
+        texture_size: tuple[int, int] | None = None,
+    ) -> None:
+        """Finish: upload the texture and draw it fitted to the pane.
+
+        *img_w* x *img_h* is the source size, used for layout and reported in
+        ``ctx.image_cache``. *texture_size* is the size of *data* when the
+        worker shrank the picture; it defaults to the source size.
+        """
         if ctx.panel_id is None:
             return
+        tex_w, tex_h = texture_size if texture_size is not None else (img_w, img_h)
         tex_tag = f"_preview_tex_{ctx.config_tag}"
         if dpg.does_item_exist(tex_tag):
             dpg.delete_item(tex_tag)
 
         with dpg.texture_registry():
-            dpg.add_static_texture(width=img_w, height=img_h, default_value=data, tag=tex_tag)
+            dpg.add_static_texture(width=tex_w, height=tex_h, default_value=data, tag=tex_tag)
 
         self._ctx = ctx
         self._img_w = img_w
