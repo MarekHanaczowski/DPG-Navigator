@@ -30,25 +30,25 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-preview = ["Pillow>=9.0"]
-pdf = ["pypdfium2>=4.0", "numpy>=1.24", "Pillow>=9.0"]
-word = ["python-docx>=0.8", "mammoth>=1.6", "html2image>=2.0", "numpy>=1.24", "Pillow>=9.0"]
-pptx = ["python-pptx>=0.6.23", "Pillow>=9.0"]
-html = ["html2image>=2.0", "numpy>=1.24", "Pillow>=9.0"]
-markdown = ["markdown>=3.4", "html2image>=2.0", "numpy>=1.24", "Pillow>=9.0"]
+preview = ["Pillow>=9.3"]
+pdf = ["pypdfium2>=4.0", "numpy>=1.24", "Pillow>=9.3"]
+word = ["python-docx>=0.8.11", "mammoth>=1.6", "html2image>=2.0.4", "numpy>=1.24", "Pillow>=9.3"]
+pptx = ["python-pptx>=0.6.23", "Pillow>=9.3"]
+html = ["html2image>=2.0.4", "numpy>=1.24", "Pillow>=9.3"]
+markdown = ["markdown>=3.4", "html2image>=2.0.4", "numpy>=1.24", "Pillow>=9.3"]
 excel = ["openpyxl>=3.0"]
-archive = ["py7zr>=0.20.0"]
+archive = ["py7zr>=1.0"]
 all = [
-    "Pillow>=9.0",
+    "Pillow>=9.3",
     "pypdfium2>=4.0",
     "numpy>=1.24",
-    "python-docx>=0.8",
+    "python-docx>=0.8.11",
     "mammoth>=1.6",
-    "html2image>=2.0",
+    "html2image>=2.0.4",
     "python-pptx>=0.6.23",
     "markdown>=3.4",
     "openpyxl>=3.0",
-    "py7zr>=0.20.0",
+    "py7zr>=1.0",
 ]
 dev = [
     "pytest>=7.0",

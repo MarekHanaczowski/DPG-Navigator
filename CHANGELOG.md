@@ -17,6 +17,18 @@ API freeze before 1.0.0. The public API is now defined in the README
 
 - **Breaking:** `DialogConfig` fields are keyword-only. Write
   `DialogConfig(title="Open")`; `DialogConfig("Open")` now raises `TypeError`.
+- Raised minimum versions of optional dependencies. The old minimums did not
+  work, as found by installing every dependency at its declared floor:
+  - `Pillow>=9.3`: older wheels crash DearPyGui 2.2 on Windows when PIL is
+    imported before `setup_dearpygui()`.
+  - `python-docx>=0.8.11`: older releases import `collections.Sequence` and fail
+    on Python 3.10+.
+  - `html2image>=2.0.4`: the first release with `html2image.browsers.chromium`.
+    On older ones the hook that tracks and cancels Chrome processes was
+    silently not installed.
+  - `py7zr>=1.0`: the first release with the `py7zr.io` streaming writer. On
+    older ones the extract size limit was checked only after the whole member
+    was written to disk.
 
 ### Removed
 

@@ -229,6 +229,50 @@ jobs:
           DPG_CHROME_NO_SANDBOX: "1"
         run: xvfb-run -a python -m pytest -m integration -q --tb=short
 
+  lowest-deps:
+    # Installs every direct dependency at the floor declared in pyproject.toml
+    # (uv --resolution lowest-direct; transitive deps stay at their latest) on
+    # the oldest supported Python, so a floor that no longer works fails here
+    # instead of on a user's machine. The 2026-11 check raised Pillow to 9.3
+    # (older wheels crash DearPyGui 2.2 setup on Windows), python-docx to
+    # 0.8.11 (older ones import collections.Sequence), html2image to 2.0.4
+    # (first release with browsers.chromium, needed by the Chrome launch hook)
+    # and py7zr to 1.0 (first release with the py7zr.io streaming writer that
+    # enforces the 7z extract budget).
+    name: Lowest dependencies (Python 3.10)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.10"
+
+      - name: Install xvfb and software GL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xvfb libgl1-mesa-dri libgl1 libglib2.0-0 libxkbcommon0 libegl1
+
+      - name: Install floor versions
+        run: |
+          python -m pip install "uv==0.11.29"
+          python -m uv pip install --system --resolution lowest-direct -e ".[all]"
+          python -m uv pip install --system "pytest>=7.0"
+          python -m uv pip list --system
+
+      - name: Test
+        run: python -m pytest -q
+
+      - name: Integration smoke
+        env:
+          DPG_INTEGRATION: "1"
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: xvfb-run -a python -m pytest -m integration -q --tb=short
+
   audit:
     name: Dependency audit
     # Informational audit; keep it on main/manual and out of every PR run.
