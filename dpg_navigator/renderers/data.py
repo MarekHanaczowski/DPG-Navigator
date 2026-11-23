@@ -23,7 +23,15 @@ from .._preview_spreadsheet import ExcelPreviewError, SpreadsheetTable, load_exc
 from .._preview_sqlite import SQLitePreviewError, SQLiteTable, load_sqlite_table
 from .._preview_table import CsvPreviewError, parse_csv_table
 from .._types import FileEntry
-from ._base import BackgroundRenderer, PreviewContext, PreviewFinish, PreviewJob, TableRenderMixin, run_preview_job
+from ._base import (
+    BackgroundRenderer,
+    PreviewContext,
+    PreviewFinish,
+    PreviewJob,
+    TableRenderMixin,
+    error_finish,
+    run_preview_job,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -94,7 +102,7 @@ class DataRenderer(TableRenderMixin, BackgroundRenderer):
         if is_bin:
             return lambda: self._show_binary_warning(entry, ctx)
         if text is None:
-            return self.clear
+            return error_finish(ctx, "Preview failed", "Cannot read file")
         try:
             table = parse_csv_table(
                 text,
@@ -128,8 +136,8 @@ class DataRenderer(TableRenderMixin, BackgroundRenderer):
                 max_cols=self._TABLE_MAX_COLS,
                 workbook_loader=_load_workbook,
             )
-        except ExcelPreviewError:
-            return self.clear
+        except ExcelPreviewError as e:
+            return error_finish(ctx, "Preview failed", str(e) or "Cannot read workbook")
         return lambda: self._show_excel(entry, ctx, table)
 
     def _load_sqlite(self, entry: FileEntry, ctx: PreviewContext, table_name: str | None) -> PreviewFinish:
@@ -156,7 +164,7 @@ class DataRenderer(TableRenderMixin, BackgroundRenderer):
         if is_bin:
             return lambda: self._show_binary_warning(entry, ctx)
         if raw_text is None:
-            return self.clear
+            return error_finish(ctx, "Preview failed", "Cannot read file")
         text = format_xml_preview(raw_text)
         return lambda: self._show_text(entry, ctx, text)
 

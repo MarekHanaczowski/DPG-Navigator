@@ -188,6 +188,57 @@ class TestBackgroundQueue:
         panel.update(_entry("b.txt"))
         assert len(workers) == 1, "a new worker starts after the cancelled one"
 
+    def test_cancelled_worker_fails_the_pending_load(self, panel, workers, mock_dpg):
+        panel.set_notifier(lambda: None)
+        panel.update(_entry("a.txt"))
+        _fn, future = workers.pop()
+        future.cancel()
+
+        panel.apply_pending()
+        texts = [call.args[0] for call in mock_dpg.add_text.call_args_list]
+        assert "Preview failed" in texts
+        assert not panel.has_pending(), "no Loading line left waiting for a worker that never runs"
+
+    def test_crashed_worker_fails_the_pending_load(self, panel, workers, mock_dpg):
+        panel.set_notifier(lambda: None)
+        panel.update(_entry("a.txt"))
+        _fn, future = workers.pop()
+        future.set_running_or_notify_cancel()
+        future.set_exception(RuntimeError("worker died"))
+
+        assert panel._worker_busy is False
+        panel.apply_pending()
+        assert not panel.has_pending()
+        panel.update(_entry("b.txt"))
+        assert len(workers) == 1, "the next load starts a fresh worker"
+
+    def test_failed_worker_start_fails_the_pending_load(self, panel, mock_dpg):
+        panel.set_notifier(lambda: None)
+        with patch("dpg_navigator._preview.JobManager.submit", side_effect=RuntimeError("pool is shut down")):
+            panel.update(_entry("a.txt"))
+        assert panel._worker_busy is False
+
+        panel.apply_pending()
+        texts = [call.args[0] for call in mock_dpg.add_text.call_args_list]
+        assert "Could not start the preview worker" in texts
+        assert not panel.has_pending()
+
+    def test_follow_up_is_ignored_while_a_new_file_loads(self, panel, workers):
+        panel.set_notifier(lambda: None)
+        panel.update(_entry("a.txt"))
+        _run_workers(workers)
+        panel.apply_pending()
+
+        panel.update(_entry("b.txt"))  # B is queued; A's preview is still on screen
+        done: list[str] = []
+        panel.ctx.run_in_background("A [Sheet2]", lambda: lambda: done.append("sheet"))
+
+        _run_workers(workers)
+        panel.apply_pending()
+        assert panel.fake.finished == ["a.txt", "b.txt"], "B's load was not superseded"
+        assert done == []
+        assert panel._current_entry.name == "b.txt"
+
     def test_shutdown_forgets_pending_work(self, panel, workers):
         panel.set_notifier(lambda: None)
         panel.update(_entry("a.txt"))
@@ -362,6 +413,25 @@ class TestJobsStayOffDearPyGui:
             finish()
         mock_dpg.load_image.assert_called_once_with(str(path))
 
+    def test_unprobed_image_without_numpy_stays_with_pillow(self, tmp_path):
+        image = pytest.importorskip("PIL.Image")
+        from dpg_navigator.renderers.image import ImageRenderer
+
+        path = tmp_path / "p.png"
+        image.new("RGB", (8, 4), (10, 20, 30)).save(path)
+        renderer = ImageRenderer()
+        with (
+            patch("dpg_navigator.renderers.image.probe_image_size", return_value=None),
+            patch("dpg_navigator.renderers.image.fast_rgba_conversion", return_value=False),
+        ):
+            finish = _run_job_only(renderer, _entry("p.png", str(path)), "image")
+        with patch("dpg_navigator.renderers.image.dpg") as mock_dpg:
+            mock_dpg.get_item_rect_size.return_value = (108, 108)
+            mock_dpg.does_item_exist.return_value = False
+            finish()
+        mock_dpg.load_image.assert_not_called()  # STB has no size gate
+        assert mock_dpg.add_static_texture.call_args.kwargs["width"] == 8
+
     def test_markdown_job_converts_and_sanitizes(self, tmp_path):
         pytest.importorskip("markdown")
         from dpg_navigator.renderers.document import DocumentRenderer
@@ -397,3 +467,82 @@ class TestJobsStayOffDearPyGui:
         # Panel 500 px wide -> images capped at 460 px (500 - 40).
         texture = mock_dpg.add_static_texture.call_args.kwargs
         assert (texture["width"], texture["height"]) == (460, 230)
+
+
+# ── Failed loads show an error instead of an empty (or stuck) panel ──
+
+
+def _error_ctx() -> tuple[PreviewContext, list[tuple[str, str]]]:
+    shown: list[tuple[str, str]] = []
+    ctx = _ctx()
+    ctx.on_show_error = lambda message, detail: shown.append((message, detail))
+    return ctx, shown
+
+
+class TestFailedLoadsShowAnError:
+    def test_excel_sheet_switch_failure(self):
+        from dpg_navigator._preview_spreadsheet import ExcelPreviewError
+        from dpg_navigator.renderers.data import DataRenderer
+
+        ctx, shown = _error_ctx()
+        renderer = DataRenderer(_read_text)
+        with patch("dpg_navigator.renderers.data.load_excel_table", side_effect=ExcelPreviewError("bad sheet")):
+            finish = renderer._load_excel(_entry("book.xlsx"), ctx, "Sheet2")
+        finish()
+        assert shown == [("Preview failed", "bad sheet")]
+
+    def test_unreadable_csv_and_xml(self):
+        from dpg_navigator.renderers.data import DataRenderer
+
+        renderer = DataRenderer(lambda p, o: (None, False))
+        for name in ("t.csv", "t.xml"):
+            ctx, shown = _error_ctx()
+            _run_job_only(renderer, _entry(name), "data", ctx)()
+            assert shown == [("Preview failed", "Cannot read file")], name
+
+    def test_damaged_archive(self):
+        from dpg_navigator._preview_archive import ArchivePreviewError
+        from dpg_navigator.renderers.archive import ArchiveRenderer
+
+        ctx, shown = _error_ctx()
+        renderer = ArchiveRenderer(lambda e: None)
+        with patch("dpg_navigator.renderers.archive.load_zip_table", side_effect=ArchivePreviewError("bad zip")):
+            finish = _run_job_only(renderer, _entry("a.zip"), "archive", ctx)
+        finish()
+        assert shown == [("Preview failed", "bad zip")]
+
+    def test_damaged_word_and_powerpoint(self):
+        from dpg_navigator._preview_presentation import PresentationPreviewError
+        from dpg_navigator._preview_word import WordPreviewError
+        from dpg_navigator.renderers.document import DocumentRenderer
+
+        renderer = DocumentRenderer(_read_text)
+        cases = [
+            ("r.docx", "load_word_document", WordPreviewError("bad docx")),
+            ("s.pptx", "load_presentation", PresentationPreviewError("bad pptx")),
+        ]
+        for name, loader, error in cases:
+            ctx, shown = _error_ctx()
+            with patch(f"dpg_navigator.renderers.document.{loader}", side_effect=error):
+                finish = _run_job_only(renderer, _entry(name), "document", ctx)
+            finish()
+            assert shown == [("Preview failed", str(error))], name
+
+    def test_unreadable_markdown(self):
+        from dpg_navigator.renderers.document import DocumentRenderer
+
+        ctx, shown = _error_ctx()
+        renderer = DocumentRenderer(lambda p, o: (None, False))
+        with patch("dpg_navigator.renderers.document.chrome_available", return_value=True):
+            finish = _run_job_only(renderer, _entry("r.md"), "document", ctx)
+        finish()
+        assert shown == [("Preview failed", "Cannot read file")]
+
+    def test_unreadable_text(self):
+        from dpg_navigator.renderers.text import TextRenderer
+
+        ctx, shown = _error_ctx()
+        renderer = TextRenderer(lambda p, o: (None, False), lambda e: None)
+        finish = _run_job_only(renderer, _entry("a.txt"), "text", ctx)
+        finish()
+        assert shown == [("Preview failed", "Cannot read file")]
