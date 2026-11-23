@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.0.0b9] - 2026-11-23
+
 ### Changed
 
 - **Previews load in the background.** Selecting a large image, a Word
